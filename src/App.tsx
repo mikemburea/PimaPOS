@@ -114,32 +114,6 @@ interface ReportTransaction {
   walkinName?: string | null;
 }
 
-// Transformed transaction interface for Dashboard
-interface DashboardTransaction {
-  id: string;
-  transactionDate: string;
-  createdAt: string;
-  materialType: string;
-  totalAmount: number;
-  paymentStatus: string | null | undefined;
-  walkinName: string | null | undefined;
-  supplierId: string | null | undefined;
-  weightKg: number | null | undefined;
-  isWalkin: boolean;
-  supplierName: string;
-  quantity: number;
-  totalValue: number;
-  status: string;
-  date: string;
-  timestamp: string;
-  type: string;
-  transactionType: string;
-  amount: number;
-  totalWeight: number;
-  weight: number;
-  description: string | null | undefined;
-}
-
 // App component props interface - made optional since it's passed from AppRouter
 interface AppProps {
   onNavigateBack?: () => void;
@@ -313,35 +287,6 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
     setStats(newStats);
   };
 
-  // Transform transactions for dashboard compatibility
-  const transformTransactionsForDashboard = (transactions: Transaction[]): DashboardTransaction[] => {
-    return transactions.map(tx => ({
-      id: tx.id,
-      transactionDate: tx.transaction_date,
-      createdAt: tx.created_at,
-      materialType: tx.material_type,
-      totalAmount: tx.total_amount,
-      paymentStatus: tx.payment_status,
-      walkinName: tx.walkin_name,
-      supplierId: tx.supplier_id,
-      weightKg: tx.weight_kg,
-      isWalkin: tx.is_walkin,
-      // Legacy fields for backward compatibility
-      supplierName: tx.walkin_name || 'Unknown',
-      quantity: tx.weight_kg || 0,
-      totalValue: tx.total_amount || 0,
-      status: tx.payment_status === 'completed' ? 'completed' : 'pending',
-      date: tx.transaction_date,
-      timestamp: tx.created_at,
-      type: 'purchase',
-      transactionType: 'purchase',
-      amount: tx.total_amount || 0,
-      totalWeight: tx.weight_kg || 0,
-      weight: tx.weight_kg || 0,
-      description: tx.notes
-    }));
-  };
-
   // Transform transactions for report components
   const transformTransactionsForReports = (transactions: Transaction[], suppliers: Supplier[]): ReportTransaction[] => {
     return transactions.map(tx => {
@@ -363,6 +308,28 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
         walkinName: tx.walkin_name
       };
     });
+  };
+
+  // Transform supplier for ranking display (keeping your existing implementation)
+  const transformSupplierForRanking = (supplier: Supplier, transactions: Transaction[]) => {
+    const supplierTransactions = transactions.filter(t => t.supplier_id === supplier.id);
+    const recentTransactions = supplierTransactions.filter(t => {
+      const transactionDate = new Date(t.transaction_date);
+      const lastMonth = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      return transactionDate >= lastMonth;
+    });
+    
+    const currentMonthValue = recentTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+    const trend = currentMonthValue > 0 ? `+${Math.round((currentMonthValue / (supplier.total_value || 1)) * 100)}%` : '+0%';
+
+    return {
+      id: supplier.id,
+      name: supplier.name,
+      transactions: supplier.total_transactions || 0,
+      value: supplier.total_value || 0,
+      trend,
+      tier: supplier.supplier_tier || 'occasional'
+    };
   };
 
   // Initial data fetch
@@ -409,13 +376,12 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
       return <ErrorDisplay error={error} onRetry={fetchData} />;
     }
     
-    // Transform transactions for reports
+    // Transform transactions for reports that still need them
     const reportTransactions = transformTransactionsForReports(transactions, suppliers);
-    const dashboardTransactions = transformTransactionsForDashboard(transactions);
     
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard stats={stats} transactions={dashboardTransactions} />;
+        return <Dashboard onRefresh={fetchData} />;
       case 'transactions':
         return <Transactions onTransactionUpdate={handleTransactionUpdate} />;
       case 'suppliers':
@@ -431,7 +397,7 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
       case 'reports-daily':
         return <DailyReport currentDate={new Date()} />;
       case 'reports-weekly':
-        return <WeeklyReport transactions={reportTransactions} weekStartDate={new Date()} />;
+        return <WeeklyReport weekStartDate={new Date()} />;
       case 'reports-monthly':
         return <MonthlyReport transactions={reportTransactions} month={new Date()} />;
       case 'reports-custom':
@@ -439,7 +405,7 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
       case 'settings':
         return <SettingsPage />;
       default:
-        return <Dashboard stats={stats} transactions={dashboardTransactions} />;
+        return <Dashboard onRefresh={fetchData} />;
     }
   };
 
