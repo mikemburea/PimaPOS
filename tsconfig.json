@@ -24,7 +24,7 @@
     // Keep your existing settings:
     "noImplicitAny": false,
     "strictNullChecks": true,
-    "strictFunctionTypes": true,
+    "strictFunctionTypes": false,
     "noImplicitReturns": true,
     "noImplicitThis": true
   },

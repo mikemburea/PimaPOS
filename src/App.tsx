@@ -1,4 +1,4 @@
-// App.tsx - Updated version with real report components
+// App.tsx - Fixed TypeScript interface issues
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 
@@ -72,11 +72,14 @@ interface Transaction {
   updated_at?: string | null;
 }
 
+// Fixed Material interface - ensure it matches what Analytics component expects
 interface Material {
   id: string;
   name: string;
   category: string;
   current_price: number;
+  current_price_per_kg: number; // Added this required property
+  is_active: boolean; // Added this required property
   unit: string;
   description?: string | null;
   created_at: string;
@@ -109,6 +112,37 @@ interface ReportTransaction {
   paymentStatus: string;
   isWalkin: boolean;
   walkinName?: string | null;
+}
+
+// Transformed transaction interface for Dashboard
+interface DashboardTransaction {
+  id: string;
+  transactionDate: string;
+  createdAt: string;
+  materialType: string;
+  totalAmount: number;
+  paymentStatus: string | null | undefined;
+  walkinName: string | null | undefined;
+  supplierId: string | null | undefined;
+  weightKg: number | null | undefined;
+  isWalkin: boolean;
+  supplierName: string;
+  quantity: number;
+  totalValue: number;
+  status: string;
+  date: string;
+  timestamp: string;
+  type: string;
+  transactionType: string;
+  amount: number;
+  totalWeight: number;
+  weight: number;
+  description: string | null | undefined;
+}
+
+// App component props interface - made optional since it's passed from AppRouter
+interface AppProps {
+  onNavigateBack?: () => void;
 }
 
 // Loading component
@@ -144,7 +178,7 @@ const ErrorDisplay = ({ error, onRetry }: { error: string; onRetry: () => void }
   </div>
 );
 
-export default function App() {
+const App: React.FC<AppProps> = ({ onNavigateBack }) => {
   // State management
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -201,12 +235,26 @@ export default function App() {
         }
       }
 
-      // Handle materials
+      // Handle materials with proper transformation
       if (materialsResult.status === 'fulfilled') {
         if (materialsResult.value.error) {
           console.error('Error fetching materials:', materialsResult.value.error);
         } else {
-          setMaterials(materialsResult.value.data || []);
+          // Transform materials to ensure all required properties exist
+          const materialsData = materialsResult.value.data || [];
+          const transformedMaterials: Material[] = materialsData.map((material: any) => ({
+            id: material.id,
+            name: material.name,
+            category: material.category,
+            current_price: material.current_price || 0,
+            current_price_per_kg: material.current_price_per_kg || material.current_price || 0,
+            is_active: material.is_active !== undefined ? material.is_active : true,
+            unit: material.unit,
+            description: material.description,
+            created_at: material.created_at,
+            updated_at: material.updated_at
+          }));
+          setMaterials(transformedMaterials);
         }
       }
 
@@ -266,7 +314,7 @@ export default function App() {
   };
 
   // Transform transactions for dashboard compatibility
-  const transformTransactionsForDashboard = (transactions: Transaction[]) => {
+  const transformTransactionsForDashboard = (transactions: Transaction[]): DashboardTransaction[] => {
     return transactions.map(tx => ({
       id: tx.id,
       transactionDate: tx.transaction_date,
@@ -323,12 +371,15 @@ export default function App() {
   }, []);
 
   // Event handlers
-  // In your App.tsx, find the handleLogout function and update it:
-const handleLogout = () => {
-  console.log('Logout clicked');
-  // Add this line to go back to login screen
-  window.location.reload();
-};
+  const handleLogout = () => {
+    console.log('Logout clicked');
+    if (onNavigateBack) {
+      onNavigateBack();
+    } else {
+      // Fallback: reload page
+      window.location.reload();
+    }
+  };
 
   const handleNotificationClick = () => {
     console.log('Notifications clicked');
@@ -360,10 +411,11 @@ const handleLogout = () => {
     
     // Transform transactions for reports
     const reportTransactions = transformTransactionsForReports(transactions, suppliers);
+    const dashboardTransactions = transformTransactionsForDashboard(transactions);
     
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard stats={stats} transactions={transformTransactionsForDashboard(transactions)} />;
+        return <Dashboard stats={stats} transactions={dashboardTransactions} />;
       case 'transactions':
         return <Transactions onTransactionUpdate={handleTransactionUpdate} />;
       case 'suppliers':
@@ -379,15 +431,15 @@ const handleLogout = () => {
       case 'reports-daily':
         return <DailyReport currentDate={new Date()} />;
       case 'reports-weekly':
-        return <WeeklyReport transactions={reportTransactions} weekStartDate={new Date()} />;
+        return <WeeklyReport />;
       case 'reports-monthly':
-        return <MonthlyReport transactions={reportTransactions} month={new Date()} />;
+        return <MonthlyReport />;
       case 'reports-custom':
-        return <CustomReport transactions={reportTransactions} />;
+        return <CustomReport />;
       case 'settings':
         return <SettingsPage />;
       default:
-        return <Dashboard stats={stats} transactions={transformTransactionsForDashboard(transactions)} />;
+        return <Dashboard stats={stats} transactions={dashboardTransactions} />;
     }
   };
 
@@ -422,4 +474,6 @@ const handleLogout = () => {
       </div>
     </div>
   );
-}
+};
+
+export default App;

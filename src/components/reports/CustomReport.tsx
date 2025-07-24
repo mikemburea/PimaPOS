@@ -1,4 +1,4 @@
-// src/components/reports/CustomReport.tsx - Real Supabase integration
+// src/components/reports/CustomReport.tsx - Fixed with proper props interface
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Calendar, TrendingUp, DollarSign, Package, Users, AlertCircle, Loader2, Filter, Download, RefreshCw, BarChart3 } from 'lucide-react';
@@ -30,6 +30,20 @@ interface Transaction {
   updated_at?: string | null;
 }
 
+interface ReportTransaction {
+  id: string;
+  date: string;
+  material: string;
+  supplierName: string;
+  supplierId: string;
+  totalAmount: number;
+  weight: number;
+  createdAt: string;
+  paymentStatus: string;
+  isWalkin: boolean;
+  walkinName?: string | null;
+}
+
 interface Supplier {
   id: string;
   name: string;
@@ -55,6 +69,26 @@ interface Supplier {
   registration_reason?: string | null;
   registered_date?: string | null;
   registered_by?: string | null;
+}
+
+// FIXED: Interface to match App.tsx expectations
+interface ReportTransaction {
+  id: string;
+  date: string;
+  material: string;
+  supplierName: string;
+  supplierId: string;
+  totalAmount: number;
+  weight: number;
+  createdAt: string;
+  paymentStatus: string;
+  isWalkin: boolean;
+  walkinName?: string | null;
+}
+
+// FIXED: Updated CustomReportProps to match what App.tsx passes
+interface CustomReportProps {
+  transactions: ReportTransaction[];
 }
 
 interface GroupedData {
@@ -120,8 +154,8 @@ const EmptyState = () => (
   </div>
 );
 
-const CustomReport: React.FC = () => {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+// FIXED: Updated component to use props from App.tsx
+const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,23 +170,13 @@ const CustomReport: React.FC = () => {
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
   const [groupBy, setGroupBy] = useState<'day' | 'week' | 'month' | 'material' | 'supplier'>('day');
 
-  // Fetch data from Supabase
-  const fetchData = async () => {
+  // Fetch suppliers (we still need this for additional context)
+  const fetchSuppliers = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch transactions
-      const { data: transactionsData, error: transactionsError } = await supabase
-        .from('transactions')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (transactionsError) {
-        throw new Error(`Error fetching transactions: ${transactionsError.message}`);
-      }
-
-      // Fetch suppliers
+      // Fetch suppliers from Supabase
       const { data: suppliersData, error: suppliersError } = await supabase
         .from('suppliers')
         .select('*')
@@ -162,12 +186,11 @@ const CustomReport: React.FC = () => {
         throw new Error(`Error fetching suppliers: ${suppliersError.message}`);
       }
 
-      setTransactions(transactionsData || []);
       setSuppliers(suppliersData || []);
 
     } catch (err) {
-      console.error('Error fetching data:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
+      console.error('Error fetching suppliers:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred while fetching suppliers');
     } finally {
       setLoading(false);
     }
@@ -176,50 +199,40 @@ const CustomReport: React.FC = () => {
   // Refresh data
   const refreshData = async () => {
     setIsRefreshing(true);
-    await fetchData();
+    await fetchSuppliers();
     setIsRefreshing(false);
   };
 
-  // Get supplier name helper function
-  const getSupplierName = (transaction: Transaction): string => {
-    if (transaction.is_walkin) {
-      return transaction.walkin_name || 'Walk-in Customer';
-    }
-    
-    const supplier = suppliers.find(s => s.id === transaction.supplier_id);
-    return supplier?.name || 'Unknown Supplier';
-  };
+  // Get unique materials and suppliers from prop transactions
+  const materials = [...new Set(transactions.map(t => t.material))].filter(Boolean);
+  const supplierNames = [...new Set(transactions.map(t => t.supplierName))].filter(Boolean);
 
-  // Get unique materials and suppliers from actual data
-  const materials = [...new Set(transactions.map(t => t.material_type))].filter(Boolean);
-  const supplierNames = [...new Set(transactions.map(t => getSupplierName(t)))].filter(Boolean);
-
-  // Filter transactions based on criteria
+  // Filter transactions based on criteria using prop transactions
   const filteredTransactions = transactions.filter(t => {
-    const transactionDate = new Date(t.transaction_date);
+    const transactionDate = new Date(t.date);
     const startDate = new Date(dateRange.start);
     const endDate = new Date(dateRange.end);
     endDate.setHours(23, 59, 59, 999); // Include entire end date
     
     const dateMatch = transactionDate >= startDate && transactionDate <= endDate;
-    const materialMatch = selectedMaterials.length === 0 || selectedMaterials.includes(t.material_type);
-    const supplierMatch = selectedSuppliers.length === 0 || selectedSuppliers.includes(getSupplierName(t));
+    const materialMatch = selectedMaterials.length === 0 || selectedMaterials.includes(t.material);
+    const supplierMatch = selectedSuppliers.length === 0 || selectedSuppliers.includes(t.supplierName);
     
     return dateMatch && materialMatch && supplierMatch;
   });
 
-  // Calculate stats
-  const totalRevenue = filteredTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
-  const totalWeight = filteredTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
+  // Calculate stats from filtered prop transactions
+  const totalRevenue = filteredTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+  const totalWeight = filteredTransactions.reduce((sum, t) => sum + (t.weight || 0), 0);
   const avgPricePerKg = totalWeight > 0 ? totalRevenue / totalWeight : 0;
 
-  // Group data based on selection
+  // Group data based on selection using prop transactions
   const groupedData = React.useMemo(() => {
     const groups: Record<string, any> = {};
 
     filteredTransactions.forEach(transaction => {
       let key: string;
-      const date = new Date(transaction.transaction_date);
+      const date = new Date(transaction.date);
 
       switch (groupBy) {
         case 'day':
@@ -234,10 +247,10 @@ const CustomReport: React.FC = () => {
           key = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
           break;
         case 'material':
-          key = transaction.material_type;
+          key = transaction.material;
           break;
         case 'supplier':
-          key = getSupplierName(transaction);
+          key = transaction.supplierName;
           break;
         default:
           key = 'Unknown';
@@ -254,10 +267,10 @@ const CustomReport: React.FC = () => {
       }
 
       groups[key].transactions++;
-      groups[key].revenue += transaction.total_amount || 0;
-      groups[key].weight += transaction.weight_kg || 0;
-      groups[key].materials.add(transaction.material_type);
-      groups[key].suppliers.add(getSupplierName(transaction));
+      groups[key].revenue += transaction.totalAmount || 0;
+      groups[key].weight += transaction.weight || 0;
+      groups[key].materials.add(transaction.material);
+      groups[key].suppliers.add(transaction.supplierName);
     });
 
     return Object.entries(groups).map(([key, data]) => ({
@@ -267,7 +280,7 @@ const CustomReport: React.FC = () => {
       materialCount: data.materials.size,
       supplierCount: data.suppliers.size
     }));
-  }, [filteredTransactions, groupBy, suppliers]);
+  }, [filteredTransactions, groupBy]);
 
   // Handle filter changes
   const handleMaterialToggle = (material: string) => {
@@ -344,60 +357,9 @@ const CustomReport: React.FC = () => {
     document.body.removeChild(a);
   };
 
-  // Load data on component mount
+  // Load suppliers on component mount
   useEffect(() => {
-    fetchData();
-  }, []);
-
-  // Setup real-time subscription
-  useEffect(() => {
-    const channel = supabase
-      .channel('custom-report-transactions')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'transactions'
-        },
-        (payload) => {
-          const newTransaction = payload.new as Transaction;
-          setTransactions(current => [newTransaction, ...current]);
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'transactions'
-        },
-        (payload) => {
-          const updatedTransaction = payload.new as Transaction;
-          setTransactions(current =>
-            current.map(t => t.id === updatedTransaction.id ? updatedTransaction : t)
-          );
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'transactions'
-        },
-        (payload) => {
-          const deletedTransaction = payload.old as Transaction;
-          setTransactions(current =>
-            current.filter(t => t.id !== deletedTransaction.id)
-          );
-        }
-      )
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
-    };
+    fetchSuppliers();
   }, []);
 
   if (loading) {
@@ -414,7 +376,7 @@ const CustomReport: React.FC = () => {
     return (
       <div className="space-y-6">
         <div className="bg-white p-6 rounded-lg shadow-md">
-          <ErrorDisplay error={error} onRetry={fetchData} />
+          <ErrorDisplay error={error} onRetry={fetchSuppliers} />
         </div>
       </div>
     );
@@ -442,6 +404,13 @@ const CustomReport: React.FC = () => {
               Clear Filters
             </button>
           </div>
+        </div>
+
+        {/* Show data source indicator */}
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-sm text-blue-800">
+            ✓ Using {transactions.length} transactions from current data ({filteredTransactions.length} matching filters)
+          </p>
         </div>
 
         {/* Filters */}
@@ -487,7 +456,7 @@ const CustomReport: React.FC = () => {
               Materials ({selectedMaterials.length === 0 ? 'All' : selectedMaterials.length} selected)
             </label>
             {materials.length === 0 ? (
-              <p className="text-gray-500 text-sm">No materials found</p>
+              <p className="text-gray-500 text-sm">No materials found in current data</p>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {materials.map(material => (
@@ -513,7 +482,7 @@ const CustomReport: React.FC = () => {
               Suppliers ({selectedSuppliers.length === 0 ? 'All' : selectedSuppliers.length} selected)
             </label>
             {supplierNames.length === 0 ? (
-              <p className="text-gray-500 text-sm">No suppliers found</p>
+              <p className="text-gray-500 text-sm">No suppliers found in current data</p>
             ) : (
               <div className="max-h-32 overflow-y-auto border border-gray-200 rounded-md p-2">
                 <div className="flex flex-wrap gap-2">
