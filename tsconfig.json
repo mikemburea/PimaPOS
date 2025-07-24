@@ -1,10 +1,11 @@
 {
   "compilerOptions": {
-    "target": "es5",
+    "target": "ES2015",  // Changed from "es5" to fix Set iteration errors
     "lib": [
       "dom",
       "dom.iterable",
-      "es6"
+      "ES2015",  // Changed from "es6" 
+      "ES2017"   // Added for better Set/Map support
     ],
     "allowJs": true,
     "skipLibCheck": true,
@@ -19,8 +20,9 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    // Add these to handle implicit any types:
-    "noImplicitAny": false,  // Set to false temporarily to allow implicit any
+    "downlevelIteration": true,  // Added to fix Set iteration errors
+    // Keep your existing settings:
+    "noImplicitAny": false,
     "strictNullChecks": true,
     "strictFunctionTypes": true,
     "noImplicitReturns": true,

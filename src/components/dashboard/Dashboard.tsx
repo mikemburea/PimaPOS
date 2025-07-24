@@ -1,4 +1,4 @@
-// src/components/dashboard/Dashboard.tsx - Comprehensive Extended Version with Production Queue
+// src/components/dashboard/Dashboard.tsx - Complete Fixed Version with proper TypeScript interfaces
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   DollarSign, FileText, Package, Users, Plus, Download, TrendingUp, Activity, Award, 
@@ -7,6 +7,55 @@ import {
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Cell, Pie, AreaChart, Area} from 'recharts';
 import { supabase } from '../../lib/supabase';
 import TransactionNotification from './TransactionNotification';
+
+// FIXED: Dashboard Props Interface matching App.tsx expectations
+interface DashboardStats {
+  totalTransactions: number;
+  totalRevenue: number;
+  totalWeight: number;
+  activeSuppliers: number;
+  todayTransactions?: number;
+  todayRevenue?: number;
+  weekGrowth?: number;
+  monthGrowth?: number;
+  weightGrowth?: number;
+  supplierGrowth?: number;
+  avgTransactionValue?: number;
+  completedTransactions?: number;
+  pendingTransactions?: number;
+}
+
+interface DashboardTransaction {
+  id: string;
+  transactionDate: string;
+  createdAt: string;
+  materialType: string;
+  totalAmount: number;
+  paymentStatus: string | null | undefined;
+  walkinName: string | null | undefined;
+  supplierId: string | null | undefined;
+  weightKg: number | null | undefined;
+  isWalkin: boolean;
+  supplierName: string;
+  quantity: number;
+  totalValue: number;
+  status: string;
+  date: string;
+  timestamp: string;
+  type: string;
+  transactionType: string;
+  amount: number;
+  totalWeight: number;
+  weight: number;
+  description: string | null | undefined;
+}
+
+// FIXED: Updated DashboardProps interface
+interface DashboardProps {
+  stats: DashboardStats;
+  transactions: DashboardTransaction[];
+  onRefresh?: () => void;
+}
 
 // Types and Interfaces (Extended)
 interface StatCardProps {
@@ -125,22 +174,6 @@ interface DatabaseMaterial {
   price_updated_by?: string | null;
 }
 
-interface DashboardStats {
-  totalTransactions: number;
-  totalRevenue: number;
-  totalWeight: number;
-  activeSuppliers: number;
-  todayTransactions: number;
-  todayRevenue: number;
-  weekGrowth: number;
-  monthGrowth: number;
-  weightGrowth: number;
-  supplierGrowth: number;
-  avgTransactionValue: number;
-  completedTransactions: number;
-  pendingTransactions: number;
-}
-
 interface DashboardData {
   stats: DashboardStats;
   recentTransactions: DatabaseTransaction[];
@@ -155,10 +188,6 @@ interface DashboardData {
   };
 }
 
-interface DashboardProps {
-  onRefresh?: () => void;
-}
-
 // Enhanced Queue Management Types
 interface QueuedNotification {
   id: string;
@@ -170,7 +199,7 @@ interface QueuedNotification {
   isProcessed: boolean;
 }
 
-// Realtime types (keeping your existing structure)
+// Realtime types
 interface RealtimeTransaction {
   id: string;
   supplier_id?: string | null;
@@ -191,7 +220,7 @@ interface RealtimeNotificationData {
   suppliers: DatabaseSupplier[];
 }
 
-// CSS styles object (keeping your existing styles)
+// CSS styles object
 const styles = {
   gradient: {
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
@@ -206,7 +235,7 @@ const styles = {
   }
 };
 
-// Helper functions (keeping your existing functions)
+// Helper functions
 const safeString = (value: string | null | undefined): string => {
   return value || '';
 };
@@ -262,13 +291,10 @@ const useProductionNotificationQueue = () => {
     let priority: 'HIGH' | 'MEDIUM' | 'LOW' = 'MEDIUM';
     
     if (eventType === 'INSERT') {
-      // New transactions are always high priority
       priority = 'HIGH';
     } else if (eventType === 'DELETE') {
-      // Deletions are lower priority
       priority = 'LOW';
     } else if (eventType === 'UPDATE') {
-      // Updates are medium priority, but high value updates are elevated
       if (transaction.total_amount > 100000) {
         priority = 'HIGH';
       } else if (transaction.total_amount > 50000) {
@@ -289,7 +315,6 @@ const useProductionNotificationQueue = () => {
     };
 
     setNotificationQueue(prev => {
-      // Check if notification already exists to prevent duplicates
       const exists = prev.some(n => 
         n.transaction.id === transaction.id && 
         n.eventType === eventType &&
@@ -301,16 +326,13 @@ const useProductionNotificationQueue = () => {
         return prev;
       }
 
-      // Add to queue and sort by priority and timestamp
       const newQueue = [...prev, queuedNotification].sort((a, b) => {
         const priorityOrder = { HIGH: 3, MEDIUM: 2, LOW: 1 };
         
-        // First sort by priority
         if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
           return priorityOrder[b.priority] - priorityOrder[a.priority];
         }
         
-        // Then by timestamp (older first)
         return a.timestamp.getTime() - b.timestamp.getTime();
       });
 
@@ -320,7 +342,6 @@ const useProductionNotificationQueue = () => {
     setShowNotification(true);
   }, []);
 
-  // Remove notification from queue
   const removeFromQueue = useCallback(() => {
     setNotificationQueue(prev => {
       const newQueue = prev.slice(1);
@@ -331,7 +352,6 @@ const useProductionNotificationQueue = () => {
     });
   }, []);
 
-  // Mark notification as processed (for analytics)
   const markAsProcessed = useCallback((notificationId: string) => {
     setNotificationQueue(prev => 
       prev.map(n => 
@@ -340,13 +360,11 @@ const useProductionNotificationQueue = () => {
     );
   }, []);
 
-  // Clear all notifications
   const clearQueue = useCallback(() => {
     setNotificationQueue([]);
     setShowNotification(false);
   }, []);
 
-  // Clear only low priority notifications
   const clearLowPriority = useCallback(() => {
     setNotificationQueue(prev => {
       const filtered = prev.filter(n => n.priority !== 'LOW');
@@ -357,7 +375,6 @@ const useProductionNotificationQueue = () => {
     });
   }, []);
 
-  // Update queue statistics
   useEffect(() => {
     const stats = notificationQueue.reduce((acc, notification) => {
       acc.total++;
@@ -449,7 +466,6 @@ const QueueStatusPanel: React.FC<{
         </div>
       </div>
 
-      {/* Queue Statistics */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
         <div style={{
           padding: '0.75rem',
@@ -489,7 +505,6 @@ const QueueStatusPanel: React.FC<{
         </div>
       </div>
 
-      {/* Processing Rate */}
       <div style={{
         padding: '0.75rem',
         background: 'rgba(59, 130, 246, 0.1)',
@@ -523,7 +538,7 @@ const QueueStatusPanel: React.FC<{
   );
 };
 
-// Enhanced Stat Card Component (keeping your existing implementation)
+// Stat Card Component
 const StatCard: React.FC<StatCardProps> = ({ title, value, change, icon: Icon, gradient, isLoading = false }) => (
   <div style={{
     ...styles.glassmorphism,
@@ -595,7 +610,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, change, icon: Icon, g
   </div>
 );
 
-// Enhanced Quick Action Button Component (keeping your existing implementation)
+// Quick Action Button Component
 const QuickActionButton: React.FC<QuickActionButtonProps> = ({ children, variant = 'outline', icon: Icon, onClick }) => {
   const variants = {
     filled: {
@@ -651,7 +666,7 @@ const QuickActionButton: React.FC<QuickActionButtonProps> = ({ children, variant
   );
 };
 
-// Enhanced Performance Metric Component (keeping your existing implementation)
+// Performance Metric Component
 const PerformanceMetric: React.FC<PerformanceMetricProps> = ({ label, value, progress, target, icon: Icon }) => (
   <div style={{
     padding: '1.25rem',
@@ -697,7 +712,7 @@ const PerformanceMetric: React.FC<PerformanceMetricProps> = ({ label, value, pro
   </div>
 );
 
-// Enhanced Transaction Item Component (keeping your existing implementation)
+// Transaction Item Component
 const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
   const statusColors: Record<'Completed' | 'Pending', string> = {
     Completed: '#10b981',
@@ -777,7 +792,7 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
   );
 };
 
-// Enhanced Supplier Ranking Component (keeping your existing implementation)
+// Supplier Ranking Component
 const SupplierRanking: React.FC<SupplierRankingProps> = ({ supplier }) => {
   const getTierColor = (tier: string) => {
     switch (tier) {
@@ -839,7 +854,7 @@ const SupplierRanking: React.FC<SupplierRankingProps> = ({ supplier }) => {
   );
 };
 
-// Custom tooltip for charts (keeping your existing implementation)
+// Custom tooltip for charts
 const CustomTooltip: React.FC<any> = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
     return (
@@ -865,8 +880,8 @@ const CustomTooltip: React.FC<any> = ({ active, payload, label }) => {
   return null;
 };
 
-// Main Dashboard Component (Enhanced)
-const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
+// FIXED: Main Dashboard Component with proper props handling
+const Dashboard: React.FC<DashboardProps> = ({ stats, transactions, onRefresh }) => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -889,21 +904,139 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
   // Queue status panel visibility
   const [showQueuePanel, setShowQueuePanel] = useState(false);
 
-  // Fetch data from Supabase (keeping your existing implementation)
+  // Helper functions to transform prop data to dashboard format
+  const transformPropsToDatabase = (propTransactions: DashboardTransaction[]): DatabaseTransaction[] => {
+    return propTransactions.map(t => ({
+      id: t.id,
+      supplier_id: t.supplierId,
+      material_type: t.materialType,
+      transaction_date: t.transactionDate,
+      total_amount: t.totalAmount,
+      created_at: t.createdAt,
+      is_walkin: t.isWalkin,
+      walkin_name: t.walkinName,
+      weight_kg: t.weightKg,
+      payment_status: t.paymentStatus,
+      transaction_number: null,
+      walkin_phone: null,
+      material_category: null,
+      unit_price: null,
+      payment_method: null,
+      payment_reference: null,
+      quality_grade: null,
+      deductions: null,
+      final_amount: null,
+      receipt_number: null,
+      notes: t.description,
+      created_by: null,
+      updated_at: null
+    }));
+  };
+
+  const createDashboardDataFromProps = (): DashboardData => {
+    const dbTransactions = transformPropsToDatabase(transactions);
+    
+    // Calculate material distribution
+    const materialCounts = dbTransactions.reduce((acc, t) => {
+      const material = t.material_type;
+      acc[material] = (acc[material] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const materialColors = ['#00bcd4', '#9c27b0', '#e91e63', '#ff9800', '#4caf50', '#3f51b5'];
+    const materialDistribution = Object.entries(materialCounts)
+      .map(([name, count], index) => ({
+        name,
+        value: Math.round((count / dbTransactions.length) * 100),
+        color: materialColors[index % materialColors.length],
+        count
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    // Generate revenue data for the last 7 days
+    const now = new Date();
+    const revenueData = Array.from({ length: 7 }, (_, i) => {
+      const date = new Date(now.getTime() - (6 - i) * 24 * 60 * 60 * 1000);
+      const dayTransactions = dbTransactions.filter(t => {
+        const tDate = new Date(t.transaction_date);
+        return tDate.toDateString() === date.toDateString();
+      });
+      const dayRevenue = dayTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+      const target = dayRevenue * 1.1;
+      
+      return {
+        date: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        revenue: dayRevenue,
+        target
+      };
+    });
+
+    // Calculate performance metrics
+    const dailyTarget = 50000;
+    const performanceMetrics = {
+      transactions: {
+        value: stats.todayTransactions || 0,
+        target: 50,
+        progress: Math.min(((stats.todayTransactions || 0) / 50) * 100, 100)
+      },
+      revenue: {
+        value: stats.todayRevenue || 0,
+        target: dailyTarget,
+        progress: Math.min(((stats.todayRevenue || 0) / dailyTarget) * 100, 100)
+      },
+      weight: {
+        value: stats.totalWeight || 0,
+        target: 5000,
+        progress: Math.min(((stats.totalWeight || 0) / 5000) * 100, 100)
+      },
+      suppliers: {
+        value: stats.activeSuppliers || 0,
+        target: 20,
+        progress: Math.min(((stats.activeSuppliers || 0) / 20) * 100, 100)
+      }
+    };
+
+    return {
+      stats,
+      recentTransactions: dbTransactions.slice(0, 5),
+      topSuppliers: suppliers.slice(0, 5),
+      materialDistribution,
+      revenueData,
+      performanceMetrics
+    };
+  };
+
+  // Fetch data from Supabase (fallback when no props provided)
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch all required data in parallel
+      // If we have props data, use it instead of fetching
+      if (stats && transactions && transactions.length > 0) {
+        // Fetch suppliers for realtime notifications
+        const { data: suppliersData } = await supabase
+          .from('suppliers')
+          .select('*')
+          .order('total_value', { ascending: false });
+        
+        setSuppliers(suppliersData || []);
+        
+        const dashboardData = createDashboardDataFromProps();
+        setDashboardData(dashboardData);
+        setLoading(false);
+        return;
+      }
+
+      // Fallback to fetching from Supabase
       const [transactionsResult, suppliersResult, materialsResult] = await Promise.allSettled([
         supabase.from('transactions').select('*').order('created_at', { ascending: false }),
         supabase.from('suppliers').select('*').order('total_value', { ascending: false }),
         supabase.from('materials').select('*').eq('is_active', true)
       ]);
 
-      // Handle results
-      const transactions = transactionsResult.status === 'fulfilled' && !transactionsResult.value.error 
+      const dbTransactions = transactionsResult.status === 'fulfilled' && !transactionsResult.value.error 
         ? transactionsResult.value.data || [] 
         : [];
       
@@ -915,11 +1048,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         ? materialsResult.value.data || [] 
         : [];
 
-      // Store suppliers for realtime notifications
       setSuppliers(suppliersData);
-
-      // Calculate dashboard data
-      const dashboardData = calculateDashboardData(transactions, suppliersData, materials);
+      const dashboardData = calculateDashboardData(dbTransactions, suppliersData, materials);
       setDashboardData(dashboardData);
 
     } catch (err) {
@@ -928,9 +1058,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [stats, transactions, suppliers]);
 
-  // Calculate dashboard data from raw database data (keeping your existing implementation)
+  // Calculate dashboard data from raw database data (fallback method)
   const calculateDashboardData = (
     transactions: DatabaseTransaction[], 
     suppliers: DatabaseSupplier[], 
@@ -941,25 +1071,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     const thisWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // Filter completed transactions
     const completedTransactions = transactions.filter(t => t.payment_status === 'completed');
     const todayTransactions = transactions.filter(t => new Date(t.transaction_date) >= today);
     const weekTransactions = transactions.filter(t => new Date(t.transaction_date) >= thisWeek);
     const monthTransactions = transactions.filter(t => new Date(t.transaction_date) >= thisMonth);
 
-    // Calculate basic stats
     const totalRevenue = completedTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
     const totalWeight = completedTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
     const todayRevenue = todayTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
     const activeSuppliers = suppliers.filter(s => s.status === 'active').length;
 
-    // Calculate growth percentages
     const weekGrowth = transactions.length > 0 ? (weekTransactions.length / transactions.length) * 100 : 0;
     const monthGrowth = transactions.length > 0 ? (monthTransactions.length / transactions.length) * 100 : 0;
     const weightGrowth = totalWeight > 0 ? (weekTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0) / totalWeight) * 100 : 0;
     const supplierGrowth = activeSuppliers > 0 ? (suppliers.filter(s => new Date(s.created_at) >= thisWeek).length / activeSuppliers) * 100 : 0;
 
-    const stats: DashboardStats = {
+    const fallbackStats: DashboardStats = {
       totalTransactions: transactions.length,
       totalRevenue,
       totalWeight,
@@ -975,16 +1102,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
       pendingTransactions: transactions.filter(t => t.payment_status === 'pending').length
     };
 
-    // Get recent transactions
     const recentTransactions = transactions.slice(0, 5);
+    const topSuppliers = suppliers.filter(s => s.status === 'active').sort((a, b) => (b.total_value || 0) - (a.total_value || 0)).slice(0, 5);
 
-    // Get top suppliers
-    const topSuppliers = suppliers
-      .filter(s => s.status === 'active')
-      .sort((a, b) => (b.total_value || 0) - (a.total_value || 0))
-      .slice(0, 5);
-
-    // Calculate material distribution
     const materialCounts = transactions.reduce((acc, t) => {
       const material = t.material_type;
       acc[material] = (acc[material] || 0) + 1;
@@ -1002,7 +1122,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
-    // Generate revenue data for the last 7 days
     const revenueData = Array.from({ length: 7 }, (_, i) => {
       const date = new Date(now.getTime() - (6 - i) * 24 * 60 * 60 * 1000);
       const dayTransactions = transactions.filter(t => {
@@ -1010,7 +1129,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         return tDate.toDateString() === date.toDateString();
       });
       const dayRevenue = dayTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
-      const target = dayRevenue * 1.1; // 10% above current as target
+      const target = dayRevenue * 1.1;
       
       return {
         date: date.toLocaleDateString('en-US', { weekday: 'short' }),
@@ -1019,8 +1138,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
       };
     });
 
-    // Calculate performance metrics
-    const dailyTarget = 50000; // Example daily target
+    const dailyTarget = 50000;
     const performanceMetrics = {
       transactions: {
         value: todayTransactions.length,
@@ -1045,7 +1163,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     };
 
     return {
-      stats,
+      stats: fallbackStats,
       recentTransactions,
       topSuppliers,
       materialDistribution,
@@ -1054,7 +1172,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     };
   };
 
-  // Transform transactions for display (keeping your existing implementation)
+  // Transform transactions for display
   const transformTransactionForDisplay = (transaction: DatabaseTransaction, suppliers: DatabaseSupplier[]) => {
     const supplierName = getSupplierName(transaction, suppliers);
     const initials = getInitials(supplierName);
@@ -1076,7 +1194,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     };
   };
 
-  // Transform supplier for ranking display (keeping your existing implementation)
+  // Transform supplier for ranking display
   const transformSupplierForRanking = (supplier: DatabaseSupplier, transactions: DatabaseTransaction[]) => {
     const supplierTransactions = transactions.filter(t => t.supplier_id === supplier.id);
     const recentTransactions = supplierTransactions.filter(t => {
@@ -1115,7 +1233,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
       .on(
         'postgres_changes',
         {
-          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          event: '*',
           schema: 'public',
           table: 'transactions'
         },
@@ -1127,10 +1245,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
             const transaction = payload.new as DatabaseTransaction || payload.old as DatabaseTransaction;
             
             if (transaction) {
-              // Add to production queue
               addToQueue(transaction, suppliers, eventType);
-              
-              // Refresh dashboard data after a delay
               setTimeout(() => {
                 fetchDashboardData();
               }, 1000);
@@ -1145,16 +1260,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         
         if (status === 'SUBSCRIBED') {
           setIsRealtimeConnected(true);
-          console.log('Successfully subscribed to production transactions realtime updates');
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           setIsRealtimeConnected(false);
-          console.error('Production realtime connection error');
         } else if (status === 'CLOSED') {
           setIsRealtimeConnected(false);
         }
       });
 
-    // Cleanup subscription on unmount
     return () => {
       console.log('Cleaning up production realtime subscription...');
       supabase.removeChannel(channel);
@@ -1162,18 +1274,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     };
   }, [suppliers, fetchDashboardData, addToQueue]);
 
-  // Load data on component mount (keeping your existing implementation)
+  // Load data on component mount
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  // Auto-refresh every 5 minutes (keeping your existing implementation)
+  // Auto-refresh every 5 minutes
   useEffect(() => {
     const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
 
-  // Loading state (keeping your existing implementation)
+  // Loading state
   if (loading) {
     return (
       <div style={{
@@ -1191,7 +1303,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     );
   }
 
-  // Error state (keeping your existing implementation)
+  // Error state
   if (error) {
     return (
       <div style={{
@@ -1233,7 +1345,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     );
   }
 
-  // No data state (keeping your existing implementation)
+  // No data state
   if (!dashboardData) {
     return (
       <div style={{
@@ -1271,7 +1383,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     );
   }
 
-  const { stats, recentTransactions, topSuppliers, materialDistribution, revenueData, performanceMetrics } = dashboardData;
+  const { stats: dashStats, recentTransactions, topSuppliers, materialDistribution, revenueData, performanceMetrics } = dashboardData;
 
   return (
     <div style={{
@@ -1279,7 +1391,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
       background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
       position: 'relative'
     }}>
-      {/* Animated background elements (keeping your existing styling) */}
+      {/* Animated background elements */}
       <div style={{
         position: 'absolute',
         top: '20%',
@@ -1390,7 +1502,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         isVisible={showQueuePanel && queueStats.total > 0}
       />
 
-      {/* Main Content (keeping all your existing content) */}
+      {/* Main Content */}
       <div style={{ position: 'relative', zIndex: 10, padding: '2rem' }}>
         {/* Header with Refresh Button */}
         <div style={{ 
@@ -1411,6 +1523,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
             <p style={{ color: '#64748b', fontSize: '1.125rem' }}>
               Real-time overview of your scrap metal business with enhanced notification queue
             </p>
+            {/* Show data source indicator */}
+            {stats && transactions && (
+              <p style={{ color: '#10b981', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                ✓ Using live data from App ({transactions.length} transactions)
+              </p>
+            )}
           </div>
           <button
             onClick={() => {
@@ -1446,7 +1564,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           </button>
         </div>
 
-        {/* Stats Cards (keeping your existing implementation) */}
+        {/* Stats Cards */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
@@ -1455,38 +1573,38 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         }}>
           <StatCard
             title="Total Revenue"
-            value={stats.totalRevenue >= 1000000 ? 
-              `${(stats.totalRevenue / 1000000).toFixed(1)}M` : 
-              `${(stats.totalRevenue / 1000).toFixed(0)}K`
+            value={dashStats.totalRevenue >= 1000000 ? 
+              `${(dashStats.totalRevenue / 1000000).toFixed(1)}M` : 
+              `${(dashStats.totalRevenue / 1000).toFixed(0)}K`
             }
-            change={stats.monthGrowth.toFixed(1)}
+            change={(dashStats.monthGrowth || 0).toFixed(1)}
             icon={DollarSign}
             gradient="linear-gradient(135deg, #00bcd4 0%, #00acc1 100%)"
           />
           <StatCard
             title="Total Transactions"
-            value={stats.totalTransactions.toLocaleString()}
-            change={stats.weekGrowth.toFixed(1)}
+            value={dashStats.totalTransactions.toLocaleString()}
+            change={(dashStats.weekGrowth || 0).toFixed(1)}
             icon={FileText}
             gradient="linear-gradient(135deg, #9c27b0 0%, #8e24aa 100%)"
           />
           <StatCard
             title="Total Weight"
-            value={formatWeight(stats.totalWeight)}
-            change={stats.weightGrowth.toFixed(1)}
+            value={formatWeight(dashStats.totalWeight)}
+            change={(dashStats.weightGrowth || 0).toFixed(1)}
             icon={Package}
             gradient="linear-gradient(135deg, #e91e63 0%, #d81b60 100%)"
           />
           <StatCard
             title="Active Suppliers"
-            value={stats.activeSuppliers.toString()}
-            change={stats.supplierGrowth.toFixed(1)}
+            value={dashStats.activeSuppliers.toString()}
+            change={(dashStats.supplierGrowth || 0).toFixed(1)}
             icon={Users}
             gradient="linear-gradient(135deg, #ff9800 0%, #fb8c00 100%)"
           />
         </div>
 
-        {/* Charts and Transactions Row (keeping your existing implementation) */}
+        {/* Charts and Transactions Row */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: '2fr 1fr',
@@ -1613,7 +1731,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           </div>
         </div>
 
-        {/* Material Distribution and Actions Row (keeping your existing implementation) */}
+        {/* Material Distribution and Actions Row */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
@@ -1748,7 +1866,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           </div>
         </div>
 
-        {/* Performance Metrics (keeping your existing implementation) */}
+        {/* Performance Metrics */}
         <div style={{
           ...styles.glassmorphism,
           ...styles.cardShadow,

@@ -1,3 +1,4 @@
+// AppRouter.tsx - Final version with all components properly integrated
 import React, { useState } from 'react';
 import App from './App';
 import PimaPOSWelcome from './PimaPOSWelcome';
@@ -14,9 +15,11 @@ const AppRouter: React.FC = () => {
   };
   
   if (currentPage === 'app') {
+    // Pass the proper navigation function to App component
     return <App onNavigateBack={navigateToWelcome} />;
   }
   
+  // Pass the proper navigation function to PimaPOSWelcome component
   return <PimaPOSWelcome onNavigateToApp={navigateToApp} />;
 };
 
