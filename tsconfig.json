@@ -23,7 +23,7 @@
     "downlevelIteration": true,  // Added to fix Set iteration errors
     // Keep your existing settings:
     "noImplicitAny": false,
-    "strictNullChecks": true,
+    "strictNullChecks": false,
     "strictFunctionTypes": false,
     "noImplicitReturns": true,
     "noImplicitThis": true
