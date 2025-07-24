@@ -1,0 +1,126 @@
+// src/data/mockData.ts
+import type { Supplier, Transaction, Material } from '../types';
+
+export const generateMockData = () => {
+  const suppliers: Supplier[] = [
+    {
+      id: '1',
+      name: 'Johnson Metal Works',
+      email: 'contact@johnsonmetal.com',
+      phone: '+1-555-0123',
+      address: '123 Industrial Ave, City, State 12345',
+      materialTypes: ['Aluminum', 'Steel', 'Copper'],
+      totalTransactions: 45,
+      totalValue: 125000,
+      status: 'active',
+      createdAt: '2024-01-15'
+    },
+    {
+      id: '2',
+      name: 'Green Recycling Co.',
+      email: 'info@greenrecycling.com',
+      phone: '+1-555-0456',
+      address: '456 Eco Street, City, State 12345',
+      materialTypes: ['Plastic', 'Paper', 'Glass'],
+      totalTransactions: 32,
+      totalValue: 89000,
+      status: 'active',
+      createdAt: '2024-02-20'
+    },
+    {
+      id: '3',
+      name: 'Metro Scrap Dealers',
+      email: 'sales@metroscrap.com',
+      phone: '+1-555-0789',
+      address: '789 Commerce Blvd, City, State 12345',
+      materialTypes: ['Iron', 'Brass', 'Lead'],
+      totalTransactions: 28,
+      totalValue: 67000,
+      status: 'active',
+      createdAt: '2024-03-10'
+    }
+  ];
+
+  const transactions: Transaction[] = [
+    {
+      id: '1',
+      type: 'purchase',
+      supplierId: '1',
+      supplierName: 'Johnson Metal Works',
+      materialType: 'Aluminum',
+      quantity: 2500,
+      pricePerUnit: 1.30,
+      totalValue: 3250,
+      date: '2024-07-13',
+      status: 'completed',
+      notes: 'High quality aluminum cans'
+    },
+    {
+      id: '2',
+      type: 'sale',
+      supplierId: '2',
+      supplierName: 'Green Recycling Co.',
+      materialType: 'Copper',
+      quantity: 1200,
+      pricePerUnit: 7.00,
+      totalValue: 8400,
+      date: '2024-07-12',
+      status: 'pending',
+      notes: 'Copper wire - good condition'
+    },
+    {
+      id: '3',
+      type: 'purchase',
+      supplierId: '3',
+      supplierName: 'Metro Scrap Dealers',
+      materialType: 'Steel',
+      quantity: 5000,
+      pricePerUnit: 2.50,
+      totalValue: 12500,
+      date: '2024-07-11',
+      status: 'completed',
+      notes: 'Steel sheets - industrial grade'
+    }
+  ];
+
+  const materials: Material[] = [
+    {
+      id: '1',
+      name: 'Aluminum Cans',
+      type: 'Aluminum',
+      currentStock: 8500,
+      unit: 'kg',
+      currentPrice: 1.30,
+      avgPurchasePrice: 1.25,
+      totalPurchased: 25000,
+      totalSold: 16500,
+      lastUpdated: '2024-07-13'
+    },
+    {
+      id: '2',
+      name: 'Copper Wire',
+      type: 'Copper',
+      currentStock: 3200,
+      unit: 'kg',
+      currentPrice: 7.00,
+      avgPurchasePrice: 6.80,
+      totalPurchased: 8000,
+      totalSold: 4800,
+      lastUpdated: '2024-07-12'
+    },
+    {
+      id: '3',
+      name: 'Steel Sheets',
+      type: 'Steel',
+      currentStock: 12800,
+      unit: 'kg',
+      currentPrice: 2.50,
+      avgPurchasePrice: 2.40,
+      totalPurchased: 30000,
+      totalSold: 17200,
+      lastUpdated: '2024-07-11'
+    }
+  ];
+
+  return { suppliers, transactions, materials };
+};
