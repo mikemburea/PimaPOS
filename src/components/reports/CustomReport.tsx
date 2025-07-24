@@ -30,20 +30,6 @@ interface Transaction {
   updated_at?: string | null;
 }
 
-interface ReportTransaction {
-  id: string;
-  date: string;
-  material: string;
-  supplierName: string;
-  supplierId: string;
-  totalAmount: number;
-  weight: number;
-  createdAt: string;
-  paymentStatus: string;
-  isWalkin: boolean;
-  walkinName?: string | null;
-}
-
 interface Supplier {
   id: string;
   name: string;

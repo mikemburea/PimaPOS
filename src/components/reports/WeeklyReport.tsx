@@ -1,4 +1,4 @@
-// src/components/reports/WeeklyReport.tsx - Fixed with proper props interface
+// src/components/reports/WeeklyReport.tsx - Real Supabase integration
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Calendar, TrendingUp, DollarSign, Package, Users, AlertCircle, Loader2, BarChart3, Target } from 'lucide-react';
@@ -57,25 +57,8 @@ interface Supplier {
   registered_by?: string | null;
 }
 
-// FIXED: Interface to match App.tsx expectations
-interface ReportTransaction {
-  id: string;
-  date: string;
-  material: string;
-  supplierName: string;
-  supplierId: string;
-  totalAmount: number;
-  weight: number;
-  createdAt: string;
-  paymentStatus: string;
-  isWalkin: boolean;
-  walkinName?: string | null;
-}
-
-// FIXED: Updated WeeklyReportProps to match what App.tsx passes
 interface WeeklyReportProps {
-  transactions: ReportTransaction[];
-  weekStartDate: Date;
+  weekStartDate?: Date;
 }
 
 interface DailyStats {
@@ -142,10 +125,10 @@ const EmptyState = ({ weekRange }: { weekRange: string }) => (
   </div>
 );
 
-// FIXED: Updated component to use props from App.tsx
-const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate }) => {
+const WeeklyReport: React.FC<WeeklyReportProps> = ({ weekStartDate = new Date() }) => {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [previousWeekTransactions, setPreviousWeekTransactions] = useState<ReportTransaction[]>([]);
+  const [previousWeekTransactions, setPreviousWeekTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -166,13 +149,46 @@ const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate
   endOfPreviousWeek.setDate(endOfPreviousWeek.getDate() + 6);
   endOfPreviousWeek.setHours(23, 59, 59, 999);
 
-  // Fetch suppliers and previous week data
-  const fetchAdditionalData = async () => {
+  // Fetch data from Supabase
+  const fetchWeeklyData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch suppliers from Supabase (we still need this for supplier names)
+      // Format dates for SQL query
+      const startDateStr = startOfWeek.toISOString().split('T')[0];
+      const endDateStr = endOfWeek.toISOString().split('T')[0];
+      const prevStartDateStr = startOfPreviousWeek.toISOString().split('T')[0];
+      const prevEndDateStr = endOfPreviousWeek.toISOString().split('T')[0];
+
+      // Fetch current week transactions
+      const { data: currentWeekData, error: currentWeekError } = await supabase
+        .from('transactions')
+        .select('*')
+        .gte('transaction_date', startDateStr)
+        .lte('transaction_date', endDateStr)
+        .order('created_at', { ascending: false });
+
+      if (currentWeekError) {
+        throw new Error(`Error fetching current week transactions: ${currentWeekError.message}`);
+      }
+
+      // Fetch previous week transactions for comparison
+      const { data: previousWeekData, error: previousWeekError } = await supabase
+        .from('transactions')
+        .select('*')
+        .gte('transaction_date', prevStartDateStr)
+        .lte('transaction_date', prevEndDateStr)
+        .order('created_at', { ascending: false });
+
+      if (previousWeekError) {
+        console.warn('Could not fetch previous week data:', previousWeekError.message);
+        setPreviousWeekTransactions([]);
+      } else {
+        setPreviousWeekTransactions(previousWeekData || []);
+      }
+
+      // Fetch suppliers
       const { data: suppliersData, error: suppliersError } = await supabase
         .from('suppliers')
         .select('*')
@@ -182,45 +198,52 @@ const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate
         throw new Error(`Error fetching suppliers: ${suppliersError.message}`);
       }
 
+      setTransactions(currentWeekData || []);
       setSuppliers(suppliersData || []);
 
-      // For previous week comparison, we'd ideally want this from parent component
-      // For now, we'll use empty array and note this limitation
-      setPreviousWeekTransactions([]);
-
     } catch (err) {
-      console.error('Error fetching additional data:', err);
+      console.error('Error fetching weekly data:', err);
       setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
     } finally {
       setLoading(false);
     }
   };
 
-  // Filter transactions for the current week using prop data
+  // Filter transactions for the current week
   const weekTransactions = transactions.filter(t => {
-    const transactionDate = new Date(t.date);
+    const transactionDate = new Date(t.transaction_date);
     return transactionDate >= startOfWeek && transactionDate <= endOfWeek;
   });
 
-  // Calculate weekly stats from prop transactions
-  const totalRevenue = weekTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
-  const totalWeight = weekTransactions.reduce((sum, t) => sum + (t.weight || 0), 0);
+  // Calculate weekly stats
+  const totalRevenue = weekTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+  const totalWeight = weekTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
   const avgDailyRevenue = totalRevenue / 7;
-  const uniqueSuppliers = new Set(weekTransactions.map(t => t.supplierId || t.walkinName || 'unknown')).size;
+  const uniqueSuppliers = new Set(weekTransactions.map(t => t.supplier_id || t.walkin_name || 'unknown')).size;
 
-  // Calculate previous week stats for comparison (limited without historical data)
-  const previousWeekRevenue = previousWeekTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+  // Calculate previous week stats for comparison
+  const previousWeekRevenue = previousWeekTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
   const revenueGrowth = previousWeekRevenue > 0 
     ? ((totalRevenue - previousWeekRevenue) / previousWeekRevenue * 100) 
     : totalRevenue > 0 ? 100 : 0;
 
-  // Daily breakdown using prop transactions
+  // Get supplier name helper function
+  const getSupplierName = (transaction: Transaction): string => {
+    if (transaction.is_walkin) {
+      return transaction.walkin_name || 'Walk-in Customer';
+    }
+    
+    const supplier = suppliers.find(s => s.id === transaction.supplier_id);
+    return supplier?.name || 'Unknown Supplier';
+  };
+
+  // Daily breakdown
   const dailyStats: DailyStats[] = Array.from({ length: 7 }, (_, i) => {
     const day = new Date(startOfWeek);
     day.setDate(day.getDate() + i);
     
     const dayTransactions = weekTransactions.filter(t => {
-      const transactionDate = new Date(t.date);
+      const transactionDate = new Date(t.transaction_date);
       return transactionDate.toDateString() === day.toDateString();
     });
 
@@ -228,14 +251,14 @@ const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate
       day: day.toLocaleDateString('en-US', { weekday: 'short' }),
       date: day.toLocaleDateString(),
       transactions: dayTransactions.length,
-      revenue: dayTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0),
-      weight: dayTransactions.reduce((sum, t) => sum + (t.weight || 0), 0)
+      revenue: dayTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0),
+      weight: dayTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0)
     };
   });
 
-  // Material performance using prop transactions
+  // Material performance
   const materialPerformance = weekTransactions.reduce((acc, t) => {
-    const material = t.material;
+    const material = t.material_type;
     if (!acc[material]) {
       acc[material] = { 
         transactions: 0, 
@@ -245,8 +268,8 @@ const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate
       };
     }
     acc[material].transactions++;
-    acc[material].weight += t.weight || 0;
-    acc[material].revenue += t.totalAmount || 0;
+    acc[material].weight += t.weight_kg || 0;
+    acc[material].revenue += t.total_amount || 0;
     acc[material].avgPrice = acc[material].weight > 0 ? acc[material].revenue / acc[material].weight : 0;
     return acc;
   }, {} as Record<string, MaterialPerformance>);
@@ -256,15 +279,15 @@ const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate
     prev.revenue > current.revenue ? prev : current
   );
 
-  // Supplier performance this week using prop transactions
+  // Supplier performance this week
   const supplierPerformance = weekTransactions.reduce((acc, t) => {
-    const supplierName = t.supplierName;
+    const supplierName = getSupplierName(t);
     if (!acc[supplierName]) {
       acc[supplierName] = { transactions: 0, revenue: 0, weight: 0 };
     }
     acc[supplierName].transactions++;
-    acc[supplierName].revenue += t.totalAmount || 0;
-    acc[supplierName].weight += t.weight || 0;
+    acc[supplierName].revenue += t.total_amount || 0;
+    acc[supplierName].weight += t.weight_kg || 0;
     return acc;
   }, {} as Record<string, { transactions: number; revenue: number; weight: number }>);
 
@@ -272,10 +295,57 @@ const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate
     .sort(([, a], [, b]) => b.revenue - a.revenue)
     .slice(0, 5);
 
-  // Load additional data on component mount
+  // Load data on component mount and when week changes
   useEffect(() => {
-    fetchAdditionalData();
+    fetchWeeklyData();
   }, [weekStartDate]);
+
+  // Setup real-time subscription for this week's transactions
+  useEffect(() => {
+    const startDateStr = startOfWeek.toISOString().split('T')[0];
+    const endDateStr = endOfWeek.toISOString().split('T')[0];
+    
+    const channel = supabase
+      .channel('weekly-transactions')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'transactions',
+          filter: `transaction_date=gte.${startDateStr},transaction_date=lte.${endDateStr}`
+        },
+        (payload) => {
+          const newTransaction = payload.new as Transaction;
+          const transactionDate = new Date(newTransaction.transaction_date);
+          
+          // Only add if it's within this week
+          if (transactionDate >= startOfWeek && transactionDate <= endOfWeek) {
+            setTransactions(current => [newTransaction, ...current]);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'transactions',
+          filter: `transaction_date=gte.${startDateStr},transaction_date=lte.${endDateStr}`
+        },
+        (payload) => {
+          const updatedTransaction = payload.new as Transaction;
+          setTransactions(current =>
+            current.map(t => t.id === updatedTransaction.id ? updatedTransaction : t)
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [startOfWeek, endOfWeek]);
 
   if (loading) {
     return (
@@ -291,7 +361,7 @@ const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate
     return (
       <div className="space-y-6">
         <div className="bg-white p-6 rounded-lg shadow-md">
-          <ErrorDisplay error={error} onRetry={fetchAdditionalData} />
+          <ErrorDisplay error={error} onRetry={fetchWeeklyData} />
         </div>
       </div>
     );
@@ -308,13 +378,6 @@ const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate
             <Calendar size={20} />
             <p>{weekRange}</p>
           </div>
-        </div>
-
-        {/* Show data source indicator */}
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-800">
-            ✓ Using {transactions.length} transactions from current data ({weekTransactions.length} in this week)
-          </p>
         </div>
 
         {weekTransactions.length === 0 ? (
@@ -339,7 +402,7 @@ const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate
                     <h3 className="text-sm font-medium text-green-700">Total Revenue</h3>
                     <p className="text-2xl font-bold text-green-900">KES {totalRevenue.toLocaleString()}</p>
                     <p className="text-xs text-green-600 mt-1">
-                      {revenueGrowth >= 0 ? '↑' : '↓'} {Math.abs(revenueGrowth).toFixed(1)}% vs last week*
+                      {revenueGrowth >= 0 ? '↑' : '↓'} {Math.abs(revenueGrowth).toFixed(1)}% vs last week
                     </p>
                   </div>
                   <DollarSign className="text-green-600" size={24} />
@@ -493,7 +556,7 @@ const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <ul className="space-y-1 text-sm text-blue-800">
-                    <li>• Using {transactions.length} total transactions ({weekTransactions.length} this week)</li>
+                    <li>• Revenue {revenueGrowth >= 0 ? 'increased' : 'decreased'} by {Math.abs(revenueGrowth).toFixed(1)}% compared to last week</li>
                     <li>• Average daily transactions: {(weekTransactions.length / 7).toFixed(1)}</li>
                     <li>• Most profitable material: {Object.entries(materialPerformance).sort(([,a], [,b]) => b.revenue - a.revenue)[0]?.[0] || 'N/A'}</li>
                   </ul>
@@ -506,13 +569,6 @@ const WeeklyReport: React.FC<WeeklyReportProps> = ({ transactions, weekStartDate
                   </ul>
                 </div>
               </div>
-              {previousWeekTransactions.length === 0 && (
-                <div className="mt-4 p-2 bg-yellow-50 border border-yellow-200 rounded">
-                  <p className="text-xs text-yellow-800">
-                    * Growth comparison limited without historical data. Consider implementing week-over-week tracking.
-                  </p>
-                </div>
-              )}
             </div>
           </>
         )}

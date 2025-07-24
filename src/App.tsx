@@ -431,11 +431,11 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
       case 'reports-daily':
         return <DailyReport currentDate={new Date()} />;
       case 'reports-weekly':
-        return <WeeklyReport />;
+        return <WeeklyReport transactions={reportTransactions} weekStartDate={new Date()} />;
       case 'reports-monthly':
-        return <MonthlyReport />;
+        return <MonthlyReport transactions={reportTransactions} month={new Date()} />;
       case 'reports-custom':
-        return <CustomReport />;
+        return <CustomReport transactions={reportTransactions} />;
       case 'settings':
         return <SettingsPage />;
       default:

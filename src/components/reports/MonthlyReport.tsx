@@ -1,20 +1,61 @@
-// src/components/reports/MonthlyReport.tsx - Updated to use shared types and utilities
+// src/components/reports/MonthlyReport.tsx - Fixed with proper props interface
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Calendar, TrendingUp, DollarSign, Package, Users, AlertCircle, Loader2, BarChart3, Target, Award, TrendingDown } from 'lucide-react';
 
-// Import shared types and utilities
-import {
-  DatabaseTransaction,
-  DatabaseSupplier,
-  getSupplierName,
-  calculateMaterialBreakdown,
-  calculateSupplierStats,
-  formatCurrency,
-  formatWeight,
-  formatPercentage,
-  getDateRange
-} from '../../types/reportTypes';
+// Define interfaces matching your database structure
+interface Transaction {
+  id: string;
+  supplier_id?: string | null;
+  material_type: string;
+  transaction_date: string;
+  total_amount: number;
+  created_at: string;
+  transaction_number?: string | null;
+  is_walkin: boolean;
+  walkin_name?: string | null;
+  walkin_phone?: string | null;
+  material_category?: string | null;
+  weight_kg?: number | null;
+  unit_price?: number | null;
+  payment_method?: string | null;
+  payment_status?: string | null;
+  payment_reference?: string | null;
+  quality_grade?: string | null;
+  deductions?: number | null;
+  final_amount?: number | null;
+  receipt_number?: string | null;
+  notes?: string | null;
+  created_by?: string | null;
+  updated_at?: string | null;
+}
+
+interface Supplier {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  material_types: string[];
+  total_transactions: number;
+  total_value: number;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  contact_person?: string | null;
+  website?: string | null;
+  notes?: string | null;
+  supplier_tier?: string | null;
+  credit_limit?: number | null;
+  preferred_payment_method?: string | null;
+  total_weight?: number | null;
+  first_transaction_date?: string | null;
+  last_transaction_date?: string | null;
+  average_transaction_value?: number | null;
+  registration_reason?: string | null;
+  registered_date?: string | null;
+  registered_by?: string | null;
+}
 
 // FIXED: Interface to match App.tsx expectations
 interface ReportTransaction {
@@ -37,7 +78,6 @@ interface MonthlyReportProps {
   month: Date;
 }
 
-// Additional interfaces for monthly-specific data
 interface WeeklyBreakdown {
   week: string;
   period: string;
@@ -115,54 +155,26 @@ const EmptyState = ({ monthName }: { monthName: string }) => (
   </div>
 );
 
-// Transform ReportTransaction to DatabaseTransaction for utility functions
-const transformReportToDatabase = (reportTx: ReportTransaction): DatabaseTransaction => {
-  return {
-    id: reportTx.id,
-    supplier_id: reportTx.isWalkin ? null : reportTx.supplierId,
-    material_type: reportTx.material,
-    transaction_date: reportTx.date,
-    total_amount: reportTx.totalAmount,
-    created_at: reportTx.createdAt,
-    is_walkin: reportTx.isWalkin,
-    walkin_name: reportTx.walkinName,
-    weight_kg: reportTx.weight,
-    payment_status: reportTx.paymentStatus,
-    payment_method: reportTx.paymentStatus === 'completed' ? 'cash' : 'pending',
-    quality_grade: reportTx.paymentStatus === 'completed' ? 'Grade A' : 'Pending',
-    transaction_number: null,
-    walkin_phone: null,
-    material_category: null,
-    unit_price: reportTx.weight > 0 ? reportTx.totalAmount / reportTx.weight : 0,
-    payment_reference: null,
-    deductions: null,
-    final_amount: reportTx.totalAmount,
-    receipt_number: null,
-    notes: null,
-    created_by: null,
-    updated_at: null
-  };
-};
-
-// FIXED: Updated component to use shared types and utilities
+// FIXED: Updated component to use props from App.tsx
 const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) => {
-  const [suppliers, setSuppliers] = useState<DatabaseSupplier[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [previousMonthTransactions, setPreviousMonthTransactions] = useState<ReportTransaction[]>([]);
   const [previousYearTransactions, setPreviousYearTransactions] = useState<ReportTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Calculate month range using utility function
-  const { start: startOfMonth, end: endOfMonth } = getDateRange('month', month, month);
+  // Calculate month range
+  const startOfMonth = new Date(month.getFullYear(), month.getMonth(), 1);
+  const endOfMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0, 23, 59, 59, 999);
   const monthName = month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   // Calculate previous month range for comparison
-  const previousMonth = new Date(month.getFullYear(), month.getMonth() - 1, 1);
-  const { start: startOfPreviousMonth, end: endOfPreviousMonth } = getDateRange('month', previousMonth, previousMonth);
+  const startOfPreviousMonth = new Date(month.getFullYear(), month.getMonth() - 1, 1);
+  const endOfPreviousMonth = new Date(month.getFullYear(), month.getMonth(), 0, 23, 59, 59, 999);
 
   // Calculate same month previous year for YoY comparison
-  const previousYear = new Date(month.getFullYear() - 1, month.getMonth(), 1);
-  const { start: startOfPreviousYear, end: endOfPreviousYear } = getDateRange('month', previousYear, previousYear);
+  const startOfPreviousYear = new Date(month.getFullYear() - 1, month.getMonth(), 1);
+  const endOfPreviousYear = new Date(month.getFullYear() - 1, month.getMonth() + 1, 0, 23, 59, 59, 999);
 
   // Fetch suppliers and historical data
   const fetchAdditionalData = async () => {
@@ -170,7 +182,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
       setLoading(true);
       setError(null);
 
-      // Fetch suppliers from Supabase
+      // Fetch suppliers from Supabase (we still need this for supplier names)
       const { data: suppliersData, error: suppliersError } = await supabase
         .from('suppliers')
         .select('*')
@@ -201,17 +213,11 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
     return transactionDate >= startOfMonth && transactionDate <= endOfMonth;
   });
 
-  // Transform to database format for utility functions
-  const dbTransactions = monthTransactions.map(transformReportToDatabase);
-
-  // Calculate monthly stats using utility functions
-  const materialBreakdown = calculateMaterialBreakdown(dbTransactions);
-  const supplierStats = calculateSupplierStats(dbTransactions, suppliers);
-  
-  const totalRevenue = dbTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
-  const totalWeight = dbTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
+  // Calculate monthly stats from prop transactions
+  const totalRevenue = monthTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+  const totalWeight = monthTransactions.reduce((sum, t) => sum + (t.weight || 0), 0);
   const avgTransactionValue = monthTransactions.length > 0 ? totalRevenue / monthTransactions.length : 0;
-  const uniqueSuppliers = Object.keys(supplierStats).length;
+  const uniqueSuppliers = new Set(monthTransactions.map(t => t.supplierId || t.walkinName || 'unknown')).size;
 
   // Calculate days in month for daily average
   const daysInMonth = endOfMonth.getDate();
@@ -255,8 +261,8 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
     weekStart.setDate(weekStart.getDate() + 1);
   }
 
-  // Enhanced material analysis using both utility functions and custom logic
-  const enhancedMaterialAnalysis = monthTransactions.reduce((acc, t) => {
+  // Material analysis using prop transactions
+  const materialAnalysis = monthTransactions.reduce((acc, t) => {
     const material = t.material;
     if (!acc[material]) {
       acc[material] = {
@@ -289,8 +295,8 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
   }, {} as Record<string, MaterialAnalysis>);
 
   // Calculate average prices and supplier counts
-  Object.keys(enhancedMaterialAnalysis).forEach(material => {
-    const analysis = enhancedMaterialAnalysis[material];
+  Object.keys(materialAnalysis).forEach(material => {
+    const analysis = materialAnalysis[material];
     analysis.avgPrice = analysis.weight > 0 ? analysis.revenue / analysis.weight : 0;
     analysis.supplierCount = analysis.suppliers.size;
     
@@ -300,16 +306,30 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
     }
   });
 
-  // Top performing suppliers using utility stats
-  const topSuppliers = Object.entries(supplierStats)
-    .map(([name, stats]) => ({
-      name,
-      transactions: stats.transactions,
-      revenue: stats.revenue,
-      weight: stats.weight,
-      materials: new Set(monthTransactions.filter(t => t.supplierName === name).map(t => t.material)),
-      materialCount: 0
-    }))
+  // Top performing suppliers using prop transactions
+  const supplierPerformance = monthTransactions.reduce((acc, t) => {
+    const supplierName = t.supplierName;
+    
+    if (!acc[supplierName]) {
+      acc[supplierName] = {
+        name: supplierName,
+        transactions: 0,
+        revenue: 0,
+        weight: 0,
+        materials: new Set<string>(),
+        materialCount: 0
+      };
+    }
+    
+    acc[supplierName].transactions++;
+    acc[supplierName].revenue += t.totalAmount || 0;
+    acc[supplierName].weight += t.weight || 0;
+    acc[supplierName].materials.add(t.material);
+    
+    return acc;
+  }, {} as Record<string, SupplierPerformance>);
+
+  const topSuppliers = Object.values(supplierPerformance)
     .map(supplier => ({
       ...supplier,
       materialCount: supplier.materials.size
@@ -369,7 +389,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
           <EmptyState monthName={monthName} />
         ) : (
           <>
-            {/* Summary Cards - Using utility formatting functions */}
+            {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
               <div className="bg-blue-50 p-4 rounded-lg">
                 <div className="flex items-center justify-between">
@@ -385,9 +405,9 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-medium text-green-700">Revenue</h3>
-                    <p className="text-2xl font-bold text-green-900">{formatCurrency(totalRevenue / 1000)}K</p>
+                    <p className="text-2xl font-bold text-green-900">KES {(totalRevenue / 1000).toFixed(1)}K</p>
                     <p className="text-xs text-green-600 mt-1">
-                      {yoyGrowth >= 0 ? '↑' : '↓'} {formatPercentage(Math.abs(yoyGrowth))} vs last year*
+                      {yoyGrowth >= 0 ? '↑' : '↓'} {Math.abs(yoyGrowth).toFixed(1)}% vs last year*
                     </p>
                   </div>
                   <DollarSign className="text-green-600" size={20} />
@@ -407,7 +427,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-medium text-orange-700">Avg Transaction</h3>
-                    <p className="text-2xl font-bold text-orange-900">{formatCurrency(avgTransactionValue)}</p>
+                    <p className="text-2xl font-bold text-orange-900">KES {avgTransactionValue.toFixed(0)}</p>
                     <p className="text-xs text-orange-600 mt-1">Per transaction</p>
                   </div>
                   <Target className="text-orange-600" size={20} />
@@ -446,7 +466,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transactions</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (kg)</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trend</th>
                     </tr>
                   </thead>
@@ -470,13 +490,13 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                           <td className="px-4 py-3 text-sm text-gray-600">{week.period}</td>
                           <td className="px-4 py-3 text-sm text-gray-600">{week.transactions}</td>
                           <td className="px-4 py-3 text-sm text-gray-900 font-medium">
-                            {formatCurrency(week.revenue)}
+                            KES {week.revenue.toLocaleString()}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{formatWeight(week.weight)}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{week.weight.toFixed(1)}</td>
                           <td className="px-4 py-3 text-sm">
                             {index > 0 && prevWeek && prevWeek.revenue > 0 && (
                               <span className={`font-medium ${trend >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {trend >= 0 ? '↑' : '↓'} {formatPercentage(Math.abs(trend))}
+                                {trend >= 0 ? '↑' : '↓'} {Math.abs(trend).toFixed(1)}%
                               </span>
                             )}
                           </td>
@@ -488,10 +508,10 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
               </div>
             </div>
 
-            {/* Material Analysis - Using utility calculations and formatting */}
+            {/* Material Analysis */}
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-800 mb-3">Material Analysis</h3>
-              {Object.keys(enhancedMaterialAnalysis).length === 0 ? (
+              {Object.keys(materialAnalysis).length === 0 ? (
                 <p className="text-gray-500 text-center py-4">No materials processed this month</p>
               ) : (
                 <div className="overflow-x-auto">
@@ -499,7 +519,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Volume</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Volume (kg)</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Price/kg</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price Range</th>
@@ -507,21 +527,21 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {Object.entries(enhancedMaterialAnalysis)
+                      {Object.entries(materialAnalysis)
                         .sort(([,a], [,b]) => b.revenue - a.revenue)
                         .map(([material, stats]) => (
                           <tr key={material} className="hover:bg-gray-50">
                             <td className="px-4 py-3 text-sm font-medium text-gray-900">{material}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600">{formatWeight(stats.weight)}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600">{stats.weight.toFixed(1)}</td>
                             <td className="px-4 py-3 text-sm text-gray-900 font-medium">
-                              {formatCurrency(stats.revenue)}
+                              KES {stats.revenue.toLocaleString()}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-600">
-                              {formatCurrency(stats.avgPrice)}/kg
+                              KES {stats.avgPrice.toFixed(2)}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-600">
                               {stats.minPrice > 0 && stats.maxPrice > 0 ? (
-                                <>{formatCurrency(stats.minPrice)}/kg - {formatCurrency(stats.maxPrice)}/kg</>
+                                <>KES {stats.minPrice.toFixed(2)} - {stats.maxPrice.toFixed(2)}</>
                               ) : (
                                 'N/A'
                               )}
@@ -535,7 +555,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
               )}
             </div>
 
-            {/* Top Suppliers - Using utility calculations and formatting */}
+            {/* Top Suppliers */}
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-800 mb-3">Top 10 Suppliers</h3>
               {topSuppliers.length === 0 ? (
@@ -549,7 +569,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transactions</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (kg)</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Materials</th>
                       </tr>
                     </thead>
@@ -567,9 +587,9 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                           <td className="px-4 py-3 text-sm font-medium text-gray-900">{supplier.name}</td>
                           <td className="px-4 py-3 text-sm text-gray-600">{supplier.transactions}</td>
                           <td className="px-4 py-3 text-sm text-gray-900 font-medium">
-                            {formatCurrency(supplier.revenue)}
+                            KES {supplier.revenue.toLocaleString()}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{formatWeight(supplier.weight)}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{supplier.weight.toFixed(1)}</td>
                           <td className="px-4 py-3 text-sm text-gray-600">{supplier.materialCount} types</td>
                         </tr>
                       ))}
@@ -579,7 +599,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
               )}
             </div>
 
-            {/* Growth Comparison - Using utility formatting */}
+            {/* Growth Comparison */}
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-800 mb-3">Growth Analysis</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -592,14 +612,14 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                       <TrendingDown className="text-red-600" size={20} />
                     )}
                     <span className={`text-2xl font-bold ${monthOverMonthGrowth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {monthOverMonthGrowth >= 0 ? '+' : ''}{formatPercentage(monthOverMonthGrowth)}*
+                      {monthOverMonthGrowth >= 0 ? '+' : ''}{monthOverMonthGrowth.toFixed(1)}%*
                     </span>
                   </div>
                   <p className="text-sm text-blue-800 mt-1">
                     Compared to previous month
                   </p>
                   <p className="text-xs text-blue-600 mt-2">
-                    Previous month: {formatCurrency(previousMonthRevenue)}
+                    Previous month: KES {previousMonthRevenue.toLocaleString()}
                   </p>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg">
@@ -611,28 +631,28 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                       <TrendingDown className="text-red-600" size={20} />
                     )}
                     <span className={`text-2xl font-bold ${yoyGrowth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {yoyGrowth >= 0 ? '+' : ''}{formatPercentage(yoyGrowth)}*
+                      {yoyGrowth >= 0 ? '+' : ''}{yoyGrowth.toFixed(1)}%*
                     </span>
                   </div>
                   <p className="text-sm text-purple-800 mt-1">
                     Compared to same month last year
                   </p>
                   <p className="text-xs text-purple-600 mt-2">
-                    Previous year: {formatCurrency(previousYearRevenue)}
+                    Previous year: KES {previousYearRevenue.toLocaleString()}
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Monthly Summary - Using utility formatting */}
+            {/* Monthly Summary */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                 <h3 className="text-lg font-semibold text-green-900 mb-2">Key Achievements</h3>
                 <ul className="space-y-1 text-sm text-green-800">
-                  <li>• Total revenue: {formatCurrency(totalRevenue)}</li>
+                  <li>• Total revenue: KES {totalRevenue.toLocaleString()}</li>
                   <li>• Using {transactions.length} total transactions in dataset</li>
-                  <li>• Average daily revenue: {formatCurrency(totalRevenue / daysInMonth)}</li>
-                  <li>• Most valuable material: {Object.entries(enhancedMaterialAnalysis).sort(([,a], [,b]) => b.revenue - a.revenue)[0]?.[0] || 'N/A'}</li>
+                  <li>• Average daily revenue: KES {(totalRevenue / daysInMonth).toFixed(0)}</li>
+                  <li>• Most valuable material: {Object.entries(materialAnalysis).sort(([,a], [,b]) => b.revenue - a.revenue)[0]?.[0] || 'N/A'}</li>
                   <li>• Top supplier: {topSuppliers[0]?.name || 'N/A'}</li>
                   <li>• Best performing week: {bestWeek.week}</li>
                 </ul>
@@ -650,24 +670,24 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
               </div>
             </div>
 
-            {/* Monthly Insights - Using utility calculations and formatting */}
+            {/* Monthly Insights */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
               <h3 className="text-lg font-semibold text-blue-900 mb-2">Monthly Insights</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <ul className="space-y-1 text-sm text-blue-800">
                     <li>• Total transactions: {monthTransactions.length}</li>
-                    <li>• Average transaction value: {formatCurrency(avgTransactionValue)}</li>
-                    <li>• Most popular material: {Object.entries(enhancedMaterialAnalysis).sort(([,a], [,b]) => b.transactions - a.transactions)[0]?.[0] || 'N/A'}</li>
+                    <li>• Average transaction value: KES {avgTransactionValue.toFixed(0)}</li>
+                    <li>• Most popular material: {Object.entries(materialAnalysis).sort(([,a], [,b]) => b.transactions - a.transactions)[0]?.[0] || 'N/A'}</li>
                     <li>• Unique suppliers served: {uniqueSuppliers}</li>
                   </ul>
                 </div>
                 <div>
                   <ul className="space-y-1 text-sm text-blue-800">
                     <li>• Best week: {bestWeek.week} ({bestWeek.transactions} transactions)</li>
-                    <li>• Total materials processed: {Object.keys(enhancedMaterialAnalysis).length} types</li>
+                    <li>• Total materials processed: {Object.keys(materialAnalysis).length} types</li>
                     <li>• Average daily transactions: {dailyAverage.toFixed(1)}</li>
-                    <li>• Revenue per kg: {totalWeight > 0 ? formatCurrency(totalRevenue / totalWeight) : formatCurrency(0)}/kg</li>
+                    <li>• Revenue per kg: KES {totalWeight > 0 ? (totalRevenue / totalWeight).toFixed(2) : '0'}</li>
                   </ul>
                 </div>
               </div>
