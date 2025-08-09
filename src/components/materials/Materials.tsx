@@ -1,4 +1,3 @@
-// src/components/materials/Materials.tsx - Complete working version
 import React, { useState } from 'react';
 import { Search, Plus, Edit2, X, Save, Trash2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -168,145 +167,221 @@ const MaterialModal: React.FC<MaterialModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 bg-gray-500 bg-opacity-5 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto shadow-2xl border-2 border-gray-500 ring-4 ring-gray-200 ring-opacity-50">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold">
-            {mode === 'add' ? 'Add New Material' : 'Edit Material'}
-          </h2>
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    {/* Enhanced Backdrop with animated blur and gradient overlay */}
+    <div 
+      className="fixed inset-0 bg-gradient-to-br from-gray-900/15 via-slate-800/10 to-gray-900/20 backdrop-blur-sm transition-all duration-500 ease-out animate-in fade-in"
+      onClick={handleClose}
+    />
+      
+      {/* Modal Container with glass morphism and enhanced shadows */}
+      <div className="relative bg-white/95 backdrop-blur-xl w-full max-w-sm sm:max-w-md rounded-3xl shadow-2xl border border-white/20 transform transition-all duration-500 ease-out animate-in zoom-in-95 slide-in-from-bottom-4">
+          
+        {/* Gradient overlay for depth */}
+        <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-white/80 via-white/60 to-white/40 pointer-events-none" />
+        
+        {/* Mobile Handle Bar with gradient */}
+        <div className="sm:hidden absolute top-4 left-1/2 transform -translate-x-1/2 w-12 h-1.5 bg-gradient-to-r from-gray-300 via-gray-400 to-gray-300 rounded-full shadow-sm" />
+        
+        {/* Header with enhanced styling */}
+        <div className="relative flex items-center justify-between px-6 pt-6 pb-4 sm:p-7 border-b border-gray-100/80 bg-gradient-to-r from-teal-50/30 to-emerald-50/30 rounded-t-3xl">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-2xl flex items-center justify-center shadow-lg">
+              <span className="text-white text-lg sm:text-xl">
+                {mode === 'add' ? '➕' : '✏️'}
+              </span>
+            </div>
+            <div>
+              <h2 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
+                {mode === 'add' ? 'Add New Material' : 'Edit Material'}
+              </h2>
+              <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
+                {mode === 'add' ? 'Create a new recyclable material' : 'Update material information'}
+              </p>
+            </div>
+          </div>
           <button
             onClick={handleClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="relative p-2.5 hover:bg-red-50 rounded-2xl transition-all duration-300 hover:rotate-90 group shadow-sm border border-gray-100/50"
             type="button"
           >
-            <X size={20} />
+            <X size={18} className="text-gray-400 group-hover:text-red-500 transition-colors duration-300" />
           </button>
         </div>
 
-        {errors.submit && (
-          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
-            {errors.submit}
-          </div>
-        )}
+        {/* Content with enhanced spacing and backdrop */}
+        <div className="relative px-6 py-5 sm:p-7 max-h-[60vh] sm:max-h-[65vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+          {errors.submit && (
+            <div className="mb-4 p-4 bg-gradient-to-r from-red-50 to-pink-50 border border-red-200/50 text-red-700 rounded-2xl text-xs sm:text-sm shadow-sm animate-in slide-in-from-top-2">
+              <div className="flex items-center gap-2">
+                <span className="text-red-500">⚠️</span>
+                {errors.submit}
+              </div>
+            </div>
+          )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Material Name *
-            </label>
-            <input
-              type="text"
-              name="name"
-              value={formData.name}
-              onChange={handleInputChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${
-                errors.name ? 'border-red-500' : 'border-gray-300'
-              }`}
-              placeholder="Enter material name"
-              required
-            />
-            {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-          </div>
+          <div className="space-y-5 sm:space-y-6">
+            {/* Material Name with floating label effect */}
+            <div className="relative group">
+              <label className="absolute -top-2.5 left-3 bg-white px-2 text-xs sm:text-sm font-semibold text-teal-700 z-10 transition-all duration-300 group-focus-within:text-teal-600">
+                Material Name *
+              </label>
+              <input
+                type="text"
+                name="name"
+                value={formData.name}
+                onChange={handleInputChange}
+                className={`w-full px-4 py-3 sm:py-3.5 border-2 rounded-2xl focus:outline-none focus:ring-4 focus:ring-teal-500/20 transition-all duration-300 text-sm sm:text-base backdrop-blur-sm ${
+                  errors.name 
+                    ? 'border-red-300 bg-red-50/50 focus:border-red-400' 
+                    : 'border-gray-200/80 bg-white/70 hover:border-teal-300 focus:border-teal-400 hover:bg-white/90'
+                }`}
+                placeholder="Enter material name"
+                required
+              />
+              {errors.name && (
+                <p className="text-red-500 text-xs mt-2 flex items-center gap-1 animate-in slide-in-from-top-1">
+                  <span>❌</span> {errors.name}
+                </p>
+              )}
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Description
-            </label>
-            <textarea
-              name="description"
-              value={formData.description}
-              onChange={handleInputChange}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
-              placeholder="Enter material description"
-            />
-          </div>
+            {/* Description with enhanced styling */}
+            <div className="relative group">
+              <label className="absolute -top-2.5 left-3 bg-white px-2 text-xs sm:text-sm font-semibold text-teal-700 z-10 transition-all duration-300 group-focus-within:text-teal-600">
+                Description
+              </label>
+              <textarea
+                name="description"
+                value={formData.description}
+                onChange={handleInputChange}
+                rows={3}
+                className="w-full px-4 py-3 sm:py-3.5 border-2 border-gray-200/80 rounded-2xl focus:outline-none focus:ring-4 focus:ring-teal-500/20 hover:border-teal-300 focus:border-teal-400 transition-all duration-300 resize-none text-sm sm:text-base bg-white/70 hover:bg-white/90 backdrop-blur-sm"
+                placeholder="Enter material description (optional)"
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Category *
-            </label>
-            <select
-              name="category"
-              value={formData.category}
-              onChange={handleInputChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${
-                errors.category ? 'border-red-500' : 'border-gray-300'
-              }`}
-              required
-            >
-              {categories.map(cat => (
-                <option key={cat.value} value={cat.value}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
-            {errors.category && <p className="text-red-500 text-sm mt-1">{errors.category}</p>}
-          </div>
+            {/* Category with enhanced dropdown */}
+            <div className="relative group">
+              <label className="absolute -top-2.5 left-3 bg-white px-2 text-xs sm:text-sm font-semibold text-teal-700 z-10 transition-all duration-300 group-focus-within:text-teal-600">
+                Category *
+              </label>
+              <div className="relative">
+                <select
+                  name="category"
+                  value={formData.category}
+                  onChange={handleInputChange}
+                  className={`w-full px-4 py-3 sm:py-3.5 border-2 rounded-2xl focus:outline-none focus:ring-4 focus:ring-teal-500/20 transition-all duration-300 appearance-none text-sm sm:text-base backdrop-blur-sm cursor-pointer ${
+                    errors.category 
+                      ? 'border-red-300 bg-red-50/50 focus:border-red-400' 
+                      : 'border-gray-200/80 bg-white/70 hover:border-teal-300 focus:border-teal-400 hover:bg-white/90'
+                  }`}
+                  required
+                >
+                  {categories.map(cat => (
+                    <option key={cat.value} value={cat.value}>
+                      {cat.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+              {errors.category && (
+                <p className="text-red-500 text-xs mt-2 flex items-center gap-1 animate-in slide-in-from-top-1">
+                  <span>❌</span> {errors.category}
+                </p>
+              )}
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Current Price per KG (KES) *
-            </label>
-            <input
-              type="number"
-              name="current_price_per_kg"
-              value={formData.current_price_per_kg}
-              onChange={handleInputChange}
-              step="0.01"
-              min="0"
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${
-                errors.current_price_per_kg ? 'border-red-500' : 'border-gray-300'
-              }`}
-              placeholder="0.00"
-              required
-            />
-            {errors.current_price_per_kg && (
-              <p className="text-red-500 text-sm mt-1">{errors.current_price_per_kg}</p>
-            )}
-          </div>
+            {/* Price and Weight with card-like styling */}
+            <div className="grid grid-cols-2 gap-4 sm:gap-5">
+              <div className="relative group">
+                <label className="absolute -top-2.5 left-3 bg-white px-2 text-xs sm:text-sm font-semibold text-teal-700 z-10 transition-all duration-300 group-focus-within:text-teal-600">
+                  Price (KES) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-medium">₹</span>
+                  <input
+                    type="number"
+                    name="current_price_per_kg"
+                    value={formData.current_price_per_kg}
+                    onChange={handleInputChange}
+                    step="0.01"
+                    min="0"
+                    className={`w-full pl-8 pr-4 py-3 sm:py-3.5 border-2 rounded-2xl focus:outline-none focus:ring-4 focus:ring-teal-500/20 transition-all duration-300 text-sm sm:text-base backdrop-blur-sm ${
+                      errors.current_price_per_kg 
+                        ? 'border-red-300 bg-red-50/50 focus:border-red-400' 
+                        : 'border-gray-200/80 bg-white/70 hover:border-teal-300 focus:border-teal-400 hover:bg-white/90'
+                    }`}
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+                {errors.current_price_per_kg && (
+                  <p className="text-red-500 text-xs mt-1 flex items-center gap-1 animate-in slide-in-from-top-1">
+                    <span>❌</span> {errors.current_price_per_kg}
+                  </p>
+                )}
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Minimum Weight (KG) *
-            </label>
-            <input
-              type="number"
-              name="minimum_weight"
-              value={formData.minimum_weight}
-              onChange={handleInputChange}
-              step="0.001"
-              min="0"
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${
-                errors.minimum_weight ? 'border-red-500' : 'border-gray-300'
-              }`}
-              placeholder="0.000"
-              required
-            />
-            {errors.minimum_weight && (
-              <p className="text-red-500 text-sm mt-1">{errors.minimum_weight}</p>
-            )}
+              <div className="relative group">
+                <label className="absolute -top-2.5 left-3 bg-white px-2 text-xs sm:text-sm font-semibold text-teal-700 z-10 transition-all duration-300 group-focus-within:text-teal-600">
+                  Min Weight (KG) *
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    name="minimum_weight"
+                    value={formData.minimum_weight}
+                    onChange={handleInputChange}
+                    step="0.001"
+                    min="0"
+                    className={`w-full px-4 py-3 sm:py-3.5 border-2 rounded-2xl focus:outline-none focus:ring-4 focus:ring-teal-500/20 transition-all duration-300 text-sm sm:text-base backdrop-blur-sm ${
+                      errors.minimum_weight 
+                        ? 'border-red-300 bg-red-50/50 focus:border-red-400' 
+                        : 'border-gray-200/80 bg-white/70 hover:border-teal-300 focus:border-teal-400 hover:bg-white/90'
+                    }`}
+                    placeholder="0.000"
+                    required
+                  />
+                  <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-medium">kg</span>
+                </div>
+                {errors.minimum_weight && (
+                  <p className="text-red-500 text-xs mt-1 flex items-center gap-1 animate-in slide-in-from-top-1">
+                    <span>❌</span> {errors.minimum_weight}
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
+        </div>
 
-          <div className="flex gap-3 pt-4">
+        {/* Footer with gradient background and enhanced buttons */}
+        <div className="relative px-6 py-4 sm:p-7 border-t border-gray-100/80 bg-gradient-to-r from-gray-50/80 to-slate-50/80 rounded-b-3xl backdrop-blur-sm">
+          <div className="flex gap-3 sm:gap-4">
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              className="flex-1 py-3 sm:py-3.5 px-5 border-2 border-gray-300/80 text-gray-700 rounded-2xl hover:bg-gray-100/80 hover:border-gray-400 transition-all duration-300 font-semibold text-sm sm:text-base backdrop-blur-sm shadow-sm hover:shadow-md"
               disabled={isLoading}
             >
               Cancel
             </button>
             <button
               type="submit"
+              onClick={handleSubmit}
               disabled={isLoading}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 py-3 sm:py-3.5 px-5 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-2xl hover:from-teal-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 font-semibold text-sm sm:text-base shadow-lg hover:shadow-xl hover:scale-105 active:scale-95"
             >
-              <Save size={16} />
-              {isLoading ? 'Saving...' : 'Save'}
+              <Save size={16} className={isLoading ? 'animate-spin' : ''} />
+              {isLoading ? 'Saving...' : 'Save Material'}
             </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );
@@ -402,7 +477,7 @@ const Materials: React.FC<MaterialsProps> = ({
   return (
     <div className="space-y-6">
       {/* Search and Actions */}
-      <div className="bg-white rounded-xl shadow-sm p-6">
+      <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex flex-col sm:flex-row gap-4 flex-1">
             <div className="relative flex-1 max-w-md">
@@ -412,13 +487,13 @@ const Materials: React.FC<MaterialsProps> = ({
                 placeholder="Search materials..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className="w-full pl-10 pr-4 py-2.5 sm:py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className="px-4 py-2.5 sm:py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500"
             >
               {categories.map(cat => (
                 <option key={cat.value} value={cat.value}>
@@ -429,29 +504,30 @@ const Materials: React.FC<MaterialsProps> = ({
           </div>
           <button 
             onClick={handleAddMaterial}
-            className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors cursor-pointer"
+            className="flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors cursor-pointer font-medium"
             type="button"
           >
             <Plus size={20} />
-            Add Material
+            <span className="hidden sm:inline">Add Material</span>
+            <span className="sm:hidden">Add</span>
           </button>
         </div>
       </div>
 
       {/* Materials Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {filteredMaterials.map((material) => (
-          <div key={material.id} className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div key={material.id} className="bg-white rounded-xl shadow-sm p-4 sm:p-6 hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
-                <span className="text-4xl">{getCategoryIcon(material.category)}</span>
-                <div>
-                  <h3 className="text-lg font-semibold">{material.name}</h3>
-                  <p className="text-sm text-gray-600 mb-2">{material.description}</p>
+                <span className="text-3xl sm:text-4xl">{getCategoryIcon(material.category)}</span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base sm:text-lg font-semibold truncate">{material.name}</h3>
+                  <p className="text-sm text-gray-600 mb-2 line-clamp-2">{material.description}</p>
                   <StatusBadge isActive={material.is_active} />
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-1 ml-2">
                 <button 
                   onClick={() => handleEditMaterial(material)}
                   className="p-2 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
@@ -512,7 +588,7 @@ const Materials: React.FC<MaterialsProps> = ({
 
       {/* Price History Chart */}
       {materials.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm p-6">
+        <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6">
           <h3 className="text-lg font-semibold mb-4">Price History (Last 6 Months)</h3>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={[

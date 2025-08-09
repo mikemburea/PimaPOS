@@ -1,8 +1,8 @@
-// src/components/dashboard/Dashboard.tsx - Comprehensive Extended Version with Production Queue
+// src/components/dashboard/Dashboard.tsx - Comprehensive Extended Version with Production Queue - Mobile-First Responsive
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   DollarSign, FileText, Package, Users, Plus, Download, TrendingUp, Activity, Award, 
-  Sparkles, AlertCircle, Loader2, Bell, X
+  Sparkles, AlertCircle, Loader2, Bell, X, Menu
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Cell, Pie, AreaChart, Area} from 'recharts';
 import { supabase } from '../../lib/supabase';
@@ -191,12 +191,15 @@ interface RealtimeNotificationData {
   suppliers: DatabaseSupplier[];
 }
 
-// CSS styles object (keeping your existing styles)
+// CSS styles object - Updated for mobile-first
 const styles = {
   gradient: {
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
   },
   cardShadow: {
+    boxShadow: '0 4px 12px -2px rgba(0, 0, 0, 0.1), 0 2px 8px -2px rgba(0, 0, 0, 0.05)'
+  },
+  cardShadowLarge: {
     boxShadow: '0 10px 30px -5px rgba(0, 0, 0, 0.1), 0 5px 15px -3px rgba(0, 0, 0, 0.05)'
   },
   glassmorphism: {
@@ -382,7 +385,7 @@ const useProductionNotificationQueue = () => {
   };
 };
 
-// Queue Status Component
+// Mobile-responsive Queue Status Component
 const QueueStatusPanel: React.FC<{
   queueStats: any;
   onClearAll: () => void;
@@ -395,26 +398,33 @@ const QueueStatusPanel: React.FC<{
     <div style={{
       position: 'fixed',
       top: '4rem',
-      right: '1rem',
+      right: '0.5rem',
+      left: '0.5rem',
       zIndex: 999,
       background: 'rgba(255, 255, 255, 0.95)',
       backdropFilter: 'blur(20px)',
-      borderRadius: '16px',
+      borderRadius: '12px',
       boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
       border: '1px solid rgba(255, 255, 255, 0.2)',
       padding: '1rem',
-      minWidth: '280px',
-      animation: 'slideInFromRight 0.3s ease-out'
+      animation: 'slideInFromTop 0.3s ease-out'
     }}>
       <style>{`
-        @keyframes slideInFromRight {
-          from { transform: translateX(100%); opacity: 0; }
-          to { transform: translateX(0); opacity: 1; }
+        @keyframes slideInFromTop {
+          from { transform: translateY(-100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        @media (min-width: 768px) {
+          .queue-panel {
+            right: 1rem !important;
+            left: auto !important;
+            min-width: 280px;
+          }
         }
       `}</style>
       
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h4 style={{ fontSize: '1rem', fontWeight: 'bold', color: '#1f2937', margin: 0 }}>
+        <h4 style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#1f2937', margin: 0 }}>
           Notification Queue
         </h4>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -422,7 +432,7 @@ const QueueStatusPanel: React.FC<{
             onClick={onClearLowPriority}
             style={{
               padding: '0.25rem 0.5rem',
-              fontSize: '0.75rem',
+              fontSize: '0.7rem',
               background: 'rgba(156, 163, 175, 0.1)',
               color: '#6b7280',
               border: '1px solid rgba(156, 163, 175, 0.3)',
@@ -436,7 +446,7 @@ const QueueStatusPanel: React.FC<{
             onClick={onClearAll}
             style={{
               padding: '0.25rem 0.5rem',
-              fontSize: '0.75rem',
+              fontSize: '0.7rem',
               background: 'rgba(239, 68, 68, 0.1)',
               color: '#dc2626',
               border: '1px solid rgba(239, 68, 68, 0.3)',
@@ -449,43 +459,48 @@ const QueueStatusPanel: React.FC<{
         </div>
       </div>
 
-      {/* Queue Statistics */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+      {/* Queue Statistics - Mobile responsive grid */}
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(2, 1fr)', 
+        gap: '0.5rem', 
+        marginBottom: '1rem'
+      }}>
         <div style={{
-          padding: '0.75rem',
+          padding: '0.5rem',
           background: 'rgba(239, 68, 68, 0.1)',
           borderRadius: '8px',
           textAlign: 'center'
         }}>
-          <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#dc2626' }}>{queueStats.high}</div>
-          <div style={{ fontSize: '0.75rem', color: '#7f1d1d' }}>High Priority</div>
+          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#dc2626' }}>{queueStats.high}</div>
+          <div style={{ fontSize: '0.65rem', color: '#7f1d1d' }}>High Priority</div>
         </div>
         <div style={{
-          padding: '0.75rem',
+          padding: '0.5rem',
           background: 'rgba(245, 158, 11, 0.1)',
           borderRadius: '8px',
           textAlign: 'center'
         }}>
-          <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#d97706' }}>{queueStats.medium}</div>
-          <div style={{ fontSize: '0.75rem', color: '#92400e' }}>Medium Priority</div>
+          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#d97706' }}>{queueStats.medium}</div>
+          <div style={{ fontSize: '0.65rem', color: '#92400e' }}>Medium Priority</div>
         </div>
         <div style={{
-          padding: '0.75rem',
+          padding: '0.5rem',
           background: 'rgba(156, 163, 175, 0.1)',
           borderRadius: '8px',
           textAlign: 'center'
         }}>
-          <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#6b7280' }}>{queueStats.low}</div>
-          <div style={{ fontSize: '0.75rem', color: '#4b5563' }}>Low Priority</div>
+          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#6b7280' }}>{queueStats.low}</div>
+          <div style={{ fontSize: '0.65rem', color: '#4b5563' }}>Low Priority</div>
         </div>
         <div style={{
-          padding: '0.75rem',
+          padding: '0.5rem',
           background: 'rgba(16, 185, 129, 0.1)',
           borderRadius: '8px',
           textAlign: 'center'
         }}>
-          <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#059669' }}>{queueStats.processed}</div>
-          <div style={{ fontSize: '0.75rem', color: '#047857' }}>Processed</div>
+          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#059669' }}>{queueStats.processed}</div>
+          <div style={{ fontSize: '0.65rem', color: '#047857' }}>Processed</div>
         </div>
       </div>
 
@@ -497,8 +512,8 @@ const QueueStatusPanel: React.FC<{
         border: '1px solid rgba(59, 130, 246, 0.2)'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.875rem', color: '#1e40af' }}>Processing Rate</span>
-          <span style={{ fontSize: '0.875rem', fontWeight: 'bold', color: '#1e40af' }}>
+          <span style={{ fontSize: '0.8rem', color: '#1e40af' }}>Processing Rate</span>
+          <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#1e40af' }}>
             {queueStats.total > 0 ? Math.round((queueStats.processed / queueStats.total) * 100) : 0}%
           </span>
         </div>
@@ -523,25 +538,29 @@ const QueueStatusPanel: React.FC<{
   );
 };
 
-// Enhanced Stat Card Component (keeping your existing implementation)
+// Mobile-responsive Stat Card Component
 const StatCard: React.FC<StatCardProps> = ({ title, value, change, icon: Icon, gradient, isLoading = false }) => (
   <div style={{
     ...styles.glassmorphism,
     ...styles.cardShadow,
-    borderRadius: '20px',
-    padding: '1.5rem',
+    borderRadius: '16px',
+    padding: '1rem',
     position: 'relative',
     overflow: 'hidden',
     transition: 'all 0.3s ease',
     cursor: 'pointer'
   }}
   onMouseEnter={(e) => {
-    e.currentTarget.style.transform = 'translateY(-5px)';
-    e.currentTarget.style.boxShadow = '0 15px 40px -5px rgba(0, 0, 0, 0.15)';
+    if (window.innerWidth >= 768) {
+      e.currentTarget.style.transform = 'translateY(-2px)';
+      e.currentTarget.style.boxShadow = styles.cardShadowLarge.boxShadow;
+    }
   }}
   onMouseLeave={(e) => {
-    e.currentTarget.style.transform = 'translateY(0)';
-    e.currentTarget.style.boxShadow = styles.cardShadow.boxShadow;
+    if (window.innerWidth >= 768) {
+      e.currentTarget.style.transform = 'translateY(0)';
+      e.currentTarget.style.boxShadow = styles.cardShadow.boxShadow;
+    }
   }}>
     <div style={{
       position: 'absolute',
@@ -554,21 +573,21 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, change, icon: Icon, g
       transform: 'rotate(45deg)'
     }}></div>
     <div style={{ position: 'relative', zIndex: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
         <div style={{
-          width: '56px',
-          height: '56px',
+          width: '48px',
+          height: '48px',
           background: gradient,
-          borderRadius: '16px',
+          borderRadius: '12px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          boxShadow: '0 8px 20px rgba(0, 0, 0, 0.15)'
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
         }}>
           {isLoading ? (
-            <Loader2 size={28} color="white" className="animate-spin" />
+            <Loader2 size={24} color="white" className="animate-spin" />
           ) : (
-            <Icon size={28} color="white" strokeWidth={2.5} />
+            <Icon size={24} color="white" strokeWidth={2.5} />
           )}
         </div>
         <div style={{
@@ -576,18 +595,18 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, change, icon: Icon, g
           alignItems: 'center',
           gap: '0.25rem',
           background: 'rgba(16, 185, 129, 0.1)',
-          padding: '0.25rem 0.75rem',
-          borderRadius: '8px'
+          padding: '0.25rem 0.5rem',
+          borderRadius: '6px'
         }}>
-          <TrendingUp size={14} color="#10b981" />
-          <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#10b981' }}>
+          <TrendingUp size={12} color="#10b981" />
+          <span style={{ fontSize: '0.75rem', fontWeight: '600', color: '#10b981' }}>
             {isLoading ? '...' : `+${change}%`}
           </span>
         </div>
       </div>
       <div>
-        <h3 style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>{title}</h3>
-        <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#0f172a', letterSpacing: '-0.02em' }}>
+        <h3 style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>{title}</h3>
+        <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#0f172a', letterSpacing: '-0.02em' }}>
           {isLoading ? '...' : value}
         </p>
       </div>
@@ -595,14 +614,14 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, change, icon: Icon, g
   </div>
 );
 
-// Enhanced Quick Action Button Component (keeping your existing implementation)
+// Mobile-responsive Quick Action Button Component
 const QuickActionButton: React.FC<QuickActionButtonProps> = ({ children, variant = 'outline', icon: Icon, onClick }) => {
   const variants = {
     filled: {
       background: 'linear-gradient(135deg, #00bcd4 0%, #3f51b5 100%)',
       color: 'white',
       border: 'none',
-      boxShadow: '0 4px 15px rgba(0, 188, 212, 0.3)'
+      boxShadow: '0 2px 8px rgba(0, 188, 212, 0.3)'
     },
     outline: {
       background: 'transparent',
@@ -622,10 +641,10 @@ const QuickActionButton: React.FC<QuickActionButtonProps> = ({ children, variant
       onClick={onClick}
       style={{
         ...variants[variant],
-        padding: '0.875rem 1.5rem',
-        borderRadius: '16px',
+        padding: '0.75rem 1rem',
+        borderRadius: '12px',
         fontWeight: '600',
-        fontSize: '0.875rem',
+        fontSize: '0.8rem',
         cursor: 'pointer',
         transition: 'all 0.3s ease',
         display: 'flex',
@@ -635,14 +654,18 @@ const QuickActionButton: React.FC<QuickActionButtonProps> = ({ children, variant
         width: '100%'
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'scale(1.05)';
-        if (variant === 'filled') {
-          e.currentTarget.style.boxShadow = '0 6px 20px rgba(0, 188, 212, 0.4)';
+        if (window.innerWidth >= 768) {
+          e.currentTarget.style.transform = 'scale(1.02)';
+          if (variant === 'filled') {
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 188, 212, 0.4)';
+          }
         }
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'scale(1)';
-        e.currentTarget.style.boxShadow = variants[variant].boxShadow || 'none';
+        if (window.innerWidth >= 768) {
+          e.currentTarget.style.transform = 'scale(1)';
+          e.currentTarget.style.boxShadow = variants[variant].boxShadow || 'none';
+        }
       }}
     >
       {Icon && <Icon size={16} />}
@@ -651,36 +674,36 @@ const QuickActionButton: React.FC<QuickActionButtonProps> = ({ children, variant
   );
 };
 
-// Enhanced Performance Metric Component (keeping your existing implementation)
+// Mobile-responsive Performance Metric Component
 const PerformanceMetric: React.FC<PerformanceMetricProps> = ({ label, value, progress, target, icon: Icon }) => (
   <div style={{
-    padding: '1.25rem',
-    borderRadius: '16px',
+    padding: '1rem',
+    borderRadius: '12px',
     background: 'linear-gradient(135deg, rgba(248, 250, 252, 0.5) 0%, rgba(255, 255, 255, 0.5) 100%)',
     border: '1px solid rgba(226, 232, 240, 0.5)',
     transition: 'all 0.3s ease'
   }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-      <span style={{ fontSize: '0.875rem', fontWeight: '500', color: '#64748b' }}>{label}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+      <span style={{ fontSize: '0.8rem', fontWeight: '500', color: '#64748b' }}>{label}</span>
       <div style={{
-        width: '32px',
-        height: '32px',
+        width: '28px',
+        height: '28px',
         background: 'rgba(0, 188, 212, 0.1)',
-        borderRadius: '8px',
+        borderRadius: '6px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center'
       }}>
-        <Icon size={16} color="#00bcd4" />
+        <Icon size={14} color="#00bcd4" />
       </div>
     </div>
-    <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#0f172a', marginBottom: '1rem' }}>{value}</div>
+    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#0f172a', marginBottom: '0.75rem' }}>{value}</div>
     <div>
       <div style={{
         width: '100%',
-        height: '8px',
+        height: '6px',
         background: 'rgba(226, 232, 240, 0.5)',
-        borderRadius: '4px',
+        borderRadius: '3px',
         overflow: 'hidden',
         marginBottom: '0.5rem'
       }}>
@@ -688,16 +711,16 @@ const PerformanceMetric: React.FC<PerformanceMetricProps> = ({ label, value, pro
           width: `${progress}%`,
           height: '100%',
           background: 'linear-gradient(90deg, #00bcd4 0%, #3f51b5 100%)',
-          borderRadius: '4px',
+          borderRadius: '3px',
           transition: 'width 1s ease-out'
         }}></div>
       </div>
-      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{target}</span>
+      <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{target}</span>
     </div>
   </div>
 );
 
-// Enhanced Transaction Item Component (keeping your existing implementation)
+// Mobile-responsive Transaction Item Component
 const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
   const statusColors: Record<'Completed' | 'Pending', string> = {
     Completed: '#10b981',
@@ -706,8 +729,8 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
   return (
     <div style={{
       background: 'linear-gradient(135deg, rgba(248, 250, 252, 0.5) 0%, rgba(241, 245, 249, 0.5) 100%)',
-      borderRadius: '16px',
-      padding: '1rem',
+      borderRadius: '12px',
+      padding: '0.75rem',
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
@@ -716,33 +739,57 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
       cursor: 'pointer'
     }}
     onMouseEnter={(e) => {
-      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.05)';
-      e.currentTarget.style.transform = 'translateX(4px)';
+      if (window.innerWidth >= 768) {
+        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.05)';
+        e.currentTarget.style.transform = 'translateX(2px)';
+      }
     }}
     onMouseLeave={(e) => {
-      e.currentTarget.style.boxShadow = 'none';
-      e.currentTarget.style.transform = 'translateX(0)';
+      if (window.innerWidth >= 768) {
+        e.currentTarget.style.boxShadow = 'none';
+        e.currentTarget.style.transform = 'translateX(0)';
+      }
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: '1', minWidth: '0' }}>
         <div style={{
-          width: '48px',
-          height: '48px',
+          width: '40px',
+          height: '40px',
           background: `linear-gradient(135deg, ${transaction.status === 'Completed' ? '#00bcd4' : '#ff9800'} 0%, ${transaction.status === 'Completed' ? '#3f51b5' : '#f44336'} 100%)`,
-          borderRadius: '12px',
+          borderRadius: '10px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           color: 'white',
           fontWeight: '600',
-          fontSize: '0.875rem',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+          fontSize: '0.75rem',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+          flexShrink: 0
         }}>
           {transaction.initials}
         </div>
-        <div>
-          <div style={{ fontWeight: '600', color: '#0f172a', marginBottom: '0.125rem' }}>{transaction.supplierName}</div>
-          <div style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '0.125rem' }}>{transaction.materials}</div>
-          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+        <div style={{ minWidth: '0', flex: '1' }}>
+          <div style={{ 
+            fontWeight: '600', 
+            color: '#0f172a', 
+            marginBottom: '0.125rem',
+            fontSize: '0.85rem',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}>
+            {transaction.supplierName}
+          </div>
+          <div style={{ 
+            fontSize: '0.75rem', 
+            color: '#64748b', 
+            marginBottom: '0.125rem',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}>
+            {transaction.materials}
+          </div>
+          <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
             {transaction.time}
             {transaction.paymentMethod && (
               <span style={{ marginLeft: '0.5rem' }}>• {transaction.paymentMethod}</span>
@@ -750,12 +797,17 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
           </div>
         </div>
       </div>
-      <div style={{ textAlign: 'right' }}>
-        <div style={{ fontWeight: 'bold', color: '#0f172a', marginBottom: '0.25rem' }}>
+      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <div style={{ 
+          fontWeight: 'bold', 
+          color: '#0f172a', 
+          marginBottom: '0.25rem',
+          fontSize: '0.85rem'
+        }}>
           {formatCurrency(transaction.value)}
         </div>
         <div style={{
-          fontSize: '0.875rem',
+          fontSize: '0.75rem',
           fontWeight: '500',
           color: statusColors[transaction.status],
           display: 'flex',
@@ -764,8 +816,8 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
           justifyContent: 'flex-end'
         }}>
           <div style={{
-            width: '8px',
-            height: '8px',
+            width: '6px',
+            height: '6px',
             borderRadius: '50%',
             background: statusColors[transaction.status],
             animation: transaction.status === 'Pending' ? 'pulse 2s infinite' : 'none'
@@ -777,7 +829,7 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
   );
 };
 
-// Enhanced Supplier Ranking Component (keeping your existing implementation)
+// Mobile-responsive Supplier Ranking Component
 const SupplierRanking: React.FC<SupplierRankingProps> = ({ supplier }) => {
   const getTierColor = (tier: string) => {
     switch (tier) {
@@ -796,62 +848,87 @@ const SupplierRanking: React.FC<SupplierRankingProps> = ({ supplier }) => {
     <div style={{
       display: 'flex',
       alignItems: 'center',
-      gap: '1rem',
+      gap: '0.75rem',
       padding: '0.75rem',
-      borderRadius: '12px',
+      borderRadius: '10px',
       transition: 'all 0.2s ease',
       cursor: 'pointer'
     }}
     onMouseEnter={(e) => {
-      e.currentTarget.style.background = 'rgba(241, 245, 249, 0.5)';
+      if (window.innerWidth >= 768) {
+        e.currentTarget.style.background = 'rgba(241, 245, 249, 0.5)';
+      }
     }}
     onMouseLeave={(e) => {
-      e.currentTarget.style.background = 'transparent';
+      if (window.innerWidth >= 768) {
+        e.currentTarget.style.background = 'transparent';
+      }
     }}>
       <div style={{
-        width: '48px',
-        height: '48px',
+        width: '40px',
+        height: '40px',
         background: getTierColor(supplier.tier),
-        borderRadius: '12px',
+        borderRadius: '10px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         fontWeight: 'bold',
-        fontSize: '0.875rem',
+        fontSize: '0.75rem',
         color: 'white',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+        flexShrink: 0
       }}>
-        {supplier.tier === 'strategic' ? <Award size={24} /> : getInitials(supplier.name)}
+        {supplier.tier === 'strategic' ? <Award size={20} /> : getInitials(supplier.name)}
       </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: '600', color: '#0f172a' }}>{supplier.name}</div>
-        <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ 
+          fontWeight: '600', 
+          color: '#0f172a',
+          fontSize: '0.85rem',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis'
+        }}>
+          {supplier.name}
+        </div>
+        <div style={{ 
+          fontSize: '0.75rem', 
+          color: '#64748b',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis'
+        }}>
           {supplier.transactions} transactions • {supplier.tier}
         </div>
       </div>
-      <div style={{ textAlign: 'right' }}>
-        <div style={{ fontWeight: 'bold', color: '#0f172a' }}>
+      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <div style={{ 
+          fontWeight: 'bold', 
+          color: '#0f172a',
+          fontSize: '0.85rem'
+        }}>
           {formatCurrency(supplier.value)}
         </div>
-        <div style={{ fontSize: '0.75rem', fontWeight: '500', color: '#10b981' }}>{supplier.trend}</div>
+        <div style={{ fontSize: '0.7rem', fontWeight: '500', color: '#10b981' }}>{supplier.trend}</div>
       </div>
     </div>
   );
 };
 
-// Custom tooltip for charts (keeping your existing implementation)
+// Custom tooltip for charts
 const CustomTooltip: React.FC<any> = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
     return (
       <div style={{
         ...styles.glassmorphism,
-        padding: '1rem',
-        borderRadius: '12px',
-        boxShadow: '0 8px 20px rgba(0, 0, 0, 0.1)'
+        padding: '0.75rem',
+        borderRadius: '10px',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+        fontSize: '0.8rem'
       }}>
-        <p style={{ fontSize: '0.875rem', fontWeight: '600', color: '#475569', marginBottom: '0.5rem' }}>{label}</p>
+        <p style={{ fontSize: '0.8rem', fontWeight: '600', color: '#475569', marginBottom: '0.5rem' }}>{label}</p>
         {payload.map((entry: any, index: number) => (
-          <p key={index} style={{ fontSize: '0.875rem', marginBottom: '0.25rem' }}>
+          <p key={index} style={{ fontSize: '0.8rem', marginBottom: '0.25rem' }}>
             <span style={{ fontWeight: '500', color: entry.color }}>
               {entry.name}: </span>
             <span style={{ fontWeight: 'bold', marginLeft: '0.25rem' }}>
@@ -865,13 +942,14 @@ const CustomTooltip: React.FC<any> = ({ active, payload, label }) => {
   return null;
 };
 
-// Main Dashboard Component (Enhanced)
+// Main Dashboard Component (Enhanced with Mobile-First Responsive Design)
 const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const [suppliers, setSuppliers] = useState<DatabaseSupplier[]>([]);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   
   // Enhanced Queue Management
   const {
@@ -889,7 +967,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
   // Queue status panel visibility
   const [showQueuePanel, setShowQueuePanel] = useState(false);
 
-  // Fetch data from Supabase (keeping your existing implementation)
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Fetch data from Supabase
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
@@ -930,7 +1018,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     }
   }, []);
 
-  // Calculate dashboard data from raw database data (keeping your existing implementation)
+  // Calculate dashboard data from raw database data
   const calculateDashboardData = (
     transactions: DatabaseTransaction[], 
     suppliers: DatabaseSupplier[], 
@@ -1054,7 +1142,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     };
   };
 
-  // Transform transactions for display (keeping your existing implementation)
+  // Transform transactions for display
   const transformTransactionForDisplay = (transaction: DatabaseTransaction, suppliers: DatabaseSupplier[]) => {
     const supplierName = getSupplierName(transaction, suppliers);
     const initials = getInitials(supplierName);
@@ -1076,7 +1164,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     };
   };
 
-  // Transform supplier for ranking display (keeping your existing implementation)
+  // Transform supplier for ranking display
   const transformSupplierForRanking = (supplier: DatabaseSupplier, transactions: DatabaseTransaction[]) => {
     const supplierTransactions = transactions.filter(t => t.supplier_id === supplier.id);
     const recentTransactions = supplierTransactions.filter(t => {
@@ -1162,18 +1250,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     };
   }, [suppliers, fetchDashboardData, addToQueue]);
 
-  // Load data on component mount (keeping your existing implementation)
+  // Load data on component mount
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  // Auto-refresh every 5 minutes (keeping your existing implementation)
+  // Auto-refresh every 5 minutes
   useEffect(() => {
     const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
 
-  // Loading state (keeping your existing implementation)
+  // Loading state
   if (loading) {
     return (
       <div style={{
@@ -1181,17 +1269,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center'
+        justifyContent: 'center',
+        padding: '1rem'
       }}>
         <div style={{ textAlign: 'center' }}>
-          <Loader2 size={48} className="animate-spin" style={{ color: '#00bcd4', marginBottom: '1rem' }} />
-          <p style={{ fontSize: '1.125rem', color: '#64748b' }}>Loading production dashboard...</p>
+          <Loader2 size={isMobile ? 40 : 48} className="animate-spin" style={{ color: '#00bcd4', marginBottom: '1rem' }} />
+          <p style={{ fontSize: isMobile ? '1rem' : '1.125rem', color: '#64748b' }}>Loading production dashboard...</p>
         </div>
       </div>
     );
   }
 
-  // Error state (keeping your existing implementation)
+  // Error state
   if (error) {
     return (
       <div style={{
@@ -1199,14 +1288,15 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center'
+        justifyContent: 'center',
+        padding: '1rem'
       }}>
         <div style={{ textAlign: 'center', maxWidth: '400px' }}>
-          <AlertCircle size={48} style={{ color: '#ef4444', marginBottom: '1rem' }} />
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#1f2937', marginBottom: '0.5rem' }}>
+          <AlertCircle size={isMobile ? 40 : 48} style={{ color: '#ef4444', marginBottom: '1rem' }} />
+          <h2 style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 'bold', color: '#1f2937', marginBottom: '0.5rem' }}>
             Error Loading Dashboard
           </h2>
-          <p style={{ color: '#6b7280', marginBottom: '1.5rem' }}>{error}</p>
+          <p style={{ color: '#6b7280', marginBottom: '1.5rem', fontSize: isMobile ? '0.9rem' : '1rem' }}>{error}</p>
           <button
             onClick={fetchDashboardData}
             style={{
@@ -1217,7 +1307,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
               borderRadius: '8px',
               cursor: 'pointer',
               fontWeight: '600',
-              transition: 'all 0.2s'
+              transition: 'all 0.2s',
+              fontSize: isMobile ? '0.9rem' : '1rem'
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = '#0891b2';
@@ -1233,7 +1324,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     );
   }
 
-  // No data state (keeping your existing implementation)
+  // No data state
   if (!dashboardData) {
     return (
       <div style={{
@@ -1241,14 +1332,15 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center'
+        justifyContent: 'center',
+        padding: '1rem'
       }}>
         <div style={{ textAlign: 'center', maxWidth: '400px' }}>
-          <Package size={48} style={{ color: '#9ca3af', marginBottom: '1rem' }} />
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#1f2937', marginBottom: '0.5rem' }}>
+          <Package size={isMobile ? 40 : 48} style={{ color: '#9ca3af', marginBottom: '1rem' }} />
+          <h2 style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 'bold', color: '#1f2937', marginBottom: '0.5rem' }}>
             No Data Available
           </h2>
-          <p style={{ color: '#6b7280', marginBottom: '1.5rem' }}>
+          <p style={{ color: '#6b7280', marginBottom: '1.5rem', fontSize: isMobile ? '0.9rem' : '1rem' }}>
             Start by adding some transactions and suppliers to see your dashboard come to life.
           </p>
           <button
@@ -1261,7 +1353,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
               borderRadius: '8px',
               cursor: 'pointer',
               fontWeight: '600',
-              transition: 'all 0.2s'
+              transition: 'all 0.2s',
+              fontSize: isMobile ? '0.9rem' : '1rem'
             }}
           >
             Refresh
@@ -1279,29 +1372,33 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
       background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
       position: 'relative'
     }}>
-      {/* Animated background elements (keeping your existing styling) */}
-      <div style={{
-        position: 'absolute',
-        top: '20%',
-        left: '10%',
-        width: '300px',
-        height: '300px',
-        background: 'radial-gradient(circle, rgba(0, 188, 212, 0.1) 0%, transparent 70%)',
-        borderRadius: '50%',
-        filter: 'blur(40px)',
-        animation: 'float 20s infinite ease-in-out'
-      }}></div>
-      <div style={{
-        position: 'absolute',
-        bottom: '20%',
-        right: '10%',
-        width: '400px',
-        height: '400px',
-        background: 'radial-gradient(circle, rgba(156, 39, 176, 0.1) 0%, transparent 70%)',
-        borderRadius: '50%',
-        filter: 'blur(40px)',
-        animation: 'float 25s infinite ease-in-out reverse'
-      }}></div>
+      {/* Animated background elements - Hidden on mobile for performance */}
+      {!isMobile && (
+        <>
+          <div style={{
+            position: 'absolute',
+            top: '20%',
+            left: '10%',
+            width: '300px',
+            height: '300px',
+            background: 'radial-gradient(circle, rgba(0, 188, 212, 0.1) 0%, transparent 70%)',
+            borderRadius: '50%',
+            filter: 'blur(40px)',
+            animation: 'float 20s infinite ease-in-out'
+          }}></div>
+          <div style={{
+            position: 'absolute',
+            bottom: '20%',
+            right: '10%',
+            width: '400px',
+            height: '400px',
+            background: 'radial-gradient(circle, rgba(156, 39, 176, 0.1) 0%, transparent 70%)',
+            borderRadius: '50%',
+            filter: 'blur(40px)',
+            animation: 'float 25s infinite ease-in-out reverse'
+          }}></div>
+        </>
+      )}
 
       <style>{`
         @keyframes float {
@@ -1315,31 +1412,34 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         }
       `}</style>
 
-      {/* Enhanced Status Bar with Queue Management */}
+      {/* Enhanced Status Bar with Queue Management - Responsive */}
       <div style={{
         position: 'fixed',
-        top: '1rem',
-        right: '1rem',
+        top: '0.5rem',
+        right: '0.5rem',
+        left: isMobile ? '0.5rem' : 'auto',
         zIndex: 1000,
         display: 'flex',
-        alignItems: 'center',
-        gap: '1rem'
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'stretch' : 'center',
+        gap: '0.5rem'
       }}>
         {/* Queue Status Alert */}
         {queueStats.total > 0 && (
           <div style={{
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'center',
             gap: '0.5rem',
-            padding: '0.5rem 1rem',
+            padding: '0.5rem 0.75rem',
             background: queueStats.high > 0 
               ? 'rgba(239, 68, 68, 0.95)' 
               : queueStats.medium > 0 
                 ? 'rgba(245, 158, 11, 0.95)'
                 : 'rgba(59, 130, 246, 0.95)',
-            borderRadius: '12px',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-            fontSize: '0.875rem',
+            borderRadius: '10px',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+            fontSize: isMobile ? '0.8rem' : '0.875rem',
             fontWeight: '600',
             border: '1px solid rgba(255, 255, 255, 0.3)',
             backdropFilter: 'blur(10px)',
@@ -1348,38 +1448,40 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
             cursor: 'pointer'
           }}
           onClick={() => setShowQueuePanel(!showQueuePanel)}>
-            <Bell className="w-4 h-4" />
+            <Bell size={isMobile ? 14 : 16} />
             <span>{queueStats.total} Pending</span>
-            {queueStats.high > 0 && <span className="ml-1">🚨</span>}
+            {queueStats.high > 0 && <span>🚨</span>}
           </div>
         )}
 
-        {/* Connection Status */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          padding: '0.5rem 1rem',
-          background: 'rgba(255, 255, 255, 0.95)',
-          borderRadius: '12px',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-          fontSize: '0.875rem',
-          fontWeight: '500',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
-          backdropFilter: 'blur(10px)'
-        }}>
+        {/* Connection Status - Hidden on mobile */}
+        {!isMobile && (
           <div style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: isRealtimeConnected ? '#10b981' : '#ef4444',
-            animation: isRealtimeConnected ? 'pulse 2s infinite' : 'none',
-            boxShadow: isRealtimeConnected ? '0 0 0 2px rgba(16, 185, 129, 0.2)' : '0 0 0 2px rgba(239, 68, 68, 0.2)'
-          }}></div>
-          <span style={{ color: isRealtimeConnected ? '#10b981' : '#ef4444' }}>
-            {isRealtimeConnected ? 'Live Updates' : 'Disconnected'}
-          </span>
-        </div>
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.5rem 1rem',
+            background: 'rgba(255, 255, 255, 0.95)',
+            borderRadius: '12px',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+            fontSize: '0.875rem',
+            fontWeight: '500',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            backdropFilter: 'blur(10px)'
+          }}>
+            <div style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: isRealtimeConnected ? '#10b981' : '#ef4444',
+              animation: isRealtimeConnected ? 'pulse 2s infinite' : 'none',
+              boxShadow: isRealtimeConnected ? '0 0 0 2px rgba(16, 185, 129, 0.2)' : '0 0 0 2px rgba(239, 68, 68, 0.2)'
+            }}></div>
+            <span style={{ color: isRealtimeConnected ? '#10b981' : '#ef4444' }}>
+              {isRealtimeConnected ? 'Live Updates' : 'Disconnected'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Queue Status Panel */}
@@ -1390,25 +1492,37 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         isVisible={showQueuePanel && queueStats.total > 0}
       />
 
-      {/* Main Content (keeping all your existing content) */}
-      <div style={{ position: 'relative', zIndex: 10, padding: '2rem' }}>
-        {/* Header with Refresh Button */}
+      {/* Main Content */}
+      <div style={{ 
+        position: 'relative', 
+        zIndex: 10, 
+        padding: isMobile ? '1rem 0.75rem 4rem' : '2rem',
+        paddingTop: isMobile ? '3rem' : '2rem'
+      }}>
+        {/* Header with Refresh Button - Mobile Responsive */}
         <div style={{ 
           display: 'flex', 
+          flexDirection: isMobile ? 'column' : 'row',
           justifyContent: 'space-between', 
-          alignItems: 'center', 
-          marginBottom: '2rem' 
+          alignItems: isMobile ? 'flex-start' : 'center', 
+          marginBottom: isMobile ? '1.5rem' : '2rem',
+          gap: isMobile ? '1rem' : '0'
         }}>
           <div>
             <h1 style={{ 
-              fontSize: '2.5rem', 
+              fontSize: isMobile ? '1.75rem' : '2.5rem', 
               fontWeight: 'bold', 
               color: '#0f172a',
-              marginBottom: '0.5rem' 
+              marginBottom: '0.5rem',
+              lineHeight: '1.2'
             }}>
               Production Dashboard
             </h1>
-            <p style={{ color: '#64748b', fontSize: '1.125rem' }}>
+            <p style={{ 
+              color: '#64748b', 
+              fontSize: isMobile ? '0.9rem' : '1.125rem',
+              lineHeight: '1.4'
+            }}>
               Real-time overview of your scrap metal business with enhanced notification queue
             </p>
           </div>
@@ -1421,24 +1535,25 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
-              padding: '0.75rem 1.5rem',
+              padding: isMobile ? '0.75rem 1.25rem' : '0.75rem 1.5rem',
               backgroundColor: '#00bcd4',
               color: 'white',
               border: 'none',
               borderRadius: '12px',
               cursor: 'pointer',
               fontWeight: '600',
-              fontSize: '0.875rem',
+              fontSize: isMobile ? '0.8rem' : '0.875rem',
               transition: 'all 0.2s',
-              boxShadow: '0 4px 12px rgba(0, 188, 212, 0.3)'
+              boxShadow: '0 4px 12px rgba(0, 188, 212, 0.3)',
+              alignSelf: isMobile ? 'flex-start' : 'center'
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = '#0891b2';
-              e.currentTarget.style.transform = 'translateY(-2px)';
+              if (!isMobile) e.currentTarget.style.transform = 'translateY(-2px)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = '#00bcd4';
-              e.currentTarget.style.transform = 'translateY(0)';
+              if (!isMobile) e.currentTarget.style.transform = 'translateY(0)';
             }}
           >
             <Activity size={16} />
@@ -1446,12 +1561,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           </button>
         </div>
 
-        {/* Stats Cards (keeping your existing implementation) */}
+        {/* Stats Cards - Mobile Responsive Grid */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-          gap: '1.5rem',
-          marginBottom: '2rem'
+          gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(250px, 1fr))',
+          gap: isMobile ? '0.75rem' : '1.5rem',
+          marginBottom: isMobile ? '1.5rem' : '2rem'
         }}>
           <StatCard
             title="Total Revenue"
@@ -1486,34 +1601,38 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           />
         </div>
 
-        {/* Charts and Transactions Row (keeping your existing implementation) */}
+        {/* Charts and Transactions Row - Mobile Responsive */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '2fr 1fr',
-          gap: '2rem',
-          marginBottom: '2rem'
+          gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr',
+          gap: isMobile ? '1rem' : '2rem',
+          marginBottom: isMobile ? '1.5rem' : '2rem'
         }}>
           {/* Revenue Chart */}
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
-            borderRadius: '20px',
-            padding: '1.5rem'
+            borderRadius: '16px',
+            padding: isMobile ? '1rem' : '1.5rem'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#0f172a' }}>Revenue Trend (Last 7 Days)</h3>
-              <div style={{ display: 'flex', gap: '1rem', fontSize: '0.875rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#00bcd4' }}></div>
-                  <span style={{ color: '#64748b' }}>Actual</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: isMobile ? '1rem' : '1.25rem', fontWeight: 'bold', color: '#0f172a' }}>
+                Revenue Trend (Last 7 Days)
+              </h3>
+              {!isMobile && (
+                <div style={{ display: 'flex', gap: '1rem', fontSize: '0.875rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#00bcd4' }}></div>
+                    <span style={{ color: '#64748b' }}>Actual</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#9c27b0' }}></div>
+                    <span style={{ color: '#64748b' }}>Target</span>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#9c27b0' }}></div>
-                  <span style={{ color: '#64748b' }}>Target</span>
-                </div>
-              </div>
+              )}
             </div>
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={isMobile ? 200 : 300}>
               <AreaChart data={revenueData}>
                 <defs>
                   <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
@@ -1530,12 +1649,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
                   dataKey="date"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fontSize: 12, fill: '#64748b' }}
+                  tick={{ fontSize: isMobile ? 10 : 12, fill: '#64748b' }}
                 />
                 <YAxis 
                   axisLine={false} 
                   tickLine={false} 
-                  tick={{ fontSize: 12, fill: '#64748b' }}
+                  tick={{ fontSize: isMobile ? 10 : 12, fill: '#64748b' }}
                   tickFormatter={(value) => `${(value / 1000).toFixed(0)}K`}
                 />
                 <Tooltip content={<CustomTooltip />} />
@@ -1563,12 +1682,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
-            borderRadius: '20px',
-            padding: '1.5rem'
+            borderRadius: '16px',
+            padding: isMobile ? '1rem' : '1.5rem'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#0f172a' }}>Recent Activity</h3>
-              <Activity size={20} color="#00bcd4" style={{ animation: 'pulse 2s infinite' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: isMobile ? '1rem' : '1.25rem', fontWeight: 'bold', color: '#0f172a' }}>Recent Activity</h3>
+              <Activity size={isMobile ? 18 : 20} color="#00bcd4" style={{ animation: 'pulse 2s infinite' }} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {recentTransactions.length > 0 ? (
@@ -1583,7 +1702,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
                   textAlign: 'center', 
                   color: '#64748b', 
                   padding: '2rem',
-                  fontSize: '0.875rem'
+                  fontSize: isMobile ? '0.8rem' : '0.875rem'
                 }}>
                   No recent transactions
                 </div>
@@ -1591,10 +1710,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
             </div>
             <button style={{
               width: '100%',
-              marginTop: '1.5rem',
+              marginTop: '1rem',
               color: '#00bcd4',
               fontWeight: '600',
-              fontSize: '0.875rem',
+              fontSize: isMobile ? '0.8rem' : '0.875rem',
               background: 'transparent',
               border: 'none',
               padding: '0.5rem',
@@ -1613,34 +1732,34 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           </div>
         </div>
 
-        {/* Material Distribution and Actions Row (keeping your existing implementation) */}
+        {/* Material Distribution and Actions Row - Mobile Stack */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '2rem',
-          marginBottom: '2rem'
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: isMobile ? '1rem' : '2rem',
+          marginBottom: isMobile ? '1.5rem' : '2rem'
         }}>
           {/* Material Distribution */}
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
-            borderRadius: '20px',
-            padding: '1.5rem'
+            borderRadius: '16px',
+            padding: isMobile ? '1rem' : '1.5rem'
           }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#0f172a', marginBottom: '1.5rem' }}>
+            <h3 style={{ fontSize: isMobile ? '1rem' : '1.25rem', fontWeight: 'bold', color: '#0f172a', marginBottom: '1rem' }}>
               Material Distribution
             </h3>
             {materialDistribution.length > 0 ? (
               <>
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1.5rem' }}>
-                  <ResponsiveContainer width={200} height={200}>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
+                  <ResponsiveContainer width={isMobile ? 150 : 200} height={isMobile ? 150 : 200}>
                     <RechartsPieChart>
                       <Pie
                         data={materialDistribution}
                         cx="50%"
                         cy="50%"
-                        innerRadius={60}
-                        outerRadius={90}
+                        innerRadius={isMobile ? 45 : 60}
+                        outerRadius={isMobile ? 70 : 90}
                         paddingAngle={5}
                         dataKey="value"
                       >
@@ -1652,7 +1771,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
                     </RechartsPieChart>
                   </ResponsiveContainer>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {materialDistribution.map((item) => (
                     <div key={item.name} style={{
                       display: 'flex',
@@ -1664,31 +1783,35 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
                       cursor: 'pointer'
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(241, 245, 249, 0.5)';
+                      if (!isMobile) e.currentTarget.style.background = 'rgba(241, 245, 249, 0.5)';
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
+                      if (!isMobile) e.currentTarget.style.background = 'transparent';
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                         <div style={{
-                          width: '16px',
-                          height: '16px',
+                          width: '14px',
+                          height: '14px',
                           borderRadius: '4px',
                           background: item.color,
                           boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
                         }}></div>
-                        <span style={{ fontSize: '0.875rem', fontWeight: '500', color: '#475569' }}>{item.name}</span>
+                        <span style={{ fontSize: isMobile ? '0.8rem' : '0.875rem', fontWeight: '500', color: '#475569' }}>
+                          {item.name}
+                        </span>
                       </div>
                       <div style={{ textAlign: 'right' }}>
-                        <span style={{ fontSize: '0.875rem', fontWeight: 'bold', color: '#0f172a' }}>{item.value}%</span>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>({item.count} txns)</div>
+                        <span style={{ fontSize: isMobile ? '0.8rem' : '0.875rem', fontWeight: 'bold', color: '#0f172a' }}>
+                          {item.value}%
+                        </span>
+                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>({item.count} txns)</div>
                       </div>
                     </div>
                   ))}
                 </div>
               </>
             ) : (
-              <div style={{ textAlign: 'center', color: '#64748b', padding: '2rem' }}>
+              <div style={{ textAlign: 'center', color: '#64748b', padding: '2rem', fontSize: isMobile ? '0.8rem' : '0.9rem' }}>
                 No material data available
               </div>
             )}
@@ -1698,11 +1821,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
-            borderRadius: '20px',
-            padding: '1.5rem'
+            borderRadius: '16px',
+            padding: isMobile ? '1rem' : '1.5rem'
           }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#0f172a', marginBottom: '1.5rem' }}>Quick Actions</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <h3 style={{ fontSize: isMobile ? '1rem' : '1.25rem', fontWeight: 'bold', color: '#0f172a', marginBottom: '1rem' }}>
+              Quick Actions
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               <QuickActionButton variant="filled" icon={Plus}>
                 New Transaction
               </QuickActionButton>
@@ -1724,14 +1849,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
-            borderRadius: '20px',
-            padding: '1.5rem'
+            borderRadius: '16px',
+            padding: isMobile ? '1rem' : '1.5rem'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#0f172a' }}>Top Suppliers</h3>
-              <Award size={20} color="#ffd700" />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: isMobile ? '1rem' : '1.25rem', fontWeight: 'bold', color: '#0f172a' }}>
+                Top Suppliers
+              </h3>
+              <Award size={isMobile ? 18 : 20} color="#ffd700" />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {topSuppliers.length > 0 ? (
                 topSuppliers.map((supplier) => (
                   <SupplierRanking 
@@ -1740,7 +1867,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
                   />
                 ))
               ) : (
-                <div style={{ textAlign: 'center', color: '#64748b', padding: '2rem' }}>
+                <div style={{ textAlign: 'center', color: '#64748b', padding: '2rem', fontSize: isMobile ? '0.8rem' : '0.9rem' }}>
                   No supplier data available
                 </div>
               )}
@@ -1748,15 +1875,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           </div>
         </div>
 
-        {/* Performance Metrics (keeping your existing implementation) */}
+        {/* Performance Metrics - Mobile Responsive */}
         <div style={{
           ...styles.glassmorphism,
           ...styles.cardShadow,
-          borderRadius: '20px',
-          padding: '1.5rem'
+          borderRadius: '16px',
+          padding: isMobile ? '1rem' : '1.5rem'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#0f172a' }}>Today's Performance</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h3 style={{ fontSize: isMobile ? '1rem' : '1.25rem', fontWeight: 'bold', color: '#0f172a' }}>
+              Today's Performance
+            </h3>
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -1765,14 +1894,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
               padding: '0.375rem 0.75rem',
               borderRadius: '8px'
             }}>
-              <Sparkles size={16} color="#00bcd4" />
-              <span style={{ fontSize: '0.875rem', fontWeight: '500', color: '#00bcd4' }}>Live Metrics</span>
+              <Sparkles size={isMobile ? 14 : 16} color="#00bcd4" />
+              <span style={{ fontSize: isMobile ? '0.75rem' : '0.875rem', fontWeight: '500', color: '#00bcd4' }}>
+                Live Metrics
+              </span>
             </div>
           </div>
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '1.5rem'
+            gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: isMobile ? '0.75rem' : '1.5rem'
           }}>
             <PerformanceMetric
               label="Transactions"
