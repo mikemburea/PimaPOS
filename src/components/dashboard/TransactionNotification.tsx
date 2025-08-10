@@ -70,16 +70,19 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
 }) => {
   const [isPaymentComplete, setIsPaymentComplete] = useState(false);
 
-  useEffect(() => {
-    if (isVisible && transaction) {
-      // Auto-close after 10 seconds if not interacted
-      const timer = setTimeout(() => {
-        onClose();
-      }, 10000);
+useEffect(() => {
+  if (isVisible && transaction) {
+    // Auto-close after 10 seconds if not interacted
+    const timer = setTimeout(() => {
+      onClose();
+    }, 10000);
 
-      return () => clearTimeout(timer);
-    }
-  }, [isVisible, transaction, onClose]);
+    return () => clearTimeout(timer);
+  }
+  
+  // Add this explicit return to satisfy TypeScript
+  return undefined;
+}, [isVisible, transaction, onClose]);
 
   if (!isVisible || !transaction) return null;
 

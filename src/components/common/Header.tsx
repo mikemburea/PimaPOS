@@ -54,23 +54,26 @@ const Header: React.FC<HeaderProps> = ({
   const popupRef = useRef<HTMLDivElement>(null);
 
   // Handle clicks outside to close popup
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        popupRef.current && 
-        profileRef.current &&
-        !popupRef.current.contains(event.target as Node) &&
-        !profileRef.current.contains(event.target as Node)
-      ) {
-        setShowProfilePopup(false);
-      }
-    };
-
-    if (showProfilePopup) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+useEffect(() => {
+  const handleClickOutside = (event: MouseEvent) => {
+    if (
+      popupRef.current && 
+      profileRef.current &&
+      !popupRef.current.contains(event.target as Node) &&
+      !profileRef.current.contains(event.target as Node)
+    ) {
+      setShowProfilePopup(false);
     }
-  }, [showProfilePopup]);
+  };
+
+  if (showProfilePopup) {
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }
+  
+  // Add this explicit return to satisfy TypeScript
+  return undefined;
+}, [showProfilePopup]);
 
   const handleProfileClickInternal = () => {
     setShowProfilePopup(!showProfilePopup);
