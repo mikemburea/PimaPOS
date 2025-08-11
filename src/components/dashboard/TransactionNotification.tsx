@@ -2,25 +2,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, DollarSign, Package, User, Calendar, Camera, ChevronLeft, ChevronRight } from 'lucide-react';
 
-// Import debug logger - adjust path if needed
-let debugLogger: any = {
-  log: (...args: any[]) => console.log(...args),
-  warn: (...args: any[]) => console.warn(...args),
-  error: (...args: any[]) => console.error(...args),
-  state: (...args: any[]) => console.log(...args),
-  showLogs: () => console.log('Debug logger not available')
-};
-
-// Try to import actual debugLogger
-try {
-  const logger = require('../../utils/debugLogger');
-  if (logger && logger.default) {
-    debugLogger = logger.default;
-  }
-} catch (e) {
-  console.log('Using fallback console logger');
-}
-
 interface Transaction {
   id: string;
   supplier_id?: string | null;
@@ -98,95 +79,27 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
 }) => {
   const [isPaymentComplete, setIsPaymentComplete] = useState(false);
   const [hasRendered, setHasRendered] = useState(false);
-  const [lastIndex, setLastIndex] = useState(currentQueueIndex);
-  const [isProcessing, setIsProcessing] = useState(false);
 
-  // Log component mount
+  // Reset states when switching between notifications or visibility changes
   useEffect(() => {
-    debugLogger.log('Component', 'TransactionNotification mounted', {
-      isVisible,
-      currentQueueIndex,
-      queueLength: notificationQueue.length,
-      hasTransaction: !!transaction
-    });
-
-    return () => {
-      debugLogger.log('Component', 'TransactionNotification unmounting');
-    };
-  }, []);
-
-  // Track visibility changes specifically
-  useEffect(() => {
-    debugLogger.log('Component', 'Visibility changed', {
-      isVisible,
-      wasVisible: !isVisible ? 'true -> false' : 'false -> true'
-    });
-    
-    if (!isVisible) {
-      debugLogger.log('Component', 'Modal should be closing/closed');
-    }
-  }, [isVisible]);
-  useEffect(() => {
-    debugLogger.state('Component', 'Props changed', {
-      isVisible,
-      currentQueueIndex,
-      eventType,
-      transactionId: transaction?.id,
-      queueLength: notificationQueue.length
-    });
-  }, [isVisible, currentQueueIndex, eventType, transaction, notificationQueue.length]);
-  useEffect(() => {
-    debugLogger.log('Component', 'useEffect triggered', {
-      isVisible,
-      currentQueueIndex,
-      lastIndex,
-      isProcessing,
-      hasRendered,
-      isPaymentComplete
-    });
-
-    // Don't reset if we're processing
-    if (isProcessing) {
-      debugLogger.log('Component', 'Skipping reset - currently processing');
-      return;
-    }
-    
-    // Only reset payment status when actually changing to a different notification
-    if (currentQueueIndex !== lastIndex) {
-      debugLogger.log('Component', 'Queue index changed, resetting payment status', {
-        from: lastIndex,
-        to: currentQueueIndex
-      });
-      setIsPaymentComplete(false);
-      setLastIndex(currentQueueIndex);
-    }
+    // Always reset payment status when notification index changes
+    setIsPaymentComplete(false);
     
     if (isVisible && !hasRendered) {
-      debugLogger.log('Component', 'Setting hasRendered to true');
       setHasRendered(true);
     }
     
     // Reset when modal is closed
     if (!isVisible) {
-      debugLogger.log('Component', 'Modal closed, resetting all states');
       setHasRendered(false);
       setIsPaymentComplete(false);
-      setLastIndex(currentQueueIndex);
-      setIsProcessing(false);
     }
     
     return undefined;
-  }, [isVisible, currentQueueIndex, lastIndex, isProcessing]);
+  }, [isVisible, currentQueueIndex]); // Depend on currentQueueIndex to reset on navigation
 
   // Prevent double rendering
-  if (!isVisible || !transaction || !hasRendered) {
-    debugLogger.log('Component', 'Not rendering', {
-      isVisible,
-      hasTransaction: !!transaction,
-      hasRendered
-    });
-    return null;
-  }
+  if (!isVisible || !transaction || !hasRendered) return null;
 
   const getSupplierName = () => {
     if (transaction.is_walkin) {
@@ -218,73 +131,27 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
   const canGoNext = currentQueueIndex < totalInQueue - 1;
   const canGoPrevious = currentQueueIndex > 0;
 
-  // Debug panel (only shown in development)
-  const showDebugPanel = process.env.NODE_ENV === 'development' || true; // Force show for debugging
-  
   // Count unhandled notifications
   const unhandledCount = notificationQueue.filter(n => !n.isHandled).length;
   
-  // Check if this is the last unhandled notification
-  const currentNotification = notificationQueue[currentQueueIndex];
-  const isCurrentUnhandled = currentNotification && !currentNotification.isHandled;
-  const isLastUnhandled = isCurrentUnhandled && unhandledCount === 1;
-  
-  // Debug current state
-  debugLogger.state('Component', 'Calculated state', {
-    currentQueueIndex,
-    unhandledCount,
-    isCurrentUnhandled,
-    isLastUnhandled,
-    notificationId: currentNotification?.id
-  });
+  // Check if there are more unhandled notifications after current
+  const hasMoreUnhandled = notificationQueue.some((n, i) => i !== currentQueueIndex && !n.isHandled);
 
   // Handle marking as complete
   const handleMarkAsComplete = () => {
-    debugLogger.log('Component', 'handleMarkAsComplete called', {
-      isPaymentComplete,
-      hasHandler: !!onMarkAsHandled,
-      isProcessing,
-      currentQueueIndex,
-      isLastUnhandled,
-      unhandledCount
-    });
-
-    if (!isPaymentComplete || !onMarkAsHandled || isProcessing) {
-      debugLogger.warn('Component', 'Cannot mark as complete - conditions not met', {
-        isPaymentComplete,
-        hasHandler: !!onMarkAsHandled,
-        isProcessing
-      });
-      return;
-    }
-    
-    debugLogger.state('Component', 'State before marking', {
-      currentQueueIndex,
-      isLastUnhandled,
-      unhandledCount,
-      isPaymentComplete,
-      isProcessing
-    });
-    
-    setIsProcessing(true);
-    debugLogger.log('Component', 'Set isProcessing to true');
-    
-    // Call the context handler which will handle everything
-    try {
-      debugLogger.log('Component', 'Calling onMarkAsHandled');
+    if (isPaymentComplete && onMarkAsHandled) {
+      // Mark as handled
       onMarkAsHandled();
-      debugLogger.log('Component', 'onMarkAsHandled completed');
-    } catch (error) {
-      debugLogger.error('Component', 'Error calling onMarkAsHandled', error);
-      setIsProcessing(false);
-      return;
+      
+      // If no more unhandled notifications, close the modal
+      // Otherwise, the context will navigate to the next unhandled one
+      if (!hasMoreUnhandled) {
+        // Small delay to ensure state updates
+        setTimeout(() => {
+          onClose();
+        }, 100);
+      }
     }
-    
-    // Reset processing flag after a delay
-    setTimeout(() => {
-      debugLogger.log('Component', 'Resetting isProcessing flag');
-      setIsProcessing(false);
-    }, 1000);
   };
 
   // Handle skip/dismiss with warning for incomplete payments
@@ -423,34 +290,6 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
             </div>
           </div>
 
-          {/* Debug Panel - Only in development */}
-          {showDebugPanel && (
-            <div className="absolute bottom-0 left-0 right-0 bg-gray-900 text-white p-2 text-xs rounded-b-2xl">
-              <div className="flex justify-between items-center">
-                <span>Debug: Queue {currentQueueIndex + 1}/{notificationQueue.length}</span>
-                <span>Unhandled: {unhandledCount}</span>
-                <span>Payment: {isPaymentComplete ? '✅' : '❌'}</span>
-                <span>Processing: {isProcessing ? '⏳' : '✅'}</span>
-                <button 
-                  onClick={() => {
-                    debugLogger.showLogs();
-                    console.log('Current State:', {
-                      isPaymentComplete,
-                      isProcessing,
-                      currentQueueIndex,
-                      isLastUnhandled,
-                      unhandledCount,
-                      onMarkAsHandled: !!onMarkAsHandled
-                    });
-                  }}
-                  className="px-2 py-1 bg-blue-600 rounded hover:bg-blue-700"
-                >
-                  📊 Logs
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Scrollable Content Area */}
           <div className="flex-1 overflow-y-auto">
             {/* Payment Instruction Box */}
@@ -574,21 +413,12 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
             {/* Payment Status Checkbox - Only for INSERT */}
             {eventType === 'INSERT' && (
               <div className="px-4 pt-3">
-                <label className={`flex items-center gap-2 p-2.5 bg-gray-50/90 rounded-lg cursor-pointer hover:bg-gray-100/90 transition-colors ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                <label className="flex items-center gap-2 p-2.5 bg-gray-50/90 rounded-lg cursor-pointer hover:bg-gray-100/90 transition-colors">
                   <input
                     type="checkbox"
                     checked={isPaymentComplete}
-                    onChange={(e) => {
-                      const newValue = e.target.checked;
-                      debugLogger.log('Component', 'Checkbox changed', {
-                        from: isPaymentComplete,
-                        to: newValue,
-                        isProcessing
-                      });
-                      setIsPaymentComplete(newValue);
-                    }}
-                    disabled={isProcessing}
-                    className="w-4 h-4 text-green-600 rounded focus:ring-green-500 disabled:opacity-50"
+                    onChange={(e) => setIsPaymentComplete(e.target.checked)}
+                    className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
                   />
                   <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
                     <DollarSign className="w-3.5 h-3.5 text-green-600" />
@@ -659,20 +489,18 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                     e.stopPropagation();
                     handleMarkAsComplete();
                   }}
-                  disabled={!isPaymentComplete || isProcessing}
+                  disabled={!isPaymentComplete}
                   className={`w-full py-2.5 px-4 rounded-lg font-medium transition-all text-sm ${
-                    isPaymentComplete && !isProcessing
+                    isPaymentComplete 
                       ? 'bg-green-600 hover:bg-green-700 text-white shadow-sm' 
                       : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   }`}
                 >
-                  {isProcessing 
-                    ? '⏳ Processing...'
-                    : isPaymentComplete 
-                      ? isLastUnhandled 
-                        ? '✓ Mark as Complete & Close' 
-                        : '✓ Mark as Complete & Next'
-                      : '🔒 Complete Payment First'}
+                  {isPaymentComplete 
+                    ? hasMoreUnhandled 
+                      ? '✓ Mark as Complete & Next' 
+                      : '✓ Mark as Complete & Close'
+                    : '🔒 Complete Payment First'}
                 </button>
               )}
               
