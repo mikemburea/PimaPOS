@@ -1,4 +1,4 @@
-// src/components/suppliers/Suppliers.tsx - Clean version with no mock data
+// src/components/suppliers/Suppliers.tsx - Mobile-first with transparent modal
 import React, { useState, useEffect } from 'react';
 import { 
   Search, Plus, Eye, Edit2, MapPin, Phone, Mail, Filter, Loader2, X, Globe, Calendar, Award, AlertCircle
@@ -216,7 +216,7 @@ const EmptyState = () => (
   </div>
 );
 
-// Modal Component for Adding Suppliers
+// Modal Component for Adding Suppliers - Mobile First with Transparent Background
 const AddSupplierModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -323,270 +323,285 @@ const AddSupplierModal: React.FC<{
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b">
-          <h2 className="text-xl font-semibold text-gray-800">Add New Supplier</h2>
-          <button onClick={handleClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-            <X size={20} />
+    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white/95 backdrop-blur rounded-2xl shadow-2xl w-full max-w-lg h-[65vh] sm:h-[60vh] md:h-[65vh] flex flex-col">
+        {/* Header - Fixed */}
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-gray-200/50 bg-white/80 backdrop-blur rounded-t-2xl">
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-800">Add New Supplier</h2>
+          <button onClick={handleClose} className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors">
+            <X size={18} className="sm:w-5 sm:h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          <div>
-            <h3 className="text-lg font-medium text-gray-800 mb-4">Basic Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-                  Company Name *
-                </label>
-                <input
-                  type="text"
-                  id="name"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    errors.name ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  placeholder="Enter company name"
-                />
-                {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-              </div>
+        {/* Form - Scrollable */}
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-4 sm:px-5 py-4">
+          <div className="space-y-4">
+            {/* Basic Information Section */}
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-3">Basic Information</h3>
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="name" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                    Company Name *
+                  </label>
+                  <input
+                    type="text"
+                    id="name"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      errors.name ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="Enter company name"
+                  />
+                  {errors.name && <p className="text-red-500 text-xs mt-0.5">{errors.name}</p>}
+                </div>
 
-              <div>
-                <label htmlFor="contact_person" className="block text-sm font-medium text-gray-700 mb-1">
-                  Contact Person
-                </label>
-                <input
-                  type="text"
-                  id="contact_person"
-                  name="contact_person"
-                  value={formData.contact_person}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter contact person name"
-                />
-              </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="contact_person" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                      Contact Person
+                    </label>
+                    <input
+                      type="text"
+                      id="contact_person"
+                      name="contact_person"
+                      value={formData.contact_person}
+                      onChange={handleChange}
+                      className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Contact name"
+                    />
+                  </div>
 
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                  Email *
-                </label>
-                <input
-                  type="email"
-                  id="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    errors.email ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  placeholder="Enter email address"
-                />
-                {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
-              </div>
+                  <div>
+                    <label htmlFor="phone" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                      Phone *
+                    </label>
+                    <input
+                      type="tel"
+                      id="phone"
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleChange}
+                      className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        errors.phone ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      placeholder="Phone number"
+                    />
+                    {errors.phone && <p className="text-red-500 text-xs mt-0.5">{errors.phone}</p>}
+                  </div>
+                </div>
 
-              <div>
-                <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone *
-                </label>
-                <input
-                  type="tel"
-                  id="phone"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleChange}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    errors.phone ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  placeholder="Enter phone number"
-                />
-                {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
-              </div>
+                <div>
+                  <label htmlFor="email" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                    Email *
+                  </label>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      errors.email ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="Email address"
+                  />
+                  {errors.email && <p className="text-red-500 text-xs mt-0.5">{errors.email}</p>}
+                </div>
 
-              <div>
-                <label htmlFor="website" className="block text-sm font-medium text-gray-700 mb-1">
-                  Website
-                </label>
-                <input
-                  type="url"
-                  id="website"
-                  name="website"
-                  value={formData.website}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter website URL"
-                />
-              </div>
+                <div>
+                  <label htmlFor="address" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                    Address *
+                  </label>
+                  <input
+                    type="text"
+                    id="address"
+                    name="address"
+                    value={formData.address}
+                    onChange={handleChange}
+                    className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      errors.address ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="Full address"
+                  />
+                  {errors.address && <p className="text-red-500 text-xs mt-0.5">{errors.address}</p>}
+                </div>
 
-              <div>
-                <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
-                  Status
-                </label>
-                <select
-                  id="status"
-                  name="status"
-                  value={formData.status}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-            </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="status" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                      Status
+                    </label>
+                    <select
+                      id="status"
+                      name="status"
+                      value={formData.status}
+                      onChange={handleChange}
+                      className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
 
-            <div className="mt-4">
-              <label htmlFor="address" className="block text-sm font-medium text-gray-700 mb-1">
-                Address *
-              </label>
-              <input
-                type="text"
-                id="address"
-                name="address"
-                value={formData.address}
-                onChange={handleChange}
-                className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  errors.address ? 'border-red-500' : 'border-gray-300'
-                }`}
-                placeholder="Enter full address"
-              />
-              {errors.address && <p className="text-red-500 text-sm mt-1">{errors.address}</p>}
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-medium text-gray-800 mb-4">Business Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="supplier_tier" className="block text-sm font-medium text-gray-700 mb-1">
-                  Supplier Tier
-                </label>
-                <select
-                  id="supplier_tier"
-                  name="supplier_tier"
-                  value={formData.supplier_tier}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="occasional">Occasional</option>
-                  <option value="regular">Regular</option>
-                  <option value="strategic">Strategic Partner</option>
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="preferred_payment_method" className="block text-sm font-medium text-gray-700 mb-1">
-                  Preferred Payment Method
-                </label>
-                <select
-                  id="preferred_payment_method"
-                  name="preferred_payment_method"
-                  value={formData.preferred_payment_method}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="cash">Cash</option>
-                  <option value="mpesa">M-Pesa</option>
-                  <option value="bank_transfer">Bank Transfer</option>
-                  <option value="cheque">Cheque</option>
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="credit_limit" className="block text-sm font-medium text-gray-700 mb-1">
-                  Credit Limit (KES)
-                </label>
-                <input
-                  type="number"
-                  id="credit_limit"
-                  name="credit_limit"
-                  value={formData.credit_limit}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter credit limit"
-                  min="0"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="registration_reason" className="block text-sm font-medium text-gray-700 mb-1">
-                  Registration Reason
-                </label>
-                <input
-                  type="text"
-                  id="registration_reason"
-                  name="registration_reason"
-                  value={formData.registration_reason}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Why is this supplier being registered?"
-                />
+                  <div>
+                    <label htmlFor="website" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                      Website
+                    </label>
+                    <input
+                      type="url"
+                      id="website"
+                      name="website"
+                      value={formData.website}
+                      onChange={handleChange}
+                      className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Website URL"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="mt-4">
-              <label htmlFor="material_types" className="block text-sm font-medium text-gray-700 mb-1">
-                Material Types *
-              </label>
-              <input
-                type="text"
-                id="material_types"
-                name="material_types"
-                value={formData.material_types.join(', ')}
-                onChange={handleMaterialTypesChange}
-                className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  errors.material_types ? 'border-red-500' : 'border-gray-300'
-                }`}
-                placeholder="Enter material types separated by commas (e.g., Steel, Aluminum, Copper)"
-              />
-              {errors.material_types && <p className="text-red-500 text-sm mt-1">{errors.material_types}</p>}
-            </div>
+            {/* Business Information Section */}
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-3">Business Information</h3>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="supplier_tier" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                      Supplier Tier
+                    </label>
+                    <select
+                      id="supplier_tier"
+                      name="supplier_tier"
+                      value={formData.supplier_tier}
+                      onChange={handleChange}
+                      className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="occasional">Occasional</option>
+                      <option value="regular">Regular</option>
+                      <option value="strategic">Strategic</option>
+                    </select>
+                  </div>
 
-            <div className="mt-4">
-              <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
-                Notes
-              </label>
-              <textarea
-                id="notes"
-                name="notes"
-                value={formData.notes}
-                onChange={handleChange}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter any additional notes or comments"
-              />
-            </div>
-          </div>
+                  <div>
+                    <label htmlFor="preferred_payment_method" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                      Payment Method
+                    </label>
+                    <select
+                      id="preferred_payment_method"
+                      name="preferred_payment_method"
+                      value={formData.preferred_payment_method}
+                      onChange={handleChange}
+                      className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="cash">Cash</option>
+                      <option value="mpesa">M-Pesa</option>
+                      <option value="bank_transfer">Bank Transfer</option>
+                      <option value="cheque">Cheque</option>
+                    </select>
+                  </div>
+                </div>
 
-          <div className="flex items-center justify-end gap-3 pt-4 border-t">
-            <button
-              type="button"
-              onClick={handleClose}
-              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Adding...
-                </>
-              ) : (
-                <>
-                  <Plus size={16} />
-                  Add Supplier
-                </>
-              )}
-            </button>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="credit_limit" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                      Credit Limit (KES)
+                    </label>
+                    <input
+                      type="number"
+                      id="credit_limit"
+                      name="credit_limit"
+                      value={formData.credit_limit}
+                      onChange={handleChange}
+                      className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="0"
+                      min="0"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="registration_reason" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                      Registration Reason
+                    </label>
+                    <input
+                      type="text"
+                      id="registration_reason"
+                      name="registration_reason"
+                      value={formData.registration_reason}
+                      onChange={handleChange}
+                      className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Why register?"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="material_types" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                    Material Types *
+                  </label>
+                  <input
+                    type="text"
+                    id="material_types"
+                    name="material_types"
+                    value={formData.material_types.join(', ')}
+                    onChange={handleMaterialTypesChange}
+                    className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      errors.material_types ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="e.g., Steel, Aluminum, Copper"
+                  />
+                  {errors.material_types && <p className="text-red-500 text-xs mt-0.5">{errors.material_types}</p>}
+                </div>
+
+                <div>
+                  <label htmlFor="notes" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                    Notes
+                  </label>
+                  <textarea
+                    id="notes"
+                    name="notes"
+                    value={formData.notes}
+                    onChange={handleChange}
+                    rows={2}
+                    className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Additional notes"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </form>
+
+        {/* Footer - Fixed */}
+        <div className="flex items-center justify-end gap-3 p-4 sm:p-5 border-t border-gray-200/50 bg-white/80 backdrop-blur rounded-b-2xl">
+          <button
+            type="button"
+            onClick={handleClose}
+            className="px-3 sm:px-4 py-1.5 sm:py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="px-3 sm:px-4 py-1.5 sm:py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Adding...
+              </>
+            ) : (
+              <>
+                <Plus size={14} />
+                Add Supplier
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -669,7 +684,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
 
   if (loading) {
     return (
-      <div className="bg-white p-6 rounded-lg shadow-md">
+      <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="animate-spin text-blue-600" size={32} />
           <span className="ml-2 text-gray-600">Loading suppliers...</span>
@@ -680,9 +695,9 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
 
   if (error) {
     return (
-      <div className="bg-white p-6 rounded-lg shadow-md">
+      <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
         <div className="text-center py-12">
-          <div className="bg-red-100 border border-red-400 text-red-700 px-6 py-4 rounded-lg max-w-lg mx-auto">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 sm:px-6 py-4 rounded-lg max-w-lg mx-auto">
             <div className="flex items-center justify-center mb-2">
               <AlertCircle className="w-5 h-5 mr-2" />
               <p className="font-bold">Error loading suppliers</p>
@@ -701,160 +716,164 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
   }
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Suppliers</h2>
+    <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
+      <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6">Suppliers</h2>
       
-      {/* Search and Filter Controls */}
-      <div className="bg-gray-50 rounded-xl p-4 mb-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+      {/* Search and Filter Controls - Mobile Optimized */}
+      <div className="bg-gray-50 rounded-xl p-3 sm:p-4 mb-4 sm:mb-6">
+        <div className="flex flex-col gap-3">
+          {/* Search Bar */}
+          <div className="relative w-full">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
               placeholder="Search suppliers..."
               value={searchTerm}
               onChange={(e) => handleSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <div className="flex items-center gap-4">
-            <div className="relative">
-              <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
+          
+          {/* Filter and Add Button Row */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={14} />
               <select
                 value={filterTierValue}
                 onChange={(e) => handleTierFilter(e.target.value)}
-                className="pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
               >
                 <option value="all">All Tiers</option>
-                <option value="strategic">Strategic Partners</option>
+                <option value="strategic">Strategic</option>
                 <option value="regular">Regular</option>
                 <option value="occasional">Occasional</option>
               </select>
             </div>
             <button 
               onClick={() => setIsModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
             >
-              <Plus size={20} />
-              Add Supplier
+              <Plus size={16} />
+              <span className="hidden sm:inline">Add Supplier</span>
+              <span className="sm:hidden">Add</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Suppliers Display */}
+      {/* Suppliers Display - Mobile Optimized */}
       {suppliers.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {suppliers.map((supplier) => {
             const tierInfo = getTierInfo(supplier);
             const paymentIcon = getPaymentMethodIcon(supplier.preferred_payment_method || 'cash');
             
             return (
-              <div key={supplier.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
-                <div className="flex items-start justify-between mb-4">
+              <div key={supplier.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-start justify-between mb-3 sm:mb-4">
                   <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-800">{supplier.name}</h3>
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-800">{supplier.name}</h3>
                     {supplier.contact_person && (
-                      <p className="text-sm text-gray-600 mt-1">Contact: {supplier.contact_person}</p>
+                      <p className="text-xs sm:text-sm text-gray-600 mt-1">Contact: {supplier.contact_person}</p>
                     )}
-                    <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                      <MapPin size={14} />
+                    <p className="text-xs sm:text-sm text-gray-500 flex items-center gap-1 mt-1">
+                      <MapPin size={12} className="sm:w-3.5 sm:h-3.5" />
                       {supplier.address}
                     </p>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${tierInfo.color}`}>
-                    {tierInfo.icon} {tierInfo.label}
+                  <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-medium ${tierInfo.color}`}>
+                    {tierInfo.icon} <span className="hidden sm:inline">{tierInfo.label}</span>
                   </span>
                 </div>
 
-                <div className="space-y-2 mb-4">
-                  <p className="text-sm text-gray-600 flex items-center gap-2">
-                    <Phone size={14} />
+                <div className="space-y-1.5 sm:space-y-2 mb-3 sm:mb-4">
+                  <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
+                    <Phone size={12} className="sm:w-3.5 sm:h-3.5" />
                     {supplier.phone}
                   </p>
-                  <p className="text-sm text-gray-600 flex items-center gap-2">
-                    <Mail size={14} />
+                  <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
+                    <Mail size={12} className="sm:w-3.5 sm:h-3.5" />
                     {supplier.email}
                   </p>
                   {supplier.website && (
-                    <p className="text-sm text-gray-600 flex items-center gap-2">
-                      <Globe size={14} />
+                    <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
+                      <Globe size={12} className="sm:w-3.5 sm:h-3.5" />
                       <a href={supplier.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
                         Website
                       </a>
                     </p>
                   )}
-                  <div className="pt-2">
-                    <p className="text-sm font-medium text-gray-700">Materials:</p>
-                    <p className="text-sm text-gray-600">
+                  <div className="pt-1.5 sm:pt-2">
+                    <p className="text-xs sm:text-sm font-medium text-gray-700">Materials:</p>
+                    <p className="text-xs sm:text-sm text-gray-600">
                       {supplier.material_types.length > 0 ? supplier.material_types.join(', ') : 'No materials specified'}
                     </p>
                   </div>
-                  <div className="pt-2">
-                    <p className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                  <div className="pt-1.5 sm:pt-2">
+                    <p className="text-xs sm:text-sm font-medium text-gray-700 flex items-center gap-1">
                       Preferred Payment: {paymentIcon} {supplier.preferred_payment_method?.replace('_', ' ') || 'Cash'}
                     </p>
                     {supplier.credit_limit && supplier.credit_limit > 0 && (
-                      <p className="text-sm text-gray-600">Credit Limit: KES {supplier.credit_limit.toLocaleString()}</p>
+                      <p className="text-xs sm:text-sm text-gray-600">Credit Limit: KES {supplier.credit_limit.toLocaleString()}</p>
                     )}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 mb-4 pt-4 border-t border-gray-200">
+                <div className="grid grid-cols-3 gap-2 mb-3 sm:mb-4 pt-3 sm:pt-4 border-t border-gray-200">
                   <div className="text-center">
-                    <p className="text-xl font-bold text-blue-600">{supplier.total_transactions}</p>
+                    <p className="text-lg sm:text-xl font-bold text-blue-600">{supplier.total_transactions}</p>
                     <p className="text-xs text-gray-500">Transactions</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xl font-bold text-blue-600">KES {(supplier.total_value / 1000).toFixed(0)}K</p>
+                    <p className="text-lg sm:text-xl font-bold text-blue-600">KES {(supplier.total_value / 1000).toFixed(0)}K</p>
                     <p className="text-xs text-gray-500">Total Value</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xl font-bold text-blue-600">{supplier.total_weight ? `${(supplier.total_weight / 1000).toFixed(1)}T` : '0T'}</p>
+                    <p className="text-lg sm:text-xl font-bold text-blue-600">{supplier.total_weight ? `${(supplier.total_weight / 1000).toFixed(1)}T` : '0T'}</p>
                     <p className="text-xs text-gray-500">Total Weight</p>
                   </div>
                 </div>
 
                 {supplier.last_transaction_date && (
-                  <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                    <p className="text-sm text-gray-600 flex items-center gap-2">
-                      <Calendar size={14} />
+                  <div className="mb-3 sm:mb-4 p-2 sm:p-3 bg-gray-50 rounded-lg">
+                    <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
+                      <Calendar size={12} className="sm:w-3.5 sm:h-3.5" />
                       Last Transaction: {new Date(supplier.last_transaction_date).toLocaleDateString()}
                     </p>
                     {supplier.average_transaction_value && (
-                      <p className="text-sm text-gray-600 mt-1">
+                      <p className="text-xs sm:text-sm text-gray-600 mt-1">
                         Avg. Transaction: KES {supplier.average_transaction_value.toLocaleString()}
                       </p>
                     )}
                   </div>
                 )}
 
-                <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                <div className="flex items-center justify-between pt-3 sm:pt-4 border-t border-gray-200">
+                  <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-medium ${
                     supplier.status === 'active' 
                       ? 'bg-green-100 text-green-800' 
                       : 'bg-red-100 text-red-800'
                   }`}>
                     {supplier.status === 'active' ? '● Active' : '● Inactive'}
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 sm:gap-2">
                     <button 
-                      className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                      className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors"
                       title="View Details"
                     >
-                      <Eye size={16} />
+                      <Eye size={14} className="sm:w-4 sm:h-4" />
                     </button>
                     <button 
-                      className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                      className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors"
                       title="Edit Supplier"
                     >
-                      <Edit2 size={16} />
+                      <Edit2 size={14} className="sm:w-4 sm:h-4" />
                     </button>
                     {supplier.supplier_tier === 'strategic' && (
-                      <div className="p-2" title="Strategic Partner">
-                        <Award size={16} className="text-purple-600" />
+                      <div className="p-1.5 sm:p-2" title="Strategic Partner">
+                        <Award size={14} className="text-purple-600 sm:w-4 sm:h-4" />
                       </div>
                     )}
                   </div>

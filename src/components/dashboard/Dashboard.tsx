@@ -1,14 +1,13 @@
-// src/components/dashboard/Dashboard.tsx - Comprehensive Extended Version with Production Queue - Mobile-First Responsive
+// src/components/dashboard/Dashboard.tsx - Simplified Version without Duplicate Notification Management - Mobile-First Responsive
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   DollarSign, FileText, Package, Users, Plus, Download, TrendingUp, Activity, Award, 
-  Sparkles, AlertCircle, Loader2, Bell, X, Menu
+  Sparkles, AlertCircle, Loader2
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Cell, Pie, AreaChart, Area} from 'recharts';
 import { supabase } from '../../lib/supabase';
-import TransactionNotification from './TransactionNotification';
 
-// Types and Interfaces (Extended)
+// Types and Interfaces
 interface StatCardProps {
   title: string;
   value: string;
@@ -159,38 +158,6 @@ interface DashboardProps {
   onRefresh?: () => void;
 }
 
-// Enhanced Queue Management Types
-interface QueuedNotification {
-  id: string;
-  transaction: DatabaseTransaction;
-  suppliers: DatabaseSupplier[];
-  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
-  timestamp: Date;
-  priority: 'HIGH' | 'MEDIUM' | 'LOW';
-  isProcessed: boolean;
-}
-
-// Realtime types (keeping your existing structure)
-interface RealtimeTransaction {
-  id: string;
-  supplier_id?: string | null;
-  material_type: string;
-  transaction_date: string;
-  total_amount: number;
-  created_at: string;
-  is_walkin: boolean;
-  walkin_name?: string | null;
-  weight_kg?: number | null;
-  payment_status?: string | null;
-  payment_method?: string | null;
-}
-
-interface RealtimeNotificationData {
-  transaction: RealtimeTransaction;
-  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
-  suppliers: DatabaseSupplier[];
-}
-
 // CSS styles object - Updated for mobile-first
 const styles = {
   gradient: {
@@ -209,7 +176,7 @@ const styles = {
   }
 };
 
-// Helper functions (keeping your existing functions)
+// Helper functions
 const safeString = (value: string | null | undefined): string => {
   return value || '';
 };
@@ -239,303 +206,6 @@ const getSupplierName = (transaction: DatabaseTransaction, suppliers: DatabaseSu
   }
   const supplier = suppliers.find(s => s.id === transaction.supplier_id);
   return supplier?.name || 'Unknown Supplier';
-};
-
-// Enhanced Production Notification Queue Hook
-const useProductionNotificationQueue = () => {
-  const [notificationQueue, setNotificationQueue] = useState<QueuedNotification[]>([]);
-  const [showNotification, setShowNotification] = useState(false);
-  const [queueStats, setQueueStats] = useState({
-    total: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
-    processed: 0
-  });
-
-  // Add notification to queue with intelligent priority
-  const addToQueue = useCallback((
-    transaction: DatabaseTransaction,
-    suppliers: DatabaseSupplier[],
-    eventType: 'INSERT' | 'UPDATE' | 'DELETE'
-  ) => {
-    console.log('Adding notification to production queue:', { transaction, eventType });
-    
-    // Determine priority based on transaction properties
-    let priority: 'HIGH' | 'MEDIUM' | 'LOW' = 'MEDIUM';
-    
-    if (eventType === 'INSERT') {
-      // New transactions are always high priority
-      priority = 'HIGH';
-    } else if (eventType === 'DELETE') {
-      // Deletions are lower priority
-      priority = 'LOW';
-    } else if (eventType === 'UPDATE') {
-      // Updates are medium priority, but high value updates are elevated
-      if (transaction.total_amount > 100000) {
-        priority = 'HIGH';
-      } else if (transaction.total_amount > 50000) {
-        priority = 'MEDIUM';
-      } else {
-        priority = 'LOW';
-      }
-    }
-
-    const queuedNotification: QueuedNotification = {
-      id: `${transaction.id}_${Date.now()}_${eventType}`,
-      transaction,
-      suppliers,
-      eventType,
-      timestamp: new Date(),
-      priority,
-      isProcessed: false
-    };
-
-    setNotificationQueue(prev => {
-      // Check if notification already exists to prevent duplicates
-      const exists = prev.some(n => 
-        n.transaction.id === transaction.id && 
-        n.eventType === eventType &&
-        Math.abs(n.timestamp.getTime() - queuedNotification.timestamp.getTime()) < 1000
-      );
-      
-      if (exists) {
-        console.log('Duplicate notification detected, skipping');
-        return prev;
-      }
-
-      // Add to queue and sort by priority and timestamp
-      const newQueue = [...prev, queuedNotification].sort((a, b) => {
-        const priorityOrder = { HIGH: 3, MEDIUM: 2, LOW: 1 };
-        
-        // First sort by priority
-        if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
-          return priorityOrder[b.priority] - priorityOrder[a.priority];
-        }
-        
-        // Then by timestamp (older first)
-        return a.timestamp.getTime() - b.timestamp.getTime();
-      });
-
-      return newQueue;
-    });
-    
-    setShowNotification(true);
-  }, []);
-
-  // Remove notification from queue
-  const removeFromQueue = useCallback(() => {
-    setNotificationQueue(prev => {
-      const newQueue = prev.slice(1);
-      if (newQueue.length === 0) {
-        setShowNotification(false);
-      }
-      return newQueue;
-    });
-  }, []);
-
-  // Mark notification as processed (for analytics)
-  const markAsProcessed = useCallback((notificationId: string) => {
-    setNotificationQueue(prev => 
-      prev.map(n => 
-        n.id === notificationId ? { ...n, isProcessed: true } : n
-      )
-    );
-  }, []);
-
-  // Clear all notifications
-  const clearQueue = useCallback(() => {
-    setNotificationQueue([]);
-    setShowNotification(false);
-  }, []);
-
-  // Clear only low priority notifications
-  const clearLowPriority = useCallback(() => {
-    setNotificationQueue(prev => {
-      const filtered = prev.filter(n => n.priority !== 'LOW');
-      if (filtered.length === 0) {
-        setShowNotification(false);
-      }
-      return filtered;
-    });
-  }, []);
-
-  // Update queue statistics
-  useEffect(() => {
-    const stats = notificationQueue.reduce((acc, notification) => {
-      acc.total++;
-      acc[notification.priority.toLowerCase() as keyof typeof acc]++;
-      if (notification.isProcessed) acc.processed++;
-      return acc;
-    }, { total: 0, high: 0, medium: 0, low: 0, processed: 0 });
-    
-    setQueueStats(stats);
-  }, [notificationQueue]);
-
-  return {
-    notificationQueue,
-    showNotification,
-    queueStats,
-    addToQueue,
-    removeFromQueue,
-    markAsProcessed,
-    clearQueue,
-    clearLowPriority,
-    currentNotification: notificationQueue[0] || null
-  };
-};
-
-// Mobile-responsive Queue Status Component
-const QueueStatusPanel: React.FC<{
-  queueStats: any;
-  onClearAll: () => void;
-  onClearLowPriority: () => void;
-  isVisible: boolean;
-}> = ({ queueStats, onClearAll, onClearLowPriority, isVisible }) => {
-  if (!isVisible || queueStats.total === 0) return null;
-
-  return (
-    <div style={{
-      position: 'fixed',
-      top: '4rem',
-      right: '0.5rem',
-      left: '0.5rem',
-      zIndex: 999,
-      background: 'rgba(255, 255, 255, 0.95)',
-      backdropFilter: 'blur(20px)',
-      borderRadius: '12px',
-      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
-      border: '1px solid rgba(255, 255, 255, 0.2)',
-      padding: '1rem',
-      animation: 'slideInFromTop 0.3s ease-out'
-    }}>
-      <style>{`
-        @keyframes slideInFromTop {
-          from { transform: translateY(-100%); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
-        }
-        @media (min-width: 768px) {
-          .queue-panel {
-            right: 1rem !important;
-            left: auto !important;
-            min-width: 280px;
-          }
-        }
-      `}</style>
-      
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h4 style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#1f2937', margin: 0 }}>
-          Notification Queue
-        </h4>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button
-            onClick={onClearLowPriority}
-            style={{
-              padding: '0.25rem 0.5rem',
-              fontSize: '0.7rem',
-              background: 'rgba(156, 163, 175, 0.1)',
-              color: '#6b7280',
-              border: '1px solid rgba(156, 163, 175, 0.3)',
-              borderRadius: '6px',
-              cursor: 'pointer'
-            }}
-          >
-            Clear Low
-          </button>
-          <button
-            onClick={onClearAll}
-            style={{
-              padding: '0.25rem 0.5rem',
-              fontSize: '0.7rem',
-              background: 'rgba(239, 68, 68, 0.1)',
-              color: '#dc2626',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: '6px',
-              cursor: 'pointer'
-            }}
-          >
-            Clear All
-          </button>
-        </div>
-      </div>
-
-      {/* Queue Statistics - Mobile responsive grid */}
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(2, 1fr)', 
-        gap: '0.5rem', 
-        marginBottom: '1rem'
-      }}>
-        <div style={{
-          padding: '0.5rem',
-          background: 'rgba(239, 68, 68, 0.1)',
-          borderRadius: '8px',
-          textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#dc2626' }}>{queueStats.high}</div>
-          <div style={{ fontSize: '0.65rem', color: '#7f1d1d' }}>High Priority</div>
-        </div>
-        <div style={{
-          padding: '0.5rem',
-          background: 'rgba(245, 158, 11, 0.1)',
-          borderRadius: '8px',
-          textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#d97706' }}>{queueStats.medium}</div>
-          <div style={{ fontSize: '0.65rem', color: '#92400e' }}>Medium Priority</div>
-        </div>
-        <div style={{
-          padding: '0.5rem',
-          background: 'rgba(156, 163, 175, 0.1)',
-          borderRadius: '8px',
-          textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#6b7280' }}>{queueStats.low}</div>
-          <div style={{ fontSize: '0.65rem', color: '#4b5563' }}>Low Priority</div>
-        </div>
-        <div style={{
-          padding: '0.5rem',
-          background: 'rgba(16, 185, 129, 0.1)',
-          borderRadius: '8px',
-          textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#059669' }}>{queueStats.processed}</div>
-          <div style={{ fontSize: '0.65rem', color: '#047857' }}>Processed</div>
-        </div>
-      </div>
-
-      {/* Processing Rate */}
-      <div style={{
-        padding: '0.75rem',
-        background: 'rgba(59, 130, 246, 0.1)',
-        borderRadius: '8px',
-        border: '1px solid rgba(59, 130, 246, 0.2)'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.8rem', color: '#1e40af' }}>Processing Rate</span>
-          <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#1e40af' }}>
-            {queueStats.total > 0 ? Math.round((queueStats.processed / queueStats.total) * 100) : 0}%
-          </span>
-        </div>
-        <div style={{
-          width: '100%',
-          height: '4px',
-          background: 'rgba(59, 130, 246, 0.2)',
-          borderRadius: '2px',
-          marginTop: '0.5rem',
-          overflow: 'hidden'
-        }}>
-          <div style={{
-            width: `${queueStats.total > 0 ? (queueStats.processed / queueStats.total) * 100 : 0}%`,
-            height: '100%',
-            background: 'linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%)',
-            borderRadius: '2px',
-            transition: 'width 0.5s ease-out'
-          }}></div>
-        </div>
-      </div>
-    </div>
-  );
 };
 
 // Mobile-responsive Stat Card Component
@@ -942,7 +612,7 @@ const CustomTooltip: React.FC<any> = ({ active, payload, label }) => {
   return null;
 };
 
-// Main Dashboard Component (Enhanced with Mobile-First Responsive Design)
+// Main Dashboard Component - Simplified without Duplicate Notification Management
 const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -950,22 +620,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const [suppliers, setSuppliers] = useState<DatabaseSupplier[]>([]);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  
-  // Enhanced Queue Management
-  const {
-    notificationQueue,
-    showNotification,
-    queueStats,
-    addToQueue,
-    removeFromQueue,
-    markAsProcessed,
-    clearQueue,
-    clearLowPriority,
-    currentNotification
-  } = useProductionNotificationQueue();
-
-  // Queue status panel visibility
-  const [showQueuePanel, setShowQueuePanel] = useState(false);
 
   // Handle window resize
   useEffect(() => {
@@ -1003,7 +657,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         ? materialsResult.value.data || [] 
         : [];
 
-      // Store suppliers for realtime notifications
+      // Store suppliers for reference
       setSuppliers(suppliersData);
 
       // Calculate dashboard data
@@ -1186,57 +840,36 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     };
   };
 
-  // Enhanced notification handlers
-  const handleCloseNotification = useCallback(() => {
-    if (currentNotification) {
-      markAsProcessed(currentNotification.id);
-    }
-    removeFromQueue();
-  }, [currentNotification, markAsProcessed, removeFromQueue]);
-
-  // Enhanced realtime subscription with queue integration
+  // Simplified realtime subscription - only refreshes data, no notification management
   useEffect(() => {
-    console.log('Setting up enhanced production realtime subscription...');
+    console.log('Setting up dashboard realtime subscription...');
 
     const channel = supabase
-      .channel('dashboard-transactions-production')
+      .channel('dashboard-data-refresh')
       .on(
         'postgres_changes',
         {
-          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          event: '*',
           schema: 'public',
           table: 'transactions'
         },
         (payload) => {
-          console.log('Production realtime transaction update received:', payload);
+          console.log('Dashboard data update received:', payload);
           
-          try {
-            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
-            const transaction = payload.new as DatabaseTransaction || payload.old as DatabaseTransaction;
-            
-            if (transaction) {
-              // Add to production queue
-              addToQueue(transaction, suppliers, eventType);
-              
-              // Refresh dashboard data after a delay
-              setTimeout(() => {
-                fetchDashboardData();
-              }, 1000);
-            }
-          } catch (error) {
-            console.error('Error processing production realtime update:', error);
-          }
+          // Just refresh the dashboard data - don't create notifications here!
+          // The NotificationContext is already handling notifications
+          fetchDashboardData();
         }
       )
       .subscribe((status) => {
-        console.log('Production realtime subscription status:', status);
+        console.log('Dashboard realtime subscription status:', status);
         
         if (status === 'SUBSCRIBED') {
           setIsRealtimeConnected(true);
-          console.log('Successfully subscribed to production transactions realtime updates');
+          console.log('Successfully subscribed to dashboard data updates');
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           setIsRealtimeConnected(false);
-          console.error('Production realtime connection error');
+          console.error('Dashboard realtime connection error');
         } else if (status === 'CLOSED') {
           setIsRealtimeConnected(false);
         }
@@ -1244,11 +877,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
 
     // Cleanup subscription on unmount
     return () => {
-      console.log('Cleaning up production realtime subscription...');
+      console.log('Cleaning up dashboard realtime subscription...');
       supabase.removeChannel(channel);
       setIsRealtimeConnected(false);
     };
-  }, [suppliers, fetchDashboardData, addToQueue]);
+  }, [fetchDashboardData]);
 
   // Load data on component mount
   useEffect(() => {
@@ -1274,7 +907,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
       }}>
         <div style={{ textAlign: 'center' }}>
           <Loader2 size={isMobile ? 40 : 48} className="animate-spin" style={{ color: '#00bcd4', marginBottom: '1rem' }} />
-          <p style={{ fontSize: isMobile ? '1rem' : '1.125rem', color: '#64748b' }}>Loading production dashboard...</p>
+          <p style={{ fontSize: isMobile ? '1rem' : '1.125rem', color: '#64748b' }}>Loading dashboard...</p>
         </div>
       </div>
     );
@@ -1412,48 +1045,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         }
       `}</style>
 
-      {/* Enhanced Status Bar with Queue Management - Responsive */}
+      {/* Simple Status Bar - Only Connection Status */}
       <div style={{
         position: 'fixed',
         top: '0.5rem',
         right: '0.5rem',
-        left: isMobile ? '0.5rem' : 'auto',
-        zIndex: 1000,
-        display: 'flex',
-        flexDirection: isMobile ? 'column' : 'row',
-        alignItems: isMobile ? 'stretch' : 'center',
-        gap: '0.5rem'
+        zIndex: 1000
       }}>
-        {/* Queue Status Alert */}
-        {queueStats.total > 0 && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '0.5rem',
-            padding: '0.5rem 0.75rem',
-            background: queueStats.high > 0 
-              ? 'rgba(239, 68, 68, 0.95)' 
-              : queueStats.medium > 0 
-                ? 'rgba(245, 158, 11, 0.95)'
-                : 'rgba(59, 130, 246, 0.95)',
-            borderRadius: '10px',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-            fontSize: isMobile ? '0.8rem' : '0.875rem',
-            fontWeight: '600',
-            border: '1px solid rgba(255, 255, 255, 0.3)',
-            backdropFilter: 'blur(10px)',
-            color: 'white',
-            animation: queueStats.high > 0 ? 'pulse 2s infinite' : 'none',
-            cursor: 'pointer'
-          }}
-          onClick={() => setShowQueuePanel(!showQueuePanel)}>
-            <Bell size={isMobile ? 14 : 16} />
-            <span>{queueStats.total} Pending</span>
-            {queueStats.high > 0 && <span>🚨</span>}
-          </div>
-        )}
-
         {/* Connection Status - Hidden on mobile */}
         {!isMobile && (
           <div style={{
@@ -1484,14 +1082,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         )}
       </div>
 
-      {/* Queue Status Panel */}
-      <QueueStatusPanel
-        queueStats={queueStats}
-        onClearAll={clearQueue}
-        onClearLowPriority={clearLowPriority}
-        isVisible={showQueuePanel && queueStats.total > 0}
-      />
-
       {/* Main Content */}
       <div style={{ 
         position: 'relative', 
@@ -1516,14 +1106,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
               marginBottom: '0.5rem',
               lineHeight: '1.2'
             }}>
-              Production Dashboard
+              Dashboard
             </h1>
             <p style={{ 
               color: '#64748b', 
               fontSize: isMobile ? '0.9rem' : '1.125rem',
               lineHeight: '1.4'
             }}>
-              Real-time overview of your scrap metal business with enhanced notification queue
+              Real-time overview of your scrap metal business
             </p>
           </div>
           <button
@@ -1694,7 +1284,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
                 recentTransactions.map((transaction) => (
                   <TransactionItem 
                     key={transaction.id} 
-                    transaction={transformTransactionForDisplay(transaction, topSuppliers)} 
+                    transaction={transformTransactionForDisplay(transaction, suppliers)} 
                   />
                 ))
               ) : (
@@ -1936,16 +1526,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           </div>
         </div>
       </div>
-
-      {/* Enhanced Production Transaction Notification with Queue Management */}
-      <TransactionNotification
-        transaction={currentNotification?.transaction || null}
-        suppliers={currentNotification?.suppliers || []}
-        eventType={currentNotification?.eventType || null}
-        isVisible={showNotification}
-        onClose={handleCloseNotification}
-        notificationQueue={notificationQueue}
-      />
     </div>
   );
 };

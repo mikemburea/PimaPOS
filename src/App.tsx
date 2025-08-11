@@ -1,7 +1,11 @@
-// App.tsx - Mobile-First with Enhanced Top Slide-Down Menu
+// App.tsx - Updated with Global Notification System
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, AlertTriangle } from 'lucide-react';
+
+// Import notification system
+import { NotificationProvider, useNotifications } from './contexts/NotificationContext';
+import TransactionNotification from './components/dashboard/TransactionNotification';
 
 // Import your actual component files
 import Sidebar from './components/common/Sidebar';
@@ -19,7 +23,7 @@ import WeeklyReport from './components/reports/WeeklyReport';
 import MonthlyReport from './components/reports/MonthlyReport';
 import CustomReport from './components/reports/CustomReport';
 
-// Define interfaces to match database structure
+// Define interfaces (keeping your existing interfaces)
 interface Supplier {
   id: string;
   name: string;
@@ -73,14 +77,13 @@ interface Transaction {
   updated_at?: string | null;
 }
 
-// Fixed Material interface - ensure it matches what Analytics component expects
 interface Material {
   id: string;
   name: string;
   category: string;
   current_price: number;
-  current_price_per_kg: number; // Added this required property
-  is_active: boolean; // Added this required property
+  current_price_per_kg: number;
+  is_active: boolean;
   unit: string;
   description?: string | null;
   created_at: string;
@@ -100,7 +103,6 @@ interface DashboardStats {
   supplierGrowth?: number;
 }
 
-// Transform database transaction to report component format
 interface ReportTransaction {
   id: string;
   date: string;
@@ -115,12 +117,11 @@ interface ReportTransaction {
   walkinName?: string | null;
 }
 
-// App component props interface - made optional since it's passed from AppRouter
 interface AppProps {
   onNavigateBack?: () => void;
 }
 
-// Mobile-first Loading component
+// Loading and Error components (keeping your existing ones)
 const LoadingSpinner = () => (
   <div className="flex items-center justify-center min-h-screen px-4">
     <div className="text-center">
@@ -130,7 +131,6 @@ const LoadingSpinner = () => (
   </div>
 );
 
-// Mobile-first Error component
 const ErrorDisplay = ({ error, onRetry }: { error: string; onRetry: () => void }) => (
   <div className="flex items-center justify-center min-h-screen px-4">
     <div className="text-center w-full max-w-sm mx-auto">
@@ -153,13 +153,12 @@ const ErrorDisplay = ({ error, onRetry }: { error: string; onRetry: () => void }
   </div>
 );
 
-// Enhanced Professional Mobile Menu Button Component
 const MobileMenuButton = ({ isOpen, onClick }: { isOpen: boolean; onClick: () => void }) => {
   return (
     <button
       onClick={onClick}
       className={`
-        md:hidden fixed top-4 left-4 z-60 
+        md:hidden fixed top-4 left-4 z-[60]
         flex items-center justify-center
         w-12 h-12 
         rounded-xl
@@ -175,7 +174,6 @@ const MobileMenuButton = ({ isOpen, onClick }: { isOpen: boolean; onClick: () =>
       aria-label={isOpen ? "Close Menu" : "Open Menu"}
     >
       <div className="relative w-6 h-6 flex items-center justify-center">
-        {/* Hamburger Lines with Animation */}
         <div className={`
           absolute inset-0 flex flex-col justify-center items-center
           transition-all duration-300 ease-in-out
@@ -186,7 +184,6 @@ const MobileMenuButton = ({ isOpen, onClick }: { isOpen: boolean; onClick: () =>
           }`} />
         </div>
         
-        {/* X Icon with Animation */}
         <div className={`
           absolute inset-0 flex items-center justify-center
           transition-all duration-300 ease-in-out
@@ -195,25 +192,45 @@ const MobileMenuButton = ({ isOpen, onClick }: { isOpen: boolean; onClick: () =>
           <X className="w-6 h-6 text-white" />
         </div>
       </div>
-      
-      {/* Subtle gradient border effect */}
-      <div className={`
-        absolute inset-0 rounded-xl opacity-0 hover:opacity-100
-        bg-gradient-to-r from-blue-500/20 to-purple-500/20
-        transition-opacity duration-300
-        ${isOpen ? 'hidden' : ''}
-      `} />
     </button>
   );
 };
 
-const App: React.FC<AppProps> = ({ onNavigateBack }) => {
+// Navigation Blocked Warning Component
+const NavigationBlockedWarning = ({ unhandledCount }: { unhandledCount: number }) => (
+  <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[70] animate-pulse">
+    <div className="bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
+      <AlertTriangle className="w-5 h-5" />
+      <span className="text-sm font-medium">
+        {unhandledCount} unhandled notification{unhandledCount > 1 ? 's' : ''} - Navigation blocked
+      </span>
+    </div>
+  </div>
+);
+
+// Main App Component with Notification Handling
+const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
+  // Get notification context
+  const {
+    notificationQueue,
+    currentNotificationIndex,
+    isNotificationVisible,
+    hasUnhandledNotifications,
+    isNavigationBlocked,
+    attemptNavigation,
+    dismissCurrentNotification,
+    navigateToNext,
+    navigateToPrevious,
+    markCurrentAsHandled,
+    getUnhandledCount
+  } = useNotifications();
+
   // State management
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(false); // Start closed on mobile
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
   
-  // Data state - using only empty arrays initially
+  // Data state
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -232,18 +249,14 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Check if we're on mobile
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
-      // On desktop, sidebar should be open by default
       if (window.innerWidth >= 768) {
         setSidebarOpen(true);
       } else {
-        // Close sidebar when switching to mobile
         setSidebarOpen(false);
       }
     };
@@ -253,8 +266,14 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Enhanced tab change handler for mobile
+  // Enhanced tab change handler with navigation blocking
   const handleTabChange = (tab: string) => {
+    // Check if navigation is allowed
+    if (!attemptNavigation(tab)) {
+      // Navigation blocked, don't change tab
+      return;
+    }
+    
     setActiveTab(tab);
     // Close sidebar on mobile when tab is selected
     if (isMobile) {
@@ -263,20 +282,18 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
-  // Fetch data from Supabase ONLY
+  // Fetch data from Supabase
   const fetchData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch all data in parallel
       const [suppliersResult, transactionsResult, materialsResult] = await Promise.allSettled([
         supabase.from('suppliers').select('*').order('created_at', { ascending: false }),
         supabase.from('transactions').select('*').order('created_at', { ascending: false }),
         supabase.from('materials').select('*').order('created_at', { ascending: false })
       ]);
 
-      // Handle suppliers
       if (suppliersResult.status === 'fulfilled') {
         if (suppliersResult.value.error) {
           console.error('Error fetching suppliers:', suppliersResult.value.error);
@@ -285,7 +302,6 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
         }
       }
 
-      // Handle transactions
       if (transactionsResult.status === 'fulfilled') {
         if (transactionsResult.value.error) {
           console.error('Error fetching transactions:', transactionsResult.value.error);
@@ -294,12 +310,10 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
         }
       }
 
-      // Handle materials with proper transformation
       if (materialsResult.status === 'fulfilled') {
         if (materialsResult.value.error) {
           console.error('Error fetching materials:', materialsResult.value.error);
         } else {
-          // Transform materials to ensure all required properties exist
           const materialsData = materialsResult.value.data || [];
           const transformedMaterials: Material[] = materialsData.map((material: any) => ({
             id: material.id,
@@ -317,7 +331,6 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
         }
       }
 
-      // Calculate stats from fetched data
       const suppliersData = suppliersResult.status === 'fulfilled' && !suppliersResult.value.error ? 
         (suppliersResult.value.data || []) : [];
       const transactionsData = transactionsResult.status === 'fulfilled' && !transactionsResult.value.error ? 
@@ -333,7 +346,7 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
-  // Calculate dashboard stats from real data
+  // Calculate dashboard stats
   const calculateStats = (transactionsData: Transaction[], suppliersData: Supplier[]) => {
     const completedTransactions = transactionsData.filter(tx => tx.payment_status === 'completed');
     const today = new Date().toISOString().split('T')[0];
@@ -372,10 +385,9 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
     setStats(newStats);
   };
 
-  // Transform transactions for report components
+  // Transform transactions for reports
   const transformTransactionsForReports = (transactions: Transaction[], suppliers: Supplier[]): ReportTransaction[] => {
     return transactions.map(tx => {
-      // Find supplier name
       const supplier = suppliers.find(s => s.id === tx.supplier_id);
       const supplierName = tx.is_walkin ? (tx.walkin_name || 'Walk-in Customer') : (supplier?.name || 'Unknown Supplier');
       
@@ -395,40 +407,20 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
     });
   };
 
-  // Transform supplier for ranking display (keeping your existing implementation)
-  const transformSupplierForRanking = (supplier: Supplier, transactions: Transaction[]) => {
-    const supplierTransactions = transactions.filter(t => t.supplier_id === supplier.id);
-    const recentTransactions = supplierTransactions.filter(t => {
-      const transactionDate = new Date(t.transaction_date);
-      const lastMonth = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      return transactionDate >= lastMonth;
-    });
-    
-    const currentMonthValue = recentTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
-    const trend = currentMonthValue > 0 ? `+${Math.round((currentMonthValue / (supplier.total_value || 1)) * 100)}%` : '+0%';
-
-    return {
-      id: supplier.id,
-      name: supplier.name,
-      transactions: supplier.total_transactions || 0,
-      value: supplier.total_value || 0,
-      trend,
-      tier: supplier.supplier_tier || 'occasional'
-    };
-  };
-
-  // Initial data fetch
   useEffect(() => {
     fetchData();
   }, []);
 
-  // Event handlers
+  // Enhanced logout with navigation check
   const handleLogout = () => {
+    if (!attemptNavigation('logout')) {
+      return;
+    }
+    
     console.log('Logout clicked');
     if (onNavigateBack) {
       onNavigateBack();
     } else {
-      // Fallback: reload page
       window.location.reload();
     }
   };
@@ -451,21 +443,22 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
     await fetchData();
   };
 
-  // Toggle sidebar for mobile with enhanced animation
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
-    
-    // Add a small haptic feedback simulation for mobile
     if (navigator.vibrate && isMobile) {
       navigator.vibrate(50);
     }
   };
 
-  // Close sidebar when clicking outside on mobile
   const handleOverlayClick = () => {
     if (isMobile) {
       setSidebarOpen(false);
     }
+  };
+
+  // Handle notification close
+  const handleNotificationClose = () => {
+    dismissCurrentNotification();
   };
 
   // Render content based on active tab
@@ -478,7 +471,6 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
       return <ErrorDisplay error={error} onRetry={fetchData} />;
     }
     
-    // Transform transactions for reports that still need them
     const reportTransactions = transformTransactionsForReports(transactions, suppliers);
     
     switch (activeTab) {
@@ -511,61 +503,112 @@ const App: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
+  // Get current notification
+  const currentNotification = notificationQueue[currentNotificationIndex];
+
   return (
-    <div className="flex h-screen bg-gray-50 relative">
-      {/* Mobile Overlay with enhanced animation */}
-      {isMobile && sidebarOpen && (
-        <div 
-          className={`
-            fixed inset-0 bg-black z-40 md:hidden
-            transition-opacity duration-300 ease-in-out
-            ${sidebarOpen ? 'bg-opacity-50' : 'bg-opacity-0'}
-          `}
-          onClick={handleOverlayClick}
+    <>
+      <div className="flex h-screen bg-gray-50 relative">
+        {/* Navigation Blocked Warning */}
+        {isNavigationBlocked && <NavigationBlockedWarning unhandledCount={getUnhandledCount()} />}
+
+        {/* Mobile Overlay */}
+        {isMobile && sidebarOpen && (
+          <div 
+            className={`
+              fixed inset-0 bg-black z-40 md:hidden
+              transition-opacity duration-300 ease-in-out
+              ${sidebarOpen ? 'bg-opacity-50' : 'bg-opacity-0'}
+            `}
+            onClick={handleOverlayClick}
+          />
+        )}
+
+        {/* Sidebar Component with navigation blocking */}
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={handleTabChange} // Uses enhanced handler with blocking
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+          reportsOpen={reportsOpen}
+          setReportsOpen={setReportsOpen}
+          onLogout={handleLogout}
+        />
+
+        {/* Main Content */}
+        <div className={`flex-1 flex flex-col overflow-hidden min-w-0 ${
+          isMobile ? '' : (sidebarOpen ? 'md:ml-0' : 'md:ml-0')
+        }`}>
+          {/* Header */}
+          <div className="relative">
+            <Header
+              activeTab={activeTab}
+              userName="Admin User"
+              notificationCount={getUnhandledCount()}
+              onNotificationClick={handleNotificationClick}
+              onProfileClick={handleProfileClick}
+            />
+            
+            {/* Mobile Menu Button */}
+            <MobileMenuButton isOpen={sidebarOpen} onClick={toggleSidebar} />
+          </div>
+
+          {/* Content */}
+          <main className={`
+            flex-1 overflow-y-auto p-4 md:p-6 
+            transition-all duration-300 ease-in-out
+            ${isMobile && sidebarOpen ? 'pt-4' : ''}
+            ${isNavigationBlocked ? 'opacity-50 pointer-events-none' : ''} // Dim content when notifications active
+          `}>
+            <div className="max-w-full">
+              {renderContent()}
+            </div>
+          </main>
+        </div>
+      </div>
+
+      {/* Global Transaction Notification Modal */}
+      {currentNotification && (
+        <TransactionNotification
+          transaction={currentNotification.transaction}
+          suppliers={suppliers}
+          eventType={currentNotification.eventType}
+          isVisible={isNotificationVisible}
+          onClose={handleNotificationClose}
+          onNext={navigateToNext}
+          onPrevious={navigateToPrevious}
+          onMarkAsHandled={markCurrentAsHandled} // Pass the markCurrentAsHandled function
+          notificationQueue={notificationQueue}
+          currentQueueIndex={currentNotificationIndex}
         />
       )}
+    </>
+  );
+};
 
-      {/* Sidebar Component - Handles both mobile top menu and desktop sidebar */}
-      <Sidebar
-        activeTab={activeTab}
-        setActiveTab={handleTabChange} // Use enhanced handler
-        sidebarOpen={sidebarOpen}
-        setSidebarOpen={setSidebarOpen}
-        reportsOpen={reportsOpen}
-        setReportsOpen={setReportsOpen}
-        onLogout={handleLogout}
-      />
+// Main App wrapper with NotificationProvider
+const App: React.FC<AppProps> = (props) => {
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
-      {/* Main Content */}
-      <div className={`flex-1 flex flex-col overflow-hidden min-w-0 ${
-        isMobile ? '' : (sidebarOpen ? 'md:ml-0' : 'md:ml-0')
-      }`}>
-        {/* Header */}
-        <div className="relative">
-          <Header
-            activeTab={activeTab}
-            userName="Admin User"
-            notificationCount={3}
-            onNotificationClick={handleNotificationClick}
-            onProfileClick={handleProfileClick}
-          />
-          
-          {/* Enhanced Professional Mobile Menu Button */}
-          <MobileMenuButton isOpen={sidebarOpen} onClick={toggleSidebar} />
-        </div>
+  // Fetch suppliers for the notification provider
+  useEffect(() => {
+    const fetchSuppliers = async () => {
+      const { data, error } = await supabase
+        .from('suppliers')
+        .select('*');
+      
+      if (!error && data) {
+        setSuppliers(data);
+      }
+    };
 
-        {/* Content with mobile top menu padding and smooth transitions */}
-        <main className={`
-          flex-1 overflow-y-auto p-4 md:p-6 
-          transition-all duration-300 ease-in-out
-          ${isMobile && sidebarOpen ? 'pt-4' : ''}
-        `}>
-          <div className="max-w-full">
-            {renderContent()}
-          </div>
-        </main>
-      </div>
-    </div>
+    fetchSuppliers();
+  }, []);
+
+  return (
+    <NotificationProvider suppliers={suppliers}>
+      <AppContent {...props} />
+    </NotificationProvider>
   );
 };
 
