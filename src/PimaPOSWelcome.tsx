@@ -98,19 +98,19 @@ const PimaPOSWelcome: React.FC = () => {
 
   const features = [
     {
-      icon: <Bluetooth className="w-4 h-4" />,
+      icon: <Bluetooth className="w-5 h-5 sm:w-6 sm:h-6" />,
       title: "Bluetooth Integration",
       description: "Connect devices instantly",
       color: "from-blue-500 to-cyan-500"
     },
     {
-      icon: <Shield className="w-4 h-4" />,
+      icon: <Shield className="w-5 h-5 sm:w-6 sm:h-6" />,
       title: "Secure Management",
       description: "Role-based access control",
       color: "from-green-500 to-emerald-500"
     },
     {
-      icon: <BarChart3 className="w-4 h-4" />,
+      icon: <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6" />,
       title: "Smart Analytics",
       description: "Real-time data insights",
       color: "from-purple-500 to-indigo-500"
@@ -120,209 +120,252 @@ const PimaPOSWelcome: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex flex-col 2xl:flex-row overflow-hidden">
       
-      {/* Mobile & Tablet View (Default) - Smaller Elements */}
-      <div className="2xl:hidden min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-        {/* Mobile Header with Compact Branding */}
-        <div className="px-4 sm:px-6 pt-6 pb-4">
-          <div className="flex flex-col items-center">
-            {/* Compact Logo and Brand */}
-            <div className="flex items-center mb-2">
-              <div className="w-12 h-12 rounded-xl shadow-lg flex items-center justify-center mr-3 bg-white overflow-hidden">
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                  <div className="relative">
-                    <div className="w-6 h-6 bg-white rounded-md flex items-center justify-center shadow-inner">
-                      <span className="text-blue-600 font-black text-sm">P</span>
+      {/* Mobile & Tablet View (Default) - Enhanced Professional Design */}
+      <div className="2xl:hidden min-h-screen flex flex-col relative overflow-hidden">
+        {/* Enhanced gradient background with subtle patterns */}
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100"></div>
+        <div className="absolute top-10 right-10 w-32 h-32 bg-blue-200 rounded-full opacity-20 animate-pulse"></div>
+        <div className="absolute bottom-20 left-10 w-24 h-24 bg-purple-200 rounded-full opacity-20 animate-pulse delay-1000"></div>
+        <div className="absolute top-1/3 left-1/4 w-16 h-16 bg-pink-200 rounded-full opacity-15 animate-pulse delay-500"></div>
+        
+        <div className="relative z-10 flex flex-col min-h-screen">
+          {/* Enhanced Mobile Header */}
+          <div className="px-4 sm:px-6 pt-8 sm:pt-12 pb-6 sm:pb-8">
+            <div className="flex flex-col items-center">
+              {/* Professional Logo Design */}
+              <div className="flex items-center mb-4 sm:mb-6">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl shadow-2xl flex items-center justify-center mr-4 bg-white/95 backdrop-blur-sm overflow-hidden border border-white/20">
+                  <div className="w-11 h-11 sm:w-13 sm:h-13 bg-gradient-to-br from-blue-500 via-purple-500 to-blue-600 rounded-xl flex items-center justify-center relative">
+                    <div className="absolute inset-0 bg-blue-400 rounded-xl blur opacity-30"></div>
+                    <div className="relative">
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 bg-white rounded-lg flex items-center justify-center shadow-inner">
+                        <span className="text-blue-600 font-black text-base sm:text-lg">P</span>
+                      </div>
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-gradient-to-r from-green-400 to-blue-500 rounded-full animate-pulse shadow-lg"></div>
                     </div>
-                    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-gradient-to-r from-green-400 to-blue-500 rounded-full animate-pulse"></div>
                   </div>
                 </div>
-              </div>
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-black">
-                  <span className="bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 bg-clip-text text-transparent">
-                    Meru
-                  </span>
-                  <span className="bg-gradient-to-r from-purple-600 via-pink-500 to-orange-500 bg-clip-text text-transparent">
-                    Scrap
-                  </span>
-                </h1>
+                <div>
+                  <h1 className="text-2xl sm:text-3xl md:text-4xl font-black leading-tight">
+                    <span className="bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 bg-clip-text text-transparent">
+                      Meru
+                    </span>
+                    <span className="bg-gradient-to-r from-purple-600 via-pink-500 to-orange-500 bg-clip-text text-transparent">
+                      Scrap
+                    </span>
+                  </h1>
+                  <p className="text-xs sm:text-sm font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mt-1">
+                    Smart Scrap Management
+                  </p>
+                </div>
               </div>
             </div>
-            {/* Compact Tagline */}
-            <p className="text-sm sm:text-base text-center font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Smart Scrap Management System
-            </p>
-          </div>
-        </div>
-
-        {/* Mobile Form Container - Compact Card Design */}
-        <div className="flex-1 bg-white rounded-t-3xl shadow-xl px-4 sm:px-6 py-6 sm:py-8">
-          {/* Form Header - Compact Typography */}
-          <div className="text-center mb-6">
-            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
-              {isLogin ? 'Welcome Back' : 'Get Started'}
-            </h2>
-            <p className="text-gray-600 text-sm sm:text-base">
-              {isLogin ? 'Access your dashboard' : 'Create your account'}
-            </p>
           </div>
 
-          {/* Mobile Form with Compact Spacing */}
-          <div className="space-y-4 max-w-sm mx-auto">
-            {!isLogin && (
-              <>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <User className="h-4 w-4 text-gray-400" />
+          {/* Enhanced Professional Form Card */}
+          <div className="flex-1 bg-white/95 backdrop-blur-sm rounded-t-[2rem] sm:rounded-t-[2.5rem] shadow-2xl mx-2 sm:mx-0 border-t border-white/30">
+            {/* Subtle top accent line */}
+            <div className="h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-t-[2rem] sm:rounded-t-[2.5rem]"></div>
+            
+            <div className="px-4 sm:px-6 md:px-8 py-6 sm:py-8 md:py-10">
+              {/* Enhanced Form Header */}
+              <div className="text-center mb-6 sm:mb-8">
+                <div className="mb-4">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg">
+                    {isLogin ? (
+                      <Shield className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
+                    ) : (
+                      <Sparkles className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
+                    )}
                   </div>
-                  <input
-                    type="text"
-                    name="fullName"
-                    value={formData.fullName}
-                    onChange={handleInputChange}
-                    placeholder="Full Name"
-                    className="w-full pl-10 pr-3 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-gray-900 placeholder-gray-500 text-sm"
-                    required={!isLogin}
-                  />
                 </div>
-                
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Phone className="h-4 w-4 text-gray-400" />
-                  </div>
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleInputChange}
-                    placeholder="Phone Number"
-                    className="w-full pl-10 pr-3 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-gray-900 placeholder-gray-500 text-sm"
-                    required={!isLogin}
-                  />
-                </div>
-              </>
-            )}
-
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Mail className="h-4 w-4 text-gray-400" />
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3">
+                  {isLogin ? 'Welcome Back' : 'Get Started'}
+                </h2>
+                <p className="text-gray-600 text-sm sm:text-base font-medium">
+                  {isLogin ? 'Sign in to access your dashboard' : 'Create your account and join us'}
+                </p>
               </div>
-              <input
-                type="email"
-                name="email"
-                value={formData.email}
-                onChange={handleInputChange}
-                placeholder="Email Address"
-                className="w-full pl-10 pr-3 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-gray-900 placeholder-gray-500 text-sm"
-                required
-              />
-            </div>
 
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Lock className="h-4 w-4 text-gray-400" />
-              </div>
-              <input
-                type={showPassword ? "text" : "password"}
-                name="password"
-                value={formData.password}
-                onChange={handleInputChange}
-                placeholder="Password"
-                className="w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-gray-900 placeholder-gray-500 text-sm"
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center"
-              >
-                {showPassword ? (
-                  <EyeOff className="h-4 w-4 text-gray-400 hover:text-gray-600" />
-                ) : (
-                  <Eye className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+              {/* Enhanced Professional Form */}
+              <div className="space-y-4 sm:space-y-5 max-w-sm sm:max-w-md mx-auto">
+                {!isLogin && (
+                  <>
+                    <div className="relative group">
+                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <User className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                      </div>
+                      <input
+                        type="text"
+                        name="fullName"
+                        value={formData.fullName}
+                        onChange={handleInputChange}
+                        placeholder="Full Name"
+                        className="w-full pl-12 pr-4 py-4 bg-gray-50/80 backdrop-blur-sm border border-gray-200/50 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base font-medium shadow-sm hover:shadow-md"
+                        required={!isLogin}
+                      />
+                    </div>
+                    
+                    <div className="relative group">
+                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <Phone className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                      </div>
+                      <input
+                        type="tel"
+                        name="phone"
+                        value={formData.phone}
+                        onChange={handleInputChange}
+                        placeholder="Phone Number"
+                        className="w-full pl-12 pr-4 py-4 bg-gray-50/80 backdrop-blur-sm border border-gray-200/50 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base font-medium shadow-sm hover:shadow-md"
+                        required={!isLogin}
+                      />
+                    </div>
+                  </>
                 )}
-              </button>
-            </div>
 
-            {!isLogin && (
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-4 w-4 text-gray-400" />
-                </div>
-                <input
-                  type="password"
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleInputChange}
-                  placeholder="Confirm Password"
-                  className="w-full pl-10 pr-3 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-gray-900 placeholder-gray-500 text-sm"
-                  required={!isLogin}
-                />
-              </div>
-            )}
-
-            {isLogin && (
-              <div className="flex items-center justify-between pt-1">
-                <label className="flex items-center cursor-pointer">
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Mail className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                  </div>
                   <input
-                    type="checkbox"
-                    className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    placeholder="Email Address"
+                    className="w-full pl-12 pr-4 py-4 bg-gray-50/80 backdrop-blur-sm border border-gray-200/50 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base font-medium shadow-sm hover:shadow-md"
+                    required
                   />
-                  <span className="ml-2 text-xs text-gray-600">Remember me</span>
-                </label>
-                <a href="#" className="text-xs text-blue-600 hover:text-blue-700 font-semibold">
-                  Forgot password?
-                </a>
-              </div>
-            )}
-
-            <button
-              onClick={handleSubmit}
-              disabled={isLoading}
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg font-semibold text-sm hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none"
-            >
-              <div className="flex items-center justify-center space-x-2">
-                <span>{isLogin ? 'Sign In' : 'Create Account'}</span>
-                {isLoading ? (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <ArrowRight className="w-4 h-4" />
-                )}
-              </div>
-            </button>
-          </div>
-
-          {/* Mobile Form Toggle - Compact Design */}
-          <div className="mt-6 text-center">
-            <p className="text-gray-600 text-sm">
-              {isLogin ? "New to MeruScrap?" : "Already have an account?"}
-            </p>
-            <button
-              onClick={toggleForm}
-              className="mt-1 text-blue-600 hover:text-blue-700 font-bold text-sm hover:underline"
-            >
-              {isLogin ? 'Create Account' : 'Sign In'}
-            </button>
-          </div>
-
-          {/* Compact Features Grid */}
-          <div className="grid grid-cols-3 gap-3 mt-6 mb-4">
-            {features.map((feature, index) => (
-              <div key={index} className="p-3 bg-gray-50 rounded-lg text-center">
-                <div className={`w-8 h-8 rounded-lg bg-gradient-to-r ${feature.color} flex items-center justify-center text-white mb-2 mx-auto`}>
-                  {feature.icon}
                 </div>
-                <h3 className="text-xs font-bold text-gray-900 mb-1">{feature.title}</h3>
-                <p className="text-xs text-gray-600 leading-tight">{feature.description}</p>
-              </div>
-            ))}
-          </div>
 
-          {/* Mobile Footer - Compact */}
-          <div className="mt-4 pt-4 border-t border-gray-200 text-center">
-            <p className="text-xs text-gray-500">
-              © 2025 MeruScrap • Powered by <span className="font-semibold text-blue-600">Nesis</span>
-            </p>
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Lock className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                  </div>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    name="password"
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    placeholder="Password"
+                    className="w-full pl-12 pr-12 py-4 bg-gray-50/80 backdrop-blur-sm border border-gray-200/50 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base font-medium shadow-sm hover:shadow-md"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-4 flex items-center group"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-5 w-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+                    ) : (
+                      <Eye className="h-5 w-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+                    )}
+                  </button>
+                </div>
+
+                {!isLogin && (
+                  <div className="relative group">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                      <Lock className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                    </div>
+                    <input
+                      type="password"
+                      name="confirmPassword"
+                      value={formData.confirmPassword}
+                      onChange={handleInputChange}
+                      placeholder="Confirm Password"
+                      className="w-full pl-12 pr-4 py-4 bg-gray-50/80 backdrop-blur-sm border border-gray-200/50 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base font-medium shadow-sm hover:shadow-md"
+                      required={!isLogin}
+                    />
+                  </div>
+                )}
+
+                {isLogin && (
+                  <div className="flex items-center justify-between pt-2">
+                    <label className="flex items-center cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 transition-all"
+                      />
+                      <span className="ml-3 text-sm text-gray-600 group-hover:text-gray-800 transition-colors font-medium">Remember me</span>
+                    </label>
+                    <a href="#" className="text-sm text-blue-600 hover:text-blue-700 font-semibold transition-colors hover:underline">
+                      Forgot password?
+                    </a>
+                  </div>
+                )}
+
+                <button
+                  onClick={handleSubmit}
+                  disabled={isLoading}
+                  className="w-full bg-gradient-to-r from-blue-600 via-blue-500 to-purple-600 text-white py-4 px-6 rounded-xl font-semibold text-base hover:from-blue-700 hover:via-blue-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:-translate-y-1 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none relative overflow-hidden group"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
+                  <div className="relative flex items-center justify-center space-x-3">
+                    <span>{isLogin ? 'Sign In to Dashboard' : 'Create Your Account'}</span>
+                    {isLoading ? (
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                    )}
+                  </div>
+                </button>
+              </div>
+
+              {/* Enhanced Form Toggle */}
+              <div className="mt-8 sm:mt-10 text-center">
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-300/50"></div>
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="px-4 bg-white/95 text-gray-600 text-base font-medium">
+                      {isLogin ? "New to MeruScrap?" : "Already have an account?"}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={toggleForm}
+                  className="mt-4 text-blue-600 hover:text-blue-700 font-bold text-base transition-colors hover:underline underline-offset-4 relative group"
+                >
+                  <span className="relative z-10">
+                    {isLogin ? 'Create your account →' : '← Back to sign in'}
+                  </span>
+                </button>
+              </div>
+
+              {/* Enhanced Features Preview - Hidden on mobile/tablet, visible only on desktop */}
+              <div className="hidden 2xl:block mt-8 sm:mt-10">
+                <div className="text-center mb-4">
+                  <p className="text-sm font-semibold text-gray-700 mb-3">Why choose MeruScrap?</p>
+                </div>
+                <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                  {features.map((feature, index) => (
+                    <div key={index} className="group p-3 sm:p-4 bg-gradient-to-br from-gray-50/80 to-white/90 backdrop-blur-sm rounded-xl text-center border border-gray-200/30 hover:border-blue-200/50 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
+                      <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-r ${feature.color} flex items-center justify-center text-white mb-2 sm:mb-3 mx-auto shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+                        {feature.icon}
+                      </div>
+                      <h3 className="text-xs sm:text-sm font-bold text-gray-900 mb-1 leading-tight">{feature.title}</h3>
+                      <p className="text-xs text-gray-600 leading-tight">{feature.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Enhanced Professional Footer */}
+              <div className="mt-8 sm:mt-10 pt-6 sm:pt-8 border-t border-gray-200/50 text-center">
+                <div className="flex items-center justify-center space-x-2 mb-2">
+                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                  <div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div>
+                  <div className="w-1.5 h-1.5 bg-pink-500 rounded-full"></div>
+                </div>
+                <p className="text-xs sm:text-sm text-gray-500 font-medium">
+                  © 2025 MeruScrap • Powered by <span className="font-bold text-blue-600">Nesis</span>
+                </p>
+                <p className="text-xs text-gray-400 mt-1">Secure • Reliable • Professional</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
