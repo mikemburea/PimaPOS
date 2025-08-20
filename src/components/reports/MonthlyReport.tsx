@@ -1,10 +1,10 @@
-// src/components/reports/MonthlyReport.tsx - Fixed with proper props interface
+// src/components/reports/MonthlyReport.tsx - Updated with Sales Transaction Integration
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Calendar, TrendingUp, DollarSign, Package, Users, AlertCircle, Loader2, BarChart3, Target, Award, TrendingDown } from 'lucide-react';
+import { Calendar, TrendingUp, DollarSign, Package, Users, AlertCircle, Loader2, BarChart3, Target, Award, TrendingDown, ArrowUpRight, ArrowDownLeft, ShoppingCart } from 'lucide-react';
 
-// Define interfaces matching your database structure
-interface Transaction {
+// Enhanced interfaces to handle both purchases and sales
+interface PurchaseTransaction {
   id: string;
   supplier_id?: string | null;
   material_type: string;
@@ -30,6 +30,46 @@ interface Transaction {
   updated_at?: string | null;
 }
 
+interface SalesTransaction {
+  id: string;
+  transaction_id: string;
+  supplier_id?: string | null;
+  supplier_name?: string | null;
+  material_id?: number | null;
+  material_name: string;
+  weight_kg: number;
+  price_per_kg: number;
+  total_amount: number;
+  transaction_date: string;
+  notes?: string | null;
+  is_special_price?: boolean | null;
+  original_price?: number | null;
+  payment_method?: string | null;
+  payment_status?: string | null;
+  transaction_type?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+// Unified transaction interface
+interface UnifiedTransaction {
+  id: string;
+  type: 'purchase' | 'sale';
+  customer_name: string;
+  material_type: string;
+  transaction_date: string;
+  total_amount: number;
+  weight_kg: number;
+  price_per_kg: number;
+  payment_method?: string | null;
+  payment_status?: string | null;
+  created_at: string;
+  quality_grade?: string | null;
+  notes?: string | null;
+  transaction_reference: string;
+}
+
 interface Supplier {
   id: string;
   name: string;
@@ -42,65 +82,41 @@ interface Supplier {
   status: string;
   created_at: string;
   updated_at: string;
-  contact_person?: string | null;
-  website?: string | null;
-  notes?: string | null;
-  supplier_tier?: string | null;
-  credit_limit?: number | null;
-  preferred_payment_method?: string | null;
-  total_weight?: number | null;
-  first_transaction_date?: string | null;
-  last_transaction_date?: string | null;
-  average_transaction_value?: number | null;
-  registration_reason?: string | null;
-  registered_date?: string | null;
-  registered_by?: string | null;
 }
 
-// FIXED: Interface to match App.tsx expectations
-interface ReportTransaction {
-  id: string;
-  date: string;
-  material: string;
-  supplierName: string;
-  supplierId: string;
-  totalAmount: number;
-  weight: number;
-  createdAt: string;
-  paymentStatus: string;
-  isWalkin: boolean;
-  walkinName?: string | null;
-}
-
-// FIXED: Updated MonthlyReportProps to match what App.tsx passes
 interface MonthlyReportProps {
-  transactions: ReportTransaction[];
-  month: Date;
+  month?: Date;
 }
 
 interface WeeklyBreakdown {
   week: string;
   period: string;
-  transactions: number;
-  revenue: number;
+  purchases: number;
+  sales: number;
+  purchaseRevenue: number;
+  salesRevenue: number;
+  netProfit: number;
   weight: number;
 }
 
-interface MaterialAnalysis {
-  transactions: number;
-  weight: number;
-  revenue: number;
+interface MaterialPerformance {
+  purchases: { transactions: number; weight: number; revenue: number };
+  sales: { transactions: number; weight: number; revenue: number };
+  netProfit: number;
+  avgPurchasePrice: number;
+  avgSalesPrice: number;
+  margin: number;
   suppliers: Set<string>;
-  minPrice: number;
-  maxPrice: number;
-  avgPrice: number;
   supplierCount: number;
 }
 
-interface SupplierPerformance {
+interface PartnerPerformance {
   name: string;
-  transactions: number;
-  revenue: number;
+  purchases: number;
+  sales: number;
+  purchaseRevenue: number;
+  salesRevenue: number;
+  netValue: number;
   weight: number;
   materials: Set<string>;
   materialCount: number;
@@ -108,27 +124,27 @@ interface SupplierPerformance {
 
 // Loading component
 const LoadingSpinner = () => (
-  <div className="flex items-center justify-center py-12">
+  <div className="flex items-center justify-center py-8 sm:py-12">
     <div className="text-center">
-      <Loader2 className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-4" />
-      <p className="text-gray-600">Loading monthly report...</p>
+      <Loader2 className="animate-spin h-6 w-6 sm:h-8 sm:w-8 text-blue-600 mx-auto mb-2 sm:mb-4" />
+      <p className="text-gray-600 text-sm sm:text-base">Loading monthly report...</p>
     </div>
   </div>
 );
 
 // Error component
 const ErrorDisplay = ({ error, onRetry }: { error: string; onRetry: () => void }) => (
-  <div className="flex items-center justify-center py-12">
+  <div className="flex items-center justify-center py-8 sm:py-12">
     <div className="text-center">
-      <div className="bg-red-100 border border-red-400 text-red-700 px-6 py-4 rounded-lg max-w-lg">
+      <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 sm:px-6 sm:py-4 rounded-lg max-w-lg">
         <div className="flex items-center justify-center mb-2">
-          <AlertCircle className="w-5 h-5 mr-2" />
-          <p className="font-bold">Error loading report</p>
+          <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+          <p className="font-bold text-sm sm:text-base">Error loading report</p>
         </div>
-        <p className="text-sm mb-4">{error}</p>
+        <p className="text-xs sm:text-sm mb-3 sm:mb-4">{error}</p>
         <button 
           onClick={onRetry}
-          className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors"
+          className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 sm:px-4 rounded transition-colors text-sm"
         >
           Try Again
         </button>
@@ -139,27 +155,69 @@ const ErrorDisplay = ({ error, onRetry }: { error: string; onRetry: () => void }
 
 // Empty state component
 const EmptyState = ({ monthName }: { monthName: string }) => (
-  <div className="text-center py-12">
-    <div className="bg-gray-100 rounded-full p-6 w-24 h-24 mx-auto mb-4">
-      <BarChart3 className="w-12 h-12 text-gray-400 mx-auto" />
+  <div className="text-center py-8 sm:py-12">
+    <div className="bg-gray-100 rounded-full p-4 sm:p-6 w-16 h-16 sm:w-24 sm:h-24 mx-auto mb-3 sm:mb-4">
+      <BarChart3 className="w-8 h-8 sm:w-12 sm:h-12 text-gray-400 mx-auto" />
     </div>
-    <h3 className="text-xl font-semibold text-gray-900 mb-2">No Transactions This Month</h3>
-    <p className="text-gray-600 mb-6">
+    <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">No Transactions This Month</h3>
+    <p className="text-gray-600 mb-4 sm:mb-6 text-sm sm:text-base">
       No transactions have been recorded for {monthName}
     </p>
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md mx-auto">
-      <p className="text-sm text-blue-800">
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 max-w-md mx-auto">
+      <p className="text-xs sm:text-sm text-blue-800">
         Monthly statistics will appear here as transactions are recorded throughout the month.
       </p>
     </div>
   </div>
 );
 
-// FIXED: Updated component to use props from App.tsx
-const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) => {
+// Mobile-first stats card component
+const MonthlyStatsCard = ({ 
+  title, 
+  value, 
+  subtitle, 
+  icon: Icon, 
+  bgColor, 
+  textColor, 
+  trend 
+}: { 
+  title: string; 
+  value: string; 
+  subtitle: string; 
+  icon: React.ComponentType<any>; 
+  bgColor: string; 
+  textColor: string;
+  trend?: { value: string; isPositive: boolean };
+}) => (
+  <div className={`${bgColor} p-3 sm:p-4 rounded-lg w-full`}>
+    <div className="flex items-center justify-between">
+      <div className="flex-1 min-w-0">
+        <h3 className={`text-xs sm:text-sm font-medium ${textColor} opacity-80`}>{title}</h3>
+        <p className={`text-lg sm:text-2xl font-bold ${textColor} mt-1 truncate`}>{value}</p>
+        <div className="flex items-center gap-2 mt-1">
+          <p className={`text-xs ${textColor} opacity-70`}>{subtitle}</p>
+          {trend && (
+            <span className={`text-xs px-1.5 py-0.5 rounded ${trend.isPositive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              {trend.isPositive ? '↑' : '↓'} {trend.value}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="ml-2 shrink-0">
+        <Icon size={20} className={`${textColor} sm:w-6 sm:h-6`} />
+      </div>
+    </div>
+  </div>
+);
+
+const MonthlyReport: React.FC<MonthlyReportProps> = ({ month = new Date() }) => {
+  const [purchaseTransactions, setPurchaseTransactions] = useState<PurchaseTransaction[]>([]);
+  const [salesTransactions, setSalesTransactions] = useState<SalesTransaction[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [previousMonthTransactions, setPreviousMonthTransactions] = useState<ReportTransaction[]>([]);
-  const [previousYearTransactions, setPreviousYearTransactions] = useState<ReportTransaction[]>([]);
+  const [previousMonthPurchases, setPreviousMonthPurchases] = useState<PurchaseTransaction[]>([]);
+  const [previousMonthSales, setPreviousMonthSales] = useState<SalesTransaction[]>([]);
+  const [previousYearPurchases, setPreviousYearPurchases] = useState<PurchaseTransaction[]>([]);
+  const [previousYearSales, setPreviousYearSales] = useState<SalesTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -176,13 +234,103 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
   const startOfPreviousYear = new Date(month.getFullYear() - 1, month.getMonth(), 1);
   const endOfPreviousYear = new Date(month.getFullYear() - 1, month.getMonth() + 1, 0, 23, 59, 59, 999);
 
-  // Fetch suppliers and historical data
-  const fetchAdditionalData = async () => {
+  // Fetch data from Supabase
+  const fetchMonthlyData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch suppliers from Supabase (we still need this for supplier names)
+      // Format dates for SQL query
+      const startDateStr = startOfMonth.toISOString().split('T')[0];
+      const endDateStr = endOfMonth.toISOString().split('T')[0];
+      const prevStartDateStr = startOfPreviousMonth.toISOString().split('T')[0];
+      const prevEndDateStr = endOfPreviousMonth.toISOString().split('T')[0];
+      const prevYearStartStr = startOfPreviousYear.toISOString().split('T')[0];
+      const prevYearEndStr = endOfPreviousYear.toISOString().split('T')[0];
+
+      // Fetch current month purchase transactions
+      const { data: currentMonthPurchases, error: currentPurchasesError } = await supabase
+        .from('transactions')
+        .select('*')
+        .gte('transaction_date', startDateStr)
+        .lte('transaction_date', endDateStr)
+        .order('created_at', { ascending: false });
+
+      if (currentPurchasesError) {
+        throw new Error(`Error fetching current month purchases: ${currentPurchasesError.message}`);
+      }
+
+      // Fetch current month sales transactions
+      const { data: currentMonthSales, error: currentSalesError } = await supabase
+        .from('sales_transactions')
+        .select('*')
+        .gte('transaction_date', startDateStr)
+        .lte('transaction_date', endDateStr)
+        .order('created_at', { ascending: false });
+
+      if (currentSalesError) {
+        throw new Error(`Error fetching current month sales: ${currentSalesError.message}`);
+      }
+
+      // Fetch previous month data for comparison
+      const { data: prevPurchases, error: prevPurchasesError } = await supabase
+        .from('transactions')
+        .select('*')
+        .gte('transaction_date', prevStartDateStr)
+        .lte('transaction_date', prevEndDateStr)
+        .order('created_at', { ascending: false });
+
+      if (prevPurchasesError) {
+        console.warn('Could not fetch previous month purchase data:', prevPurchasesError.message);
+        setPreviousMonthPurchases([]);
+      } else {
+        setPreviousMonthPurchases(prevPurchases || []);
+      }
+
+      const { data: prevSales, error: prevSalesError } = await supabase
+        .from('sales_transactions')
+        .select('*')
+        .gte('transaction_date', prevStartDateStr)
+        .lte('transaction_date', prevEndDateStr)
+        .order('created_at', { ascending: false });
+
+      if (prevSalesError) {
+        console.warn('Could not fetch previous month sales data:', prevSalesError.message);
+        setPreviousMonthSales([]);
+      } else {
+        setPreviousMonthSales(prevSales || []);
+      }
+
+      // Fetch previous year data for YoY comparison
+      const { data: prevYearPurchases, error: prevYearPurchasesError } = await supabase
+        .from('transactions')
+        .select('*')
+        .gte('transaction_date', prevYearStartStr)
+        .lte('transaction_date', prevYearEndStr)
+        .order('created_at', { ascending: false });
+
+      if (prevYearPurchasesError) {
+        console.warn('Could not fetch previous year purchase data:', prevYearPurchasesError.message);
+        setPreviousYearPurchases([]);
+      } else {
+        setPreviousYearPurchases(prevYearPurchases || []);
+      }
+
+      const { data: prevYearSales, error: prevYearSalesError } = await supabase
+        .from('sales_transactions')
+        .select('*')
+        .gte('transaction_date', prevYearStartStr)
+        .lte('transaction_date', prevYearEndStr)
+        .order('created_at', { ascending: false });
+
+      if (prevYearSalesError) {
+        console.warn('Could not fetch previous year sales data:', prevYearSalesError.message);
+        setPreviousYearSales([]);
+      } else {
+        setPreviousYearSales(prevYearSales || []);
+      }
+
+      // Fetch suppliers
       const { data: suppliersData, error: suppliersError } = await supabase
         .from('suppliers')
         .select('*')
@@ -192,50 +340,110 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
         throw new Error(`Error fetching suppliers: ${suppliersError.message}`);
       }
 
+      setPurchaseTransactions(currentMonthPurchases || []);
+      setSalesTransactions(currentMonthSales || []);
       setSuppliers(suppliersData || []);
 
-      // For historical comparison, we'd ideally want this from parent component
-      // For now, we'll use empty arrays and note this limitation
-      setPreviousMonthTransactions([]);
-      setPreviousYearTransactions([]);
-
     } catch (err) {
-      console.error('Error fetching additional data:', err);
+      console.error('Error fetching monthly data:', err);
       setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
     } finally {
       setLoading(false);
     }
   };
 
-  // Filter transactions for the current month using prop data
-  const monthTransactions = transactions.filter(t => {
-    const transactionDate = new Date(t.date);
+  // Helper function to get supplier name
+  const getSupplierName = (transaction: PurchaseTransaction): string => {
+    if (transaction.is_walkin) {
+      return transaction.walkin_name || 'Walk-in Customer';
+    }
+    
+    const supplier = suppliers.find(s => s.id === transaction.supplier_id);
+    return supplier?.name || 'Unknown Supplier';
+  };
+
+  // Transform data into unified format
+  const unifiedTransactions: UnifiedTransaction[] = [
+    ...purchaseTransactions.map(t => ({
+      id: t.id,
+      type: 'purchase' as const,
+      customer_name: getSupplierName(t),
+      material_type: t.material_type,
+      transaction_date: t.transaction_date,
+      total_amount: t.total_amount || 0,
+      weight_kg: t.weight_kg || 0,
+      price_per_kg: t.unit_price || 0,
+      payment_method: t.payment_method,
+      payment_status: t.payment_status,
+      created_at: t.created_at,
+      quality_grade: t.quality_grade,
+      notes: t.notes,
+      transaction_reference: t.transaction_number || t.id
+    })),
+    ...salesTransactions.map(t => ({
+      id: t.id,
+      type: 'sale' as const,
+      customer_name: t.supplier_name || 'Unknown Customer',
+      material_type: t.material_name,
+      transaction_date: t.transaction_date,
+      total_amount: t.total_amount || 0,
+      weight_kg: t.weight_kg || 0,
+      price_per_kg: t.price_per_kg || 0,
+      payment_method: t.payment_method,
+      payment_status: t.payment_status,
+      created_at: t.created_at,
+      notes: t.notes,
+      transaction_reference: t.transaction_id || t.id
+    }))
+  ];
+
+  // Filter transactions for the current month
+  const monthTransactions = unifiedTransactions.filter(t => {
+    const transactionDate = new Date(t.transaction_date);
     return transactionDate >= startOfMonth && transactionDate <= endOfMonth;
   });
 
-  // Calculate monthly stats from prop transactions
-  const totalRevenue = monthTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
-  const totalWeight = monthTransactions.reduce((sum, t) => sum + (t.weight || 0), 0);
-  const avgTransactionValue = monthTransactions.length > 0 ? totalRevenue / monthTransactions.length : 0;
-  const uniqueSuppliers = new Set(monthTransactions.map(t => t.supplierId || t.walkinName || 'unknown')).size;
+  // Separate purchases and sales
+  const monthPurchases = monthTransactions.filter(t => t.type === 'purchase');
+  const monthSales = monthTransactions.filter(t => t.type === 'sale');
+
+  // Calculate monthly stats
+  const purchaseRevenue = monthPurchases.reduce((sum, t) => sum + t.total_amount, 0);
+  const salesRevenue = monthSales.reduce((sum, t) => sum + t.total_amount, 0);
+  const netRevenue = salesRevenue - purchaseRevenue;
+  const totalWeight = monthPurchases.reduce((sum, t) => sum + t.weight_kg, 0) + monthSales.reduce((sum, t) => sum + t.weight_kg, 0);
+  
+  const avgTransactionValue = monthTransactions.length > 0 ? (purchaseRevenue + salesRevenue) / monthTransactions.length : 0;
+  const uniquePartners = new Set(monthTransactions.map(t => t.customer_name)).size;
 
   // Calculate days in month for daily average
   const daysInMonth = endOfMonth.getDate();
   const dailyAverage = monthTransactions.length / daysInMonth;
+  const dailyProfitAverage = netRevenue / daysInMonth;
 
-  // Calculate previous month stats for comparison (limited without historical data)
-  const previousMonthRevenue = previousMonthTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
-  const monthOverMonthGrowth = previousMonthRevenue > 0 
-    ? ((totalRevenue - previousMonthRevenue) / previousMonthRevenue * 100) 
-    : totalRevenue > 0 ? 100 : 0;
+  // Calculate previous month stats for comparison
+  const prevMonthPurchaseRevenue = previousMonthPurchases.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+  const prevMonthSalesRevenue = previousMonthSales.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+  const prevMonthNetRevenue = prevMonthSalesRevenue - prevMonthPurchaseRevenue;
+  
+  const monthOverMonthGrowth = prevMonthSalesRevenue > 0 
+    ? ((salesRevenue - prevMonthSalesRevenue) / prevMonthSalesRevenue * 100) 
+    : salesRevenue > 0 ? 100 : 0;
 
-  // Calculate YoY comparison (limited without historical data)
-  const previousYearRevenue = previousYearTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
-  const yoyGrowth = previousYearRevenue > 0 
-    ? ((totalRevenue - previousYearRevenue) / previousYearRevenue * 100) 
-    : totalRevenue > 0 ? 100 : 0;
+  const profitGrowth = prevMonthNetRevenue !== 0 
+    ? ((netRevenue - prevMonthNetRevenue) / Math.abs(prevMonthNetRevenue) * 100)
+    : netRevenue > 0 ? 100 : netRevenue < 0 ? -100 : 0;
 
-  // Weekly breakdown using prop transactions
+  // Calculate YoY comparison
+  const prevYearPurchaseRevenue = previousYearPurchases.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+  const prevYearSalesRevenue = previousYearSales.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+  const prevYearNetRevenue = prevYearSalesRevenue - prevYearPurchaseRevenue;
+  
+  const yoyGrowth = prevYearSalesRevenue > 0 
+    ? ((salesRevenue - prevYearSalesRevenue) / prevYearSalesRevenue * 100) 
+    : salesRevenue > 0 ? 100 : 0;
+
+  // Weekly breakdown
   const weeklyBreakdown: WeeklyBreakdown[] = [];
   let weekStart = new Date(startOfMonth);
   
@@ -245,112 +453,122 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
     const actualWeekEnd = weekEnd > endOfMonth ? endOfMonth : weekEnd;
     
     const weekTransactions = monthTransactions.filter(t => {
-      const transactionDate = new Date(t.date);
+      const transactionDate = new Date(t.transaction_date);
       return transactionDate >= weekStart && transactionDate <= actualWeekEnd;
     });
+
+    const weekPurchases = weekTransactions.filter(t => t.type === 'purchase');
+    const weekSales = weekTransactions.filter(t => t.type === 'sale');
+    
+    const weekPurchaseRevenue = weekPurchases.reduce((sum, t) => sum + t.total_amount, 0);
+    const weekSalesRevenue = weekSales.reduce((sum, t) => sum + t.total_amount, 0);
 
     weeklyBreakdown.push({
       week: `Week ${weeklyBreakdown.length + 1}`,
       period: `${weekStart.toLocaleDateString()} - ${actualWeekEnd.toLocaleDateString()}`,
-      transactions: weekTransactions.length,
-      revenue: weekTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0),
-      weight: weekTransactions.reduce((sum, t) => sum + (t.weight || 0), 0)
+      purchases: weekPurchases.length,
+      sales: weekSales.length,
+      purchaseRevenue: weekPurchaseRevenue,
+      salesRevenue: weekSalesRevenue,
+      netProfit: weekSalesRevenue - weekPurchaseRevenue,
+      weight: weekTransactions.reduce((sum, t) => sum + t.weight_kg, 0)
     });
 
     weekStart = new Date(weekEnd);
     weekStart.setDate(weekStart.getDate() + 1);
   }
 
-  // Material analysis using prop transactions
-  const materialAnalysis = monthTransactions.reduce((acc, t) => {
-    const material = t.material;
+  // Material performance analysis
+  const materialPerformance = monthTransactions.reduce((acc, t) => {
+    const material = t.material_type;
     if (!acc[material]) {
       acc[material] = {
-        transactions: 0,
-        weight: 0,
-        revenue: 0,
+        purchases: { transactions: 0, weight: 0, revenue: 0 },
+        sales: { transactions: 0, weight: 0, revenue: 0 },
+        netProfit: 0,
+        avgPurchasePrice: 0,
+        avgSalesPrice: 0,
+        margin: 0,
         suppliers: new Set<string>(),
-        minPrice: Infinity,
-        maxPrice: 0,
-        avgPrice: 0,
         supplierCount: 0
       };
     }
     
-    const weight = t.weight || 0;
-    const amount = t.totalAmount || 0;
-    const pricePerKg = weight > 0 ? amount / weight : 0;
-    
-    acc[material].transactions++;
-    acc[material].weight += weight;
-    acc[material].revenue += amount;
-    acc[material].suppliers.add(t.supplierId || t.walkinName || 'unknown');
-    
-    if (pricePerKg > 0) {
-      acc[material].minPrice = Math.min(acc[material].minPrice, pricePerKg);
-      acc[material].maxPrice = Math.max(acc[material].maxPrice, pricePerKg);
+    if (t.type === 'purchase') {
+      acc[material].purchases.transactions++;
+      acc[material].purchases.weight += t.weight_kg;
+      acc[material].purchases.revenue += t.total_amount;
+    } else {
+      acc[material].sales.transactions++;
+      acc[material].sales.weight += t.weight_kg;
+      acc[material].sales.revenue += t.total_amount;
     }
+    
+    acc[material].suppliers.add(t.customer_name);
+    
+    // Calculate derived values
+    acc[material].netProfit = acc[material].sales.revenue - acc[material].purchases.revenue;
+    acc[material].avgPurchasePrice = acc[material].purchases.weight > 0 ? acc[material].purchases.revenue / acc[material].purchases.weight : 0;
+    acc[material].avgSalesPrice = acc[material].sales.weight > 0 ? acc[material].sales.revenue / acc[material].sales.weight : 0;
+    acc[material].margin = acc[material].sales.revenue > 0 ? (acc[material].netProfit / acc[material].sales.revenue) * 100 : 0;
+    acc[material].supplierCount = acc[material].suppliers.size;
     
     return acc;
-  }, {} as Record<string, MaterialAnalysis>);
+  }, {} as Record<string, MaterialPerformance>);
 
-  // Calculate average prices and supplier counts
-  Object.keys(materialAnalysis).forEach(material => {
-    const analysis = materialAnalysis[material];
-    analysis.avgPrice = analysis.weight > 0 ? analysis.revenue / analysis.weight : 0;
-    analysis.supplierCount = analysis.suppliers.size;
-    
-    // Handle case where no valid prices were found
-    if (analysis.minPrice === Infinity) {
-      analysis.minPrice = 0;
-    }
-  });
-
-  // Top performing suppliers using prop transactions
-  const supplierPerformance = monthTransactions.reduce((acc, t) => {
-    const supplierName = t.supplierName;
-    
-    if (!acc[supplierName]) {
-      acc[supplierName] = {
-        name: supplierName,
-        transactions: 0,
-        revenue: 0,
+  // Partner performance analysis
+  const partnerPerformance = monthTransactions.reduce((acc, t) => {
+    const partnerName = t.customer_name;
+    if (!acc[partnerName]) {
+      acc[partnerName] = {
+        name: partnerName,
+        purchases: 0,
+        sales: 0,
+        purchaseRevenue: 0,
+        salesRevenue: 0,
+        netValue: 0,
         weight: 0,
         materials: new Set<string>(),
         materialCount: 0
       };
     }
     
-    acc[supplierName].transactions++;
-    acc[supplierName].revenue += t.totalAmount || 0;
-    acc[supplierName].weight += t.weight || 0;
-    acc[supplierName].materials.add(t.material);
+    if (t.type === 'purchase') {
+      acc[partnerName].purchases++;
+      acc[partnerName].purchaseRevenue += t.total_amount;
+    } else {
+      acc[partnerName].sales++;
+      acc[partnerName].salesRevenue += t.total_amount;
+    }
+    acc[partnerName].weight += t.weight_kg;
+    acc[partnerName].materials.add(t.material_type);
+    acc[partnerName].netValue = acc[partnerName].salesRevenue - acc[partnerName].purchaseRevenue;
     
     return acc;
-  }, {} as Record<string, SupplierPerformance>);
+  }, {} as Record<string, PartnerPerformance>);
 
-  const topSuppliers = Object.values(supplierPerformance)
-    .map(supplier => ({
-      ...supplier,
-      materialCount: supplier.materials.size
+  const topPartners = Object.values(partnerPerformance)
+    .map(partner => ({
+      ...partner,
+      materialCount: partner.materials.size
     }))
-    .sort((a, b) => b.revenue - a.revenue)
+    .sort((a, b) => (b.purchaseRevenue + b.salesRevenue) - (a.purchaseRevenue + a.salesRevenue))
     .slice(0, 10);
 
   // Find best performing week
   const bestWeek = weeklyBreakdown.reduce((prev, current) => 
-    prev.revenue > current.revenue ? prev : current
+    prev.netProfit > current.netProfit ? prev : current
   );
 
-  // Load additional data on component mount
+  // Load data on component mount and when month changes
   useEffect(() => {
-    fetchAdditionalData();
+    fetchMonthlyData();
   }, [month]);
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="bg-white p-6 rounded-lg shadow-md">
+      <div className="space-y-3 sm:space-y-6">
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
           <LoadingSpinner />
         </div>
       </div>
@@ -359,251 +577,281 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
 
   if (error) {
     return (
-      <div className="space-y-6">
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <ErrorDisplay error={error} onRetry={fetchAdditionalData} />
+      <div className="space-y-3 sm:space-y-6">
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
+          <ErrorDisplay error={error} onRetry={fetchMonthlyData} />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-lg shadow-md">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">Monthly Report</h2>
+    <div className="space-y-3 sm:space-y-6">
+      <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 sm:mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2 sm:mb-0">Monthly Report</h2>
           <div className="flex items-center gap-2 text-gray-600">
-            <Calendar size={20} />
-            <p>{monthName}</p>
+            <Calendar size={16} className="sm:w-5 sm:h-5" />
+            <p className="text-sm sm:text-base">{monthName}</p>
           </div>
-        </div>
-
-        {/* Show data source indicator */}
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-800">
-            ✓ Using {transactions.length} total transactions ({monthTransactions.length} in {monthName})
-          </p>
         </div>
 
         {monthTransactions.length === 0 ? (
           <EmptyState monthName={monthName} />
         ) : (
           <>
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-blue-700">Transactions</h3>
-                    <p className="text-2xl font-bold text-blue-900">{monthTransactions.length}</p>
-                    <p className="text-xs text-blue-600 mt-1">Total count</p>
+            {/* Summary Cards - Mobile First Grid */}
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-4 mb-4 sm:mb-6">
+              <MonthlyStatsCard 
+                title="Purchases" 
+                value={monthPurchases.length.toString()} 
+                subtitle="Transactions"
+                icon={ArrowDownLeft}
+                bgColor="bg-blue-50"
+                textColor="text-blue-900"
+              />
+              <MonthlyStatsCard 
+                title="Sales" 
+                value={monthSales.length.toString()} 
+                subtitle="Transactions"
+                icon={ArrowUpRight}
+                bgColor="bg-green-50"
+                textColor="text-green-900"
+              />
+              <MonthlyStatsCard 
+                title="Purchase Cost" 
+                value={`${(purchaseRevenue / 1000).toFixed(1)}K`} 
+                subtitle="KES spent"
+                icon={DollarSign}
+                bgColor="bg-red-50"
+                textColor="text-red-900"
+              />
+              <MonthlyStatsCard 
+                title="Sales Revenue" 
+                value={`${(salesRevenue / 1000).toFixed(1)}K`} 
+                subtitle="KES earned"
+                icon={DollarSign}
+                bgColor="bg-green-50"
+                textColor="text-green-900"
+                trend={{ value: `${Math.abs(monthOverMonthGrowth).toFixed(1)}%`, isPositive: monthOverMonthGrowth >= 0 }}
+              />
+              <MonthlyStatsCard 
+                title="Net Profit" 
+                value={`${(netRevenue / 1000).toFixed(1)}K`} 
+                subtitle={netRevenue >= 0 ? "Profit" : "Loss"}
+                icon={TrendingUp}
+                bgColor={netRevenue >= 0 ? "bg-emerald-50" : "bg-red-50"}
+                textColor={netRevenue >= 0 ? "text-emerald-900" : "text-red-900"}
+                trend={{ value: `${Math.abs(profitGrowth).toFixed(1)}%`, isPositive: profitGrowth >= 0 }}
+              />
+              <MonthlyStatsCard 
+                title="Active Partners" 
+                value={uniquePartners.toString()} 
+                subtitle="Unique partners"
+                icon={Users}
+                bgColor="bg-indigo-50"
+                textColor="text-indigo-900"
+              />
+            </div>
+
+            {/* Monthly Summary */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-4 sm:mb-6">
+              <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+                <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-2 sm:mb-3">Purchase Summary</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Total Cost:</span>
+                    <span className="font-medium text-red-700">KES {purchaseRevenue.toLocaleString()}</span>
                   </div>
-                  <Package className="text-blue-600" size={20} />
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Daily Average:</span>
+                    <span className="font-medium">KES {(purchaseRevenue / daysInMonth).toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Transactions:</span>
+                    <span className="font-medium">{monthPurchases.length}</span>
+                  </div>
                 </div>
               </div>
-              <div className="bg-green-50 p-4 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-green-700">Revenue</h3>
-                    <p className="text-2xl font-bold text-green-900">KES {(totalRevenue / 1000).toFixed(1)}K</p>
-                    <p className="text-xs text-green-600 mt-1">
-                      {yoyGrowth >= 0 ? '↑' : '↓'} {Math.abs(yoyGrowth).toFixed(1)}% vs last year*
-                    </p>
+
+              <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+                <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-2 sm:mb-3">Sales Summary</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Total Revenue:</span>
+                    <span className="font-medium text-green-700">KES {salesRevenue.toLocaleString()}</span>
                   </div>
-                  <DollarSign className="text-green-600" size={20} />
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Daily Average:</span>
+                    <span className="font-medium">KES {(salesRevenue / daysInMonth).toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Transactions:</span>
+                    <span className="font-medium">{monthSales.length}</span>
+                  </div>
                 </div>
               </div>
-              <div className="bg-purple-50 p-4 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-purple-700">Weight</h3>
-                    <p className="text-2xl font-bold text-purple-900">{(totalWeight / 1000).toFixed(1)}T</p>
-                    <p className="text-xs text-purple-600 mt-1">Metric tons</p>
+
+              <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+                <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-2 sm:mb-3">Profit Analysis</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Net Profit:</span>
+                    <span className={`font-medium ${netRevenue >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      KES {netRevenue.toLocaleString()}
+                    </span>
                   </div>
-                  <TrendingUp className="text-purple-600" size={20} />
-                </div>
-              </div>
-              <div className="bg-orange-50 p-4 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-orange-700">Avg Transaction</h3>
-                    <p className="text-2xl font-bold text-orange-900">KES {avgTransactionValue.toFixed(0)}</p>
-                    <p className="text-xs text-orange-600 mt-1">Per transaction</p>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Daily Average:</span>
+                    <span className="font-medium">KES {dailyProfitAverage.toFixed(0)}</span>
                   </div>
-                  <Target className="text-orange-600" size={20} />
-                </div>
-              </div>
-              <div className="bg-indigo-50 p-4 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-indigo-700">Suppliers</h3>
-                    <p className="text-2xl font-bold text-indigo-900">{uniqueSuppliers}</p>
-                    <p className="text-xs text-indigo-600 mt-1">Active suppliers</p>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Profit Margin:</span>
+                    <span className="font-medium">
+                      {salesRevenue > 0 ? ((netRevenue / salesRevenue) * 100).toFixed(1) : '0'}%
+                    </span>
                   </div>
-                  <Users className="text-indigo-600" size={20} />
-                </div>
-              </div>
-              <div className="bg-pink-50 p-4 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-pink-700">Daily Avg</h3>
-                    <p className="text-2xl font-bold text-pink-900">{dailyAverage.toFixed(1)}</p>
-                    <p className="text-xs text-pink-600 mt-1">Transactions/day</p>
-                  </div>
-                  <BarChart3 className="text-pink-600" size={20} />
                 </div>
               </div>
             </div>
 
-            {/* Weekly Performance */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-3">Weekly Performance</h3>
+            {/* Weekly Performance - Mobile Responsive */}
+            <div className="mb-4 sm:mb-6">
+              <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-2 sm:mb-3">Weekly Performance</h3>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Week</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transactions</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (kg)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trend</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Week</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Purchases</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Sales</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Net Profit</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (kg)</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {weeklyBreakdown.map((week, index) => {
-                      const prevWeek = weeklyBreakdown[index - 1];
-                      const trend = prevWeek && prevWeek.revenue > 0 
-                        ? ((week.revenue - prevWeek.revenue) / prevWeek.revenue * 100) 
-                        : 0;
-                      
-                      return (
-                        <tr key={index} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                            {week.week}
-                            {week.week === bestWeek.week && week.transactions > 0 && (
+                    {weeklyBreakdown.map((week, index) => (
+                      <tr key={index} className={`hover:bg-gray-50 ${week.purchases === 0 && week.sales === 0 ? 'bg-gray-50' : ''}`}>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-medium text-gray-900">
+                          <div>
+                            <div>{week.week}</div>
+                            <div className="text-xs text-gray-500 hidden sm:block">{week.period}</div>
+                            {week.week === bestWeek.week && week.netProfit > 0 && (
                               <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
                                 Best
                               </span>
                             )}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{week.period}</td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{week.transactions}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 font-medium">
-                            KES {week.revenue.toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{week.weight.toFixed(1)}</td>
-                          <td className="px-4 py-3 text-sm">
-                            {index > 0 && prevWeek && prevWeek.revenue > 0 && (
-                              <span className={`font-medium ${trend >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {trend >= 0 ? '↑' : '↓'} {Math.abs(trend).toFixed(1)}%
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                          </div>
+                        </td>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-600">
+                          <div>
+                            <div>{week.purchases} tx</div>
+                            <div className="text-red-600 font-medium">KES {week.purchaseRevenue.toLocaleString()}</div>
+                          </div>
+                        </td>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-600">
+                          <div>
+                            <div>{week.sales} tx</div>
+                            <div className="text-green-600 font-medium">KES {week.salesRevenue.toLocaleString()}</div>
+                          </div>
+                        </td>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm">
+                          <div className={`font-medium ${week.netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                            {week.netProfit >= 0 ? '+' : ''}KES {week.netProfit.toLocaleString()}
+                          </div>
+                        </td>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-600">{week.weight.toFixed(1)}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             </div>
 
-            {/* Material Analysis */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-3">Material Analysis</h3>
-              {Object.keys(materialAnalysis).length === 0 ? (
-                <p className="text-gray-500 text-center py-4">No materials processed this month</p>
+            {/* Material Performance */}
+            <div className="mb-4 sm:mb-6">
+              <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-2 sm:mb-3">Material Performance</h3>
+              {Object.keys(materialPerformance).length === 0 ? (
+                <p className="text-gray-500 text-center py-4 text-sm">No materials processed this month</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Volume (kg)</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Price/kg</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price Range</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Suppliers</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {Object.entries(materialAnalysis)
-                        .sort(([,a], [,b]) => b.revenue - a.revenue)
-                        .map(([material, stats]) => (
-                          <tr key={material} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 text-sm font-medium text-gray-900">{material}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600">{stats.weight.toFixed(1)}</td>
-                            <td className="px-4 py-3 text-sm text-gray-900 font-medium">
-                              KES {stats.revenue.toLocaleString()}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
-                              KES {stats.avgPrice.toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
-                              {stats.minPrice > 0 && stats.maxPrice > 0 ? (
-                                <>KES {stats.minPrice.toFixed(2)} - {stats.maxPrice.toFixed(2)}</>
-                              ) : (
-                                'N/A'
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">{stats.supplierCount}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {Object.entries(materialPerformance)
+                    .sort(([, a], [, b]) => b.netProfit - a.netProfit)
+                    .map(([material, stats]) => (
+                      <div key={material} className="bg-gray-50 p-3 sm:p-4 rounded-lg hover:bg-gray-100 transition-colors">
+                        <div className="flex justify-between items-start mb-3">
+                          <h4 className="font-medium text-gray-900">{material}</h4>
+                          <span className={`text-sm font-bold px-2 py-1 rounded ${stats.netProfit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {stats.netProfit >= 0 ? '+' : ''}KES {stats.netProfit.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <div className="text-gray-600 text-xs">Purchases</div>
+                            <div className="font-medium">{stats.purchases.transactions} tx • {stats.purchases.weight.toFixed(1)} kg</div>
+                            <div className="text-red-600">KES {stats.purchases.revenue.toLocaleString()}</div>
+                          </div>
+                          <div>
+                            <div className="text-gray-600 text-xs">Sales</div>
+                            <div className="font-medium">{stats.sales.transactions} tx • {stats.sales.weight.toFixed(1)} kg</div>
+                            <div className="text-green-600">KES {stats.sales.revenue.toLocaleString()}</div>
+                          </div>
+                        </div>
+                        <div className="mt-2 pt-2 border-t border-gray-200 flex justify-between items-center text-xs">
+                          <span className="text-gray-600">Margin: {stats.margin.toFixed(1)}%</span>
+                          <span className="text-gray-600">Partners: {stats.supplierCount}</span>
+                        </div>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>
 
-            {/* Top Suppliers */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-3">Top 10 Suppliers</h3>
-              {topSuppliers.length === 0 ? (
-                <p className="text-gray-500 text-center py-4">No supplier data available</p>
+            {/* Top Partners */}
+            <div className="mb-4 sm:mb-6">
+              <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-2 sm:mb-3">Top Partners This Month</h3>
+              {topPartners.length === 0 ? (
+                <p className="text-gray-500 text-center py-4 text-sm">No partner data available</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rank</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transactions</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (kg)</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Materials</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {topSuppliers.map((supplier, index) => (
-                        <tr key={supplier.name} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                            <div className="flex items-center gap-2">
-                              #{index + 1}
-                              {index === 0 && (
-                                <Award className="text-yellow-500" size={16} />
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{supplier.name}</td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{supplier.transactions}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 font-medium">
-                            KES {supplier.revenue.toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{supplier.weight.toFixed(1)}</td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{supplier.materialCount} types</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="space-y-2">
+                  {topPartners.slice(0, 5).map((partner, index) => (
+                    <div key={partner.name} className="flex justify-between items-center p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                      <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                        <span className="bg-blue-500 text-white rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-xs font-medium shrink-0">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-xs sm:text-sm font-medium text-gray-900 truncate block">{partner.name}</span>
+                          <p className="text-xs text-gray-500 truncate">
+                            {partner.weight.toFixed(1)} kg • {partner.purchases + partner.sales} tx • {partner.materialCount} materials
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0 ml-2">
+                        <div className="flex flex-col gap-1">
+                          {partner.purchases > 0 && (
+                            <span className="text-xs text-red-600">-KES {partner.purchaseRevenue.toLocaleString()}</span>
+                          )}
+                          {partner.sales > 0 && (
+                            <span className="text-xs text-green-600">+KES {partner.salesRevenue.toLocaleString()}</span>
+                          )}
+                        </div>
+                        <p className={`text-xs font-medium ${partner.netValue >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                          Net: {partner.netValue >= 0 ? '+' : ''}KES {partner.netValue.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
 
-            {/* Growth Comparison */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-3">Growth Analysis</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-blue-50 p-4 rounded-lg">
+            {/* Growth Analysis - Mobile Responsive */}
+            <div className="mb-4 sm:mb-6">
+              <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-2 sm:mb-3">Growth Analysis</h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-blue-50 p-3 sm:p-4 rounded-lg">
                   <h4 className="font-medium text-blue-900 mb-2">Month-over-Month</h4>
                   <div className="flex items-center gap-2">
                     {monthOverMonthGrowth >= 0 ? (
@@ -611,18 +859,18 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                     ) : (
                       <TrendingDown className="text-red-600" size={20} />
                     )}
-                    <span className={`text-2xl font-bold ${monthOverMonthGrowth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {monthOverMonthGrowth >= 0 ? '+' : ''}{monthOverMonthGrowth.toFixed(1)}%*
+                    <span className={`text-xl sm:text-2xl font-bold ${monthOverMonthGrowth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {monthOverMonthGrowth >= 0 ? '+' : ''}{monthOverMonthGrowth.toFixed(1)}%
                     </span>
                   </div>
                   <p className="text-sm text-blue-800 mt-1">
-                    Compared to previous month
+                    Revenue vs previous month
                   </p>
                   <p className="text-xs text-blue-600 mt-2">
-                    Previous month: KES {previousMonthRevenue.toLocaleString()}
+                    Previous: KES {(prevMonthPurchaseRevenue + prevMonthSalesRevenue).toLocaleString()}
                   </p>
                 </div>
-                <div className="bg-purple-50 p-4 rounded-lg">
+                <div className="bg-purple-50 p-3 sm:p-4 rounded-lg">
                   <h4 className="font-medium text-purple-900 mb-2">Year-over-Year</h4>
                   <div className="flex items-center gap-2">
                     {yoyGrowth >= 0 ? (
@@ -630,74 +878,41 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, month }) =>
                     ) : (
                       <TrendingDown className="text-red-600" size={20} />
                     )}
-                    <span className={`text-2xl font-bold ${yoyGrowth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {yoyGrowth >= 0 ? '+' : ''}{yoyGrowth.toFixed(1)}%*
+                    <span className={`text-xl sm:text-2xl font-bold ${yoyGrowth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {yoyGrowth >= 0 ? '+' : ''}{yoyGrowth.toFixed(1)}%
                     </span>
                   </div>
                   <p className="text-sm text-purple-800 mt-1">
-                    Compared to same month last year
+                    Revenue vs same month last year
                   </p>
                   <p className="text-xs text-purple-600 mt-2">
-                    Previous year: KES {previousYearRevenue.toLocaleString()}
+                    Previous year: KES {(prevYearPurchaseRevenue + prevYearSalesRevenue).toLocaleString()}
                   </p>
                 </div>
-              </div>
-            </div>
-
-            {/* Monthly Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <h3 className="text-lg font-semibold text-green-900 mb-2">Key Achievements</h3>
-                <ul className="space-y-1 text-sm text-green-800">
-                  <li>• Total revenue: KES {totalRevenue.toLocaleString()}</li>
-                  <li>• Using {transactions.length} total transactions in dataset</li>
-                  <li>• Average daily revenue: KES {(totalRevenue / daysInMonth).toFixed(0)}</li>
-                  <li>• Most valuable material: {Object.entries(materialAnalysis).sort(([,a], [,b]) => b.revenue - a.revenue)[0]?.[0] || 'N/A'}</li>
-                  <li>• Top supplier: {topSuppliers[0]?.name || 'N/A'}</li>
-                  <li>• Best performing week: {bestWeek.week}</li>
-                </ul>
-              </div>
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                <h3 className="text-lg font-semibold text-amber-900 mb-2">Areas for Improvement</h3>
-                <ul className="space-y-1 text-sm text-amber-800">
-                  <li>• Increase supplier base (currently {uniqueSuppliers} active)</li>
-                  <li>• Optimize pricing for low-performing materials</li>
-                  <li>• Focus on high-margin materials</li>
-                  <li>• Improve weekly consistency in collections</li>
-                  <li>• Target daily average of {(dailyAverage * 1.2).toFixed(1)} transactions</li>
-                  <li>• Strengthen relationships with top suppliers</li>
-                </ul>
               </div>
             </div>
 
             {/* Monthly Insights */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
-              <h3 className="text-lg font-semibold text-blue-900 mb-2">Monthly Insights</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
+              <h3 className="text-sm sm:text-lg font-semibold text-blue-900 mb-2">Monthly Insights</h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
-                  <ul className="space-y-1 text-sm text-blue-800">
-                    <li>• Total transactions: {monthTransactions.length}</li>
-                    <li>• Average transaction value: KES {avgTransactionValue.toFixed(0)}</li>
-                    <li>• Most popular material: {Object.entries(materialAnalysis).sort(([,a], [,b]) => b.transactions - a.transactions)[0]?.[0] || 'N/A'}</li>
-                    <li>• Unique suppliers served: {uniqueSuppliers}</li>
+                  <ul className="space-y-1 text-xs sm:text-sm text-blue-800">
+                    <li>• Net profit: KES {netRevenue.toLocaleString()} ({profitGrowth >= 0 ? '+' : ''}{profitGrowth.toFixed(1)}% vs last month)</li>
+                    <li>• {monthPurchases.length} purchases • {monthSales.length} sales</li>
+                    <li>• Most profitable material: {Object.entries(materialPerformance).sort(([,a], [,b]) => b.netProfit - a.netProfit)[0]?.[0] || 'N/A'}</li>
+                    <li>• Best week: {bestWeek.week} (KES {bestWeek.netProfit.toLocaleString()} profit)</li>
                   </ul>
                 </div>
                 <div>
-                  <ul className="space-y-1 text-sm text-blue-800">
-                    <li>• Best week: {bestWeek.week} ({bestWeek.transactions} transactions)</li>
-                    <li>• Total materials processed: {Object.keys(materialAnalysis).length} types</li>
-                    <li>• Average daily transactions: {dailyAverage.toFixed(1)}</li>
-                    <li>• Revenue per kg: KES {totalWeight > 0 ? (totalRevenue / totalWeight).toFixed(2) : '0'}</li>
+                  <ul className="space-y-1 text-xs sm:text-sm text-blue-800">
+                    <li>• {uniquePartners} unique partners active</li>
+                    <li>• Materials traded: {Object.keys(materialPerformance).length} types</li>
+                    <li>• Daily transaction average: {dailyAverage.toFixed(1)}</li>
+                    <li>• Average transaction: KES {avgTransactionValue.toFixed(0)}</li>
                   </ul>
                 </div>
               </div>
-              {previousMonthTransactions.length === 0 && previousYearTransactions.length === 0 && (
-                <div className="mt-4 p-2 bg-yellow-50 border border-yellow-200 rounded">
-                  <p className="text-xs text-yellow-800">
-                    * Growth comparisons limited without historical data. Consider implementing period-over-period tracking.
-                  </p>
-                </div>
-              )}
             </div>
           </>
         )}

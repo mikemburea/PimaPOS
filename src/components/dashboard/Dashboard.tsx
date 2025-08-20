@@ -1,8 +1,8 @@
-// src/components/dashboard/Dashboard.tsx - Simplified Version without Duplicate Notification Management - Mobile-First Responsive
+// src/components/dashboard/Dashboard.tsx - Updated with Sales Transactions and Enhanced Navigation
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   DollarSign, FileText, Package, Users, Plus, Download, TrendingUp, Activity, Award, 
-  Sparkles, AlertCircle, Loader2
+  Sparkles, AlertCircle, Loader2, ShoppingCart, UserPlus
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Cell, Pie, AreaChart, Area} from 'recharts';
 import { supabase } from '../../lib/supabase';
@@ -50,7 +50,9 @@ interface SupplierRankingProps {
     id: string;
     name: string;
     transactions: number;
+    salesTransactions: number;
     value: number;
+    salesValue: number;
     trend: string;
     tier: string;
   };
@@ -80,6 +82,28 @@ interface DatabaseTransaction {
   receipt_number?: string | null;
   notes?: string | null;
   created_by?: string | null;
+  updated_at?: string | null;
+}
+
+interface DatabaseSalesTransaction {
+  id: string;
+  transaction_id: string;
+  supplier_id?: string | null;
+  supplier_name?: string | null;
+  material_id?: number | null;
+  material_name: string;
+  weight_kg: number;
+  price_per_kg: number;
+  total_amount: number;
+  transaction_date: string;
+  notes?: string | null;
+  is_special_price?: boolean | null;
+  original_price?: number | null;
+  payment_method?: string | null;
+  payment_status?: string | null;
+  transaction_type?: string | null;
+  created_by?: string | null;
+  created_at: string;
   updated_at?: string | null;
 }
 
@@ -138,24 +162,36 @@ interface DashboardStats {
   avgTransactionValue: number;
   completedTransactions: number;
   pendingTransactions: number;
+  // Sales-specific stats
+  totalSalesTransactions: number;
+  totalSalesRevenue: number;
+  todaySalesTransactions: number;
+  todaySalesRevenue: number;
+  salesGrowth: number;
+  avgSalesValue: number;
 }
 
 interface DashboardData {
   stats: DashboardStats;
   recentTransactions: DatabaseTransaction[];
+  recentSalesTransactions: DatabaseSalesTransaction[];
   topSuppliers: DatabaseSupplier[];
   materialDistribution: { name: string; value: number; color: string; count: number }[];
-  revenueData: { date: string; revenue: number; target: number }[];
+  revenueData: { date: string; revenue: number; sales: number; target: number }[];
   performanceMetrics: {
     transactions: { value: number; target: number; progress: number };
     revenue: { value: number; target: number; progress: number };
     weight: { value: number; target: number; progress: number };
     suppliers: { value: number; target: number; progress: number };
+    sales: { value: number; target: number; progress: number };
   };
 }
 
 interface DashboardProps {
   onRefresh?: () => void;
+  onNavigateToTransactions?: () => void;
+  onNavigateToSuppliers?: () => void;
+  onNavigateToAddSupplier?: () => void;
 }
 
 // CSS styles object - Updated for mobile-first
@@ -499,7 +535,7 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
   );
 };
 
-// Mobile-responsive Supplier Ranking Component
+// Enhanced Supplier Ranking Component with sales data
 const SupplierRanking: React.FC<SupplierRankingProps> = ({ supplier }) => {
   const getTierColor = (tier: string) => {
     switch (tier) {
@@ -513,6 +549,9 @@ const SupplierRanking: React.FC<SupplierRankingProps> = ({ supplier }) => {
         return 'linear-gradient(135deg, #94a3b8 0%, #64748b 100%)';
     }
   };
+
+  const totalTransactions = supplier.transactions + supplier.salesTransactions;
+  const totalValue = supplier.value + supplier.salesValue;
 
   return (
     <div style={{
@@ -568,7 +607,7 @@ const SupplierRanking: React.FC<SupplierRankingProps> = ({ supplier }) => {
           overflow: 'hidden',
           textOverflow: 'ellipsis'
         }}>
-          {supplier.transactions} transactions • {supplier.tier}
+          {totalTransactions} txns ({supplier.transactions}P + {supplier.salesTransactions}S) • {supplier.tier}
         </div>
       </div>
       <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -577,7 +616,7 @@ const SupplierRanking: React.FC<SupplierRankingProps> = ({ supplier }) => {
           color: '#0f172a',
           fontSize: '0.85rem'
         }}>
-          {formatCurrency(supplier.value)}
+          {formatCurrency(totalValue)}
         </div>
         <div style={{ fontSize: '0.7rem', fontWeight: '500', color: '#10b981' }}>{supplier.trend}</div>
       </div>
@@ -612,8 +651,13 @@ const CustomTooltip: React.FC<any> = ({ active, payload, label }) => {
   return null;
 };
 
-// Main Dashboard Component - Simplified without Duplicate Notification Management
-const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
+// Main Dashboard Component with Sales Transactions and Enhanced Navigation
+const Dashboard: React.FC<DashboardProps> = ({ 
+  onRefresh, 
+  onNavigateToTransactions,
+  onNavigateToSuppliers,
+  onNavigateToAddSupplier 
+}) => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -631,15 +675,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Fetch data from Supabase
+  // Enhanced fetch data from Supabase including sales transactions
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch all required data in parallel
-      const [transactionsResult, suppliersResult, materialsResult] = await Promise.allSettled([
+      // Fetch all required data in parallel including sales transactions
+      const [transactionsResult, salesTransactionsResult, suppliersResult, materialsResult] = await Promise.allSettled([
         supabase.from('transactions').select('*').order('created_at', { ascending: false }),
+        supabase.from('sales_transactions').select('*').order('created_at', { ascending: false }),
         supabase.from('suppliers').select('*').order('total_value', { ascending: false }),
         supabase.from('materials').select('*').eq('is_active', true)
       ]);
@@ -647,6 +692,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
       // Handle results
       const transactions = transactionsResult.status === 'fulfilled' && !transactionsResult.value.error 
         ? transactionsResult.value.data || [] 
+        : [];
+      
+      const salesTransactions = salesTransactionsResult.status === 'fulfilled' && !salesTransactionsResult.value.error 
+        ? salesTransactionsResult.value.data || [] 
         : [];
       
       const suppliersData = suppliersResult.status === 'fulfilled' && !suppliersResult.value.error 
@@ -660,8 +709,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
       // Store suppliers for reference
       setSuppliers(suppliersData);
 
-      // Calculate dashboard data
-      const dashboardData = calculateDashboardData(transactions, suppliersData, materials);
+      // Calculate dashboard data including sales
+      const dashboardData = calculateDashboardData(transactions, salesTransactions, suppliersData, materials);
       setDashboardData(dashboardData);
 
     } catch (err) {
@@ -672,9 +721,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     }
   }, []);
 
-  // Calculate dashboard data from raw database data
+  // Enhanced calculate dashboard data including sales transactions
   const calculateDashboardData = (
     transactions: DatabaseTransaction[], 
+    salesTransactions: DatabaseSalesTransaction[],
     suppliers: DatabaseSupplier[], 
     materials: DatabaseMaterial[]
   ): DashboardData => {
@@ -685,18 +735,28 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
 
     // Filter completed transactions
     const completedTransactions = transactions.filter(t => t.payment_status === 'completed');
+    const completedSalesTransactions = salesTransactions.filter(t => t.payment_status === 'completed');
+    
     const todayTransactions = transactions.filter(t => new Date(t.transaction_date) >= today);
+    const todaySalesTransactions = salesTransactions.filter(t => new Date(t.transaction_date) >= today);
+    
     const weekTransactions = transactions.filter(t => new Date(t.transaction_date) >= thisWeek);
+    const weekSalesTransactions = salesTransactions.filter(t => new Date(t.transaction_date) >= thisWeek);
+    
     const monthTransactions = transactions.filter(t => new Date(t.transaction_date) >= thisMonth);
+    const monthSalesTransactions = salesTransactions.filter(t => new Date(t.transaction_date) >= thisMonth);
 
     // Calculate basic stats
     const totalRevenue = completedTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+    const totalSalesRevenue = completedSalesTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
     const totalWeight = completedTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
     const todayRevenue = todayTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+    const todaySalesRevenue = todaySalesTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
     const activeSuppliers = suppliers.filter(s => s.status === 'active').length;
 
     // Calculate growth percentages
     const weekGrowth = transactions.length > 0 ? (weekTransactions.length / transactions.length) * 100 : 0;
+    const salesGrowth = salesTransactions.length > 0 ? (weekSalesTransactions.length / salesTransactions.length) * 100 : 0;
     const monthGrowth = transactions.length > 0 ? (monthTransactions.length / transactions.length) * 100 : 0;
     const weightGrowth = totalWeight > 0 ? (weekTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0) / totalWeight) * 100 : 0;
     const supplierGrowth = activeSuppliers > 0 ? (suppliers.filter(s => new Date(s.created_at) >= thisWeek).length / activeSuppliers) * 100 : 0;
@@ -714,55 +774,103 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
       supplierGrowth,
       avgTransactionValue: transactions.length > 0 ? totalRevenue / transactions.length : 0,
       completedTransactions: completedTransactions.length,
-      pendingTransactions: transactions.filter(t => t.payment_status === 'pending').length
+      pendingTransactions: transactions.filter(t => t.payment_status === 'pending').length,
+      // Sales stats
+      totalSalesTransactions: salesTransactions.length,
+      totalSalesRevenue,
+      todaySalesTransactions: todaySalesTransactions.length,
+      todaySalesRevenue,
+      salesGrowth,
+      avgSalesValue: salesTransactions.length > 0 ? totalSalesRevenue / salesTransactions.length : 0
     };
 
-    // Get recent transactions
-    const recentTransactions = transactions.slice(0, 5);
+    // Get recent transactions (both purchase and sales)
+    const recentTransactions = transactions.slice(0, 3);
+    const recentSalesTransactions = salesTransactions.slice(0, 2);
 
-    // Get top suppliers
-    const topSuppliers = suppliers
+    // Enhanced top suppliers calculation using actual database data
+    const enhancedSuppliers = suppliers
       .filter(s => s.status === 'active')
-      .sort((a, b) => (b.total_value || 0) - (a.total_value || 0))
+      .map(supplier => {
+        // Get supplier's purchase transactions
+        const supplierTransactions = transactions.filter(t => t.supplier_id === supplier.id);
+        // Get supplier's sales transactions
+        const supplierSalesTransactions = salesTransactions.filter(t => t.supplier_id === supplier.id);
+        
+        // Calculate recent performance (last 30 days)
+        const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const recentTransactions = supplierTransactions.filter(t => new Date(t.transaction_date) >= last30Days);
+        const recentSalesTransactions = supplierSalesTransactions.filter(t => new Date(t.transaction_date) >= last30Days);
+        
+        const recentValue = recentTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+        const recentSalesValue = recentSalesTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+        const totalRecentValue = recentValue + recentSalesValue;
+        
+        // Calculate trend percentage
+        const totalHistoricalValue = (supplier.total_value || 0);
+        const trendPercentage = totalHistoricalValue > 0 ? ((totalRecentValue / totalHistoricalValue) * 100) : 0;
+        
+        return {
+          ...supplier,
+          calculatedTransactions: supplierTransactions.length,
+          calculatedSalesTransactions: supplierSalesTransactions.length,
+          calculatedValue: supplierTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0),
+          calculatedSalesValue: supplierSalesTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0),
+          calculatedTrend: `+${Math.round(trendPercentage)}%`,
+          totalCombinedValue: totalRecentValue
+        };
+      })
+      .sort((a, b) => b.totalCombinedValue - a.totalCombinedValue)
       .slice(0, 5);
 
-    // Calculate material distribution
-    const materialCounts = transactions.reduce((acc, t) => {
+    // Calculate material distribution from both transaction types
+    const allMaterialCounts = [...transactions, ...salesTransactions.map(st => ({
+      material_type: st.material_name
+    } as { material_type: string }))].reduce((acc, t) => {
       const material = t.material_type;
       acc[material] = (acc[material] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
+    const totalTransactionCount = transactions.length + salesTransactions.length;
     const materialColors = ['#00bcd4', '#9c27b0', '#e91e63', '#ff9800', '#4caf50', '#3f51b5'];
-    const materialDistribution = Object.entries(materialCounts)
+    const materialDistribution = Object.entries(allMaterialCounts)
       .map(([name, count], index) => ({
         name,
-        value: Math.round((count / transactions.length) * 100),
+        value: Math.round((count / totalTransactionCount) * 100),
         color: materialColors[index % materialColors.length],
         count
       }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
-    // Generate revenue data for the last 7 days
+    // Generate enhanced revenue data for the last 7 days including sales
     const revenueData = Array.from({ length: 7 }, (_, i) => {
       const date = new Date(now.getTime() - (6 - i) * 24 * 60 * 60 * 1000);
       const dayTransactions = transactions.filter(t => {
         const tDate = new Date(t.transaction_date);
         return tDate.toDateString() === date.toDateString();
       });
+      const daySalesTransactions = salesTransactions.filter(t => {
+        const tDate = new Date(t.transaction_date);
+        return tDate.toDateString() === date.toDateString();
+      });
+      
       const dayRevenue = dayTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
-      const target = dayRevenue * 1.1; // 10% above current as target
+      const daySalesRevenue = daySalesTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+      const target = (dayRevenue + daySalesRevenue) * 1.1; // 10% above current as target
       
       return {
         date: date.toLocaleDateString('en-US', { weekday: 'short' }),
         revenue: dayRevenue,
+        sales: daySalesRevenue,
         target
       };
     });
 
-    // Calculate performance metrics
+    // Enhanced performance metrics including sales
     const dailyTarget = 50000; // Example daily target
+    const dailySalesTarget = 30000; // Example daily sales target
     const performanceMetrics = {
       transactions: {
         value: todayTransactions.length,
@@ -780,16 +888,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
         progress: Math.min((todayTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0) / 5000) * 100, 100)
       },
       suppliers: {
-        value: new Set(todayTransactions.map(t => t.supplier_id || t.walkin_name)).size,
+        value: new Set([...todayTransactions.map(t => t.supplier_id || t.walkin_name), ...todaySalesTransactions.map(t => t.supplier_id || t.supplier_name)]).size,
         target: 20,
-        progress: Math.min((new Set(todayTransactions.map(t => t.supplier_id || t.walkin_name)).size / 20) * 100, 100)
+        progress: Math.min((new Set([...todayTransactions.map(t => t.supplier_id || t.walkin_name), ...todaySalesTransactions.map(t => t.supplier_id || t.supplier_name)]).size / 20) * 100, 100)
+      },
+      sales: {
+        value: todaySalesRevenue,
+        target: dailySalesTarget,
+        progress: Math.min((todaySalesRevenue / dailySalesTarget) * 100, 100)
       }
     };
 
     return {
       stats,
       recentTransactions,
-      topSuppliers,
+      recentSalesTransactions,
+      topSuppliers: enhancedSuppliers,
       materialDistribution,
       revenueData,
       performanceMetrics
@@ -818,34 +932,48 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     };
   };
 
-  // Transform supplier for ranking display
-  const transformSupplierForRanking = (supplier: DatabaseSupplier, transactions: DatabaseTransaction[]) => {
-    const supplierTransactions = transactions.filter(t => t.supplier_id === supplier.id);
-    const recentTransactions = supplierTransactions.filter(t => {
-      const transactionDate = new Date(t.transaction_date);
-      const lastMonth = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      return transactionDate >= lastMonth;
+  // Transform sales transactions for display
+  const transformSalesTransactionForDisplay = (salesTransaction: DatabaseSalesTransaction) => {
+    const supplierName = salesTransaction.supplier_name || 'Direct Sale';
+    const initials = getInitials(supplierName);
+    const status = salesTransaction.payment_status === 'completed' ? 'Completed' : 'Pending';
+    const time = new Date(salesTransaction.created_at).toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
     });
-    
-    const currentMonthValue = recentTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
-    const trend = currentMonthValue > 0 ? `+${Math.round((currentMonthValue / (supplier.total_value || 1)) * 100)}%` : '+0%';
 
+    return {
+      id: salesTransaction.id,
+      supplierName: `${supplierName} (Sale)`,
+      materials: salesTransaction.material_name,
+      value: salesTransaction.total_amount || 0,
+      status: status as 'Completed' | 'Pending',
+      initials,
+      time,
+      paymentMethod: salesTransaction.payment_method || 'Cash'
+    };
+  };
+
+  // Transform supplier for ranking display with enhanced data
+  const transformSupplierForRanking = (supplier: any) => {
     return {
       id: supplier.id,
       name: supplier.name,
-      transactions: supplier.total_transactions || 0,
-      value: supplier.total_value || 0,
-      trend,
+      transactions: supplier.calculatedTransactions || 0,
+      salesTransactions: supplier.calculatedSalesTransactions || 0,
+      value: supplier.calculatedValue || 0,
+      salesValue: supplier.calculatedSalesValue || 0,
+      trend: supplier.calculatedTrend || '+0%',
       tier: supplier.supplier_tier || 'occasional'
     };
   };
 
-  // Simplified realtime subscription - only refreshes data, no notification management
+  // Enhanced realtime subscription for both tables
   useEffect(() => {
     console.log('Setting up dashboard realtime subscription...');
 
-    const channel = supabase
-      .channel('dashboard-data-refresh')
+    const transactionChannel = supabase
+      .channel('dashboard-transaction-refresh')
       .on(
         'postgres_changes',
         {
@@ -854,10 +982,19 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           table: 'transactions'
         },
         (payload) => {
-          console.log('Dashboard data update received:', payload);
-          
-          // Just refresh the dashboard data - don't create notifications here!
-          // The NotificationContext is already handling notifications
+          console.log('Transaction update received:', payload);
+          fetchDashboardData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'sales_transactions'
+        },
+        (payload) => {
+          console.log('Sales transaction update received:', payload);
           fetchDashboardData();
         }
       )
@@ -878,7 +1015,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     // Cleanup subscription on unmount
     return () => {
       console.log('Cleaning up dashboard realtime subscription...');
-      supabase.removeChannel(channel);
+      supabase.removeChannel(transactionChannel);
       setIsRealtimeConnected(false);
     };
   }, [fetchDashboardData]);
@@ -893,6 +1030,36 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
+
+  // Enhanced quick action handlers
+  const handleNewTransaction = () => {
+    console.log('Navigate to new transaction');
+    // Add navigation logic here if provided
+  };
+
+  const handleAddSupplier = () => {
+    console.log('Navigate to add supplier');
+    if (onNavigateToAddSupplier) {
+      onNavigateToAddSupplier();
+    }
+  };
+
+  const handleViewAllTransactions = () => {
+    console.log('Navigate to all transactions');
+    if (onNavigateToTransactions) {
+      onNavigateToTransactions();
+    }
+  };
+
+  const handleExport = () => {
+    console.log('Export data');
+    // Add export logic here
+  };
+
+  const handlePricing = () => {
+    console.log('Navigate to pricing');
+    // Add navigation logic here
+  };
 
   // Loading state
   if (loading) {
@@ -997,7 +1164,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
     );
   }
 
-  const { stats, recentTransactions, topSuppliers, materialDistribution, revenueData, performanceMetrics } = dashboardData;
+  const { stats, recentTransactions, recentSalesTransactions, topSuppliers, materialDistribution, revenueData, performanceMetrics } = dashboardData;
 
   return (
     <div style={{
@@ -1151,15 +1318,15 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           </button>
         </div>
 
-        {/* Stats Cards - Mobile Responsive Grid */}
+        {/* Enhanced Stats Cards with Sales - Mobile Responsive Grid */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(250px, 1fr))',
+          gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
           gap: isMobile ? '0.75rem' : '1.5rem',
           marginBottom: isMobile ? '1.5rem' : '2rem'
         }}>
           <StatCard
-            title="Total Revenue"
+            title="Purchase Revenue"
             value={stats.totalRevenue >= 1000000 ? 
               `${(stats.totalRevenue / 1000000).toFixed(1)}M` : 
               `${(stats.totalRevenue / 1000).toFixed(0)}K`
@@ -1169,8 +1336,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
             gradient="linear-gradient(135deg, #00bcd4 0%, #00acc1 100%)"
           />
           <StatCard
+            title="Sales Revenue"
+            value={stats.totalSalesRevenue >= 1000000 ? 
+              `${(stats.totalSalesRevenue / 1000000).toFixed(1)}M` : 
+              `${(stats.totalSalesRevenue / 1000).toFixed(0)}K`
+            }
+            change={stats.salesGrowth.toFixed(1)}
+            icon={ShoppingCart}
+            gradient="linear-gradient(135deg, #4caf50 0%, #45a049 100%)"
+          />
+          <StatCard
             title="Total Transactions"
-            value={stats.totalTransactions.toLocaleString()}
+            value={(stats.totalTransactions + stats.totalSalesTransactions).toLocaleString()}
             change={stats.weekGrowth.toFixed(1)}
             icon={FileText}
             gradient="linear-gradient(135deg, #9c27b0 0%, #8e24aa 100%)"
@@ -1191,14 +1368,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           />
         </div>
 
-        {/* Charts and Transactions Row - Mobile Responsive */}
+        {/* Enhanced Charts and Transactions Row - Mobile Responsive */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr',
           gap: isMobile ? '1rem' : '2rem',
           marginBottom: isMobile ? '1.5rem' : '2rem'
         }}>
-          {/* Revenue Chart */}
+          {/* Enhanced Revenue Chart with Sales */}
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
@@ -1207,13 +1384,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: isMobile ? '1rem' : '1.25rem', fontWeight: 'bold', color: '#0f172a' }}>
-                Revenue Trend (Last 7 Days)
+                Revenue & Sales Trend (Last 7 Days)
               </h3>
               {!isMobile && (
                 <div style={{ display: 'flex', gap: '1rem', fontSize: '0.875rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#00bcd4' }}></div>
-                    <span style={{ color: '#64748b' }}>Actual</span>
+                    <span style={{ color: '#64748b' }}>Purchases</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#4caf50' }}></div>
+                    <span style={{ color: '#64748b' }}>Sales</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#9c27b0' }}></div>
@@ -1228,6 +1409,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
                   <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#00bcd4" stopOpacity={0.3}/>
                     <stop offset="95%" stopColor="#00bcd4" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#4caf50" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#4caf50" stopOpacity={0}/>
                   </linearGradient>
                   <linearGradient id="colorTarget" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#9c27b0" stopOpacity={0.2}/>
@@ -1264,11 +1449,19 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
                   fillOpacity={1}
                   fill="url(#colorRevenue)"
                 />
+                <Area
+                  type="monotone"
+                  dataKey="sales"
+                  stroke="#4caf50"
+                  strokeWidth={3}
+                  fillOpacity={1}
+                  fill="url(#colorSales)"
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Recent Transactions */}
+          {/* Enhanced Recent Transactions with Sales */}
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
@@ -1280,14 +1473,20 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
               <Activity size={isMobile ? 18 : 20} color="#00bcd4" style={{ animation: 'pulse 2s infinite' }} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {recentTransactions.length > 0 ? (
-                recentTransactions.map((transaction) => (
+              {/* Mix recent transactions and sales transactions */}
+              {[
+                ...recentTransactions.map((transaction) => transformTransactionForDisplay(transaction, suppliers)),
+                ...recentSalesTransactions.map((salesTransaction) => transformSalesTransactionForDisplay(salesTransaction))
+              ]
+                .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+                .slice(0, 5)
+                .map((transaction) => (
                   <TransactionItem 
                     key={transaction.id} 
-                    transaction={transformTransactionForDisplay(transaction, suppliers)} 
+                    transaction={transaction} 
                   />
-                ))
-              ) : (
+                ))}
+              {recentTransactions.length === 0 && recentSalesTransactions.length === 0 && (
                 <div style={{ 
                   textAlign: 'center', 
                   color: '#64748b', 
@@ -1298,25 +1497,28 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
                 </div>
               )}
             </div>
-            <button style={{
-              width: '100%',
-              marginTop: '1rem',
-              color: '#00bcd4',
-              fontWeight: '600',
-              fontSize: isMobile ? '0.8rem' : '0.875rem',
-              background: 'transparent',
-              border: 'none',
-              padding: '0.5rem',
-              borderRadius: '12px',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(0, 188, 212, 0.05)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-            }}>
+            <button 
+              onClick={handleViewAllTransactions}
+              style={{
+                width: '100%',
+                marginTop: '1rem',
+                color: '#00bcd4',
+                fontWeight: '600',
+                fontSize: isMobile ? '0.8rem' : '0.875rem',
+                background: 'transparent',
+                border: 'none',
+                padding: '0.5rem',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(0, 188, 212, 0.05)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
               View All Transactions →
             </button>
           </div>
@@ -1407,7 +1609,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
             )}
           </div>
 
-          {/* Quick Actions */}
+          {/* Enhanced Quick Actions with Navigation */}
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
@@ -1418,24 +1620,24 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
               Quick Actions
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <QuickActionButton variant="filled" icon={Plus}>
+              <QuickActionButton variant="filled" icon={Plus} onClick={handleNewTransaction}>
                 New Transaction
               </QuickActionButton>
-              <QuickActionButton variant="outline" icon={Users}>
+              <QuickActionButton variant="outline" icon={UserPlus} onClick={handleAddSupplier}>
                 Add Supplier
               </QuickActionButton>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <QuickActionButton variant="ghost" icon={Download}>
+                <QuickActionButton variant="ghost" icon={Download} onClick={handleExport}>
                   Export
                 </QuickActionButton>
-                <QuickActionButton variant="ghost" icon={DollarSign}>
+                <QuickActionButton variant="ghost" icon={DollarSign} onClick={handlePricing}>
                   Pricing
                 </QuickActionButton>
               </div>
             </div>
           </div>
 
-          {/* Top Suppliers */}
+          {/* Enhanced Top Suppliers with Real Database Data */}
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
@@ -1453,7 +1655,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
                 topSuppliers.map((supplier) => (
                   <SupplierRanking 
                     key={supplier.id} 
-                    supplier={transformSupplierForRanking(supplier, recentTransactions)} 
+                    supplier={transformSupplierForRanking(supplier)} 
                   />
                 ))
               ) : (
@@ -1465,7 +1667,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           </div>
         </div>
 
-        {/* Performance Metrics - Mobile Responsive */}
+        {/* Enhanced Performance Metrics with Sales - Mobile Responsive */}
         <div style={{
           ...styles.glassmorphism,
           ...styles.cardShadow,
@@ -1492,7 +1694,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
           </div>
           <div style={{
             display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
+            gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(180px, 1fr))',
             gap: isMobile ? '0.75rem' : '1.5rem'
           }}>
             <PerformanceMetric
@@ -1503,11 +1705,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onRefresh }) => {
               icon={Activity}
             />
             <PerformanceMetric
-              label="Revenue"
+              label="Purchase Revenue"
               value={formatCurrency(performanceMetrics.revenue.value)}
               progress={performanceMetrics.revenue.progress}
               target={`${performanceMetrics.revenue.progress.toFixed(0)}% of daily target`}
               icon={TrendingUp}
+            />
+            <PerformanceMetric
+              label="Sales Revenue"
+              value={formatCurrency(performanceMetrics.sales.value)}
+              progress={performanceMetrics.sales.progress}
+              target={`${performanceMetrics.sales.progress.toFixed(0)}% of daily target`}
+              icon={ShoppingCart}
             />
             <PerformanceMetric
               label="Weight Collected"

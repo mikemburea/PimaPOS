@@ -42,7 +42,7 @@ export const glassmorphismStyle = {
 
 const Header: React.FC<HeaderProps> = ({ 
   activeTab = 'dashboard', 
-  title = 'PimaPOS',
+  title = 'MeruScrap',
   userName = 'Admin User',
   showNotifications = true,
   notificationCount = 0,

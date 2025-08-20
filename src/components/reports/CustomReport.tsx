@@ -1,10 +1,10 @@
-// src/components/reports/CustomReport.tsx - Fixed with proper props interface
+// src/components/reports/CustomReport.tsx - Updated with Sales Transaction Integration
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Calendar, TrendingUp, DollarSign, Package, Users, AlertCircle, Loader2, Filter, Download, RefreshCw, BarChart3 } from 'lucide-react';
+import { Calendar, TrendingUp, DollarSign, Package, Users, AlertCircle, Loader2, Filter, Download, RefreshCw, BarChart3, ArrowUpRight, ArrowDownLeft, X } from 'lucide-react';
 
-// Define interfaces matching your database structure
-interface Transaction {
+// Enhanced interfaces to handle both purchases and sales
+interface PurchaseTransaction {
   id: string;
   supplier_id?: string | null;
   material_type: string;
@@ -30,6 +30,46 @@ interface Transaction {
   updated_at?: string | null;
 }
 
+interface SalesTransaction {
+  id: string;
+  transaction_id: string;
+  supplier_id?: string | null;
+  supplier_name?: string | null;
+  material_id?: number | null;
+  material_name: string;
+  weight_kg: number;
+  price_per_kg: number;
+  total_amount: number;
+  transaction_date: string;
+  notes?: string | null;
+  is_special_price?: boolean | null;
+  original_price?: number | null;
+  payment_method?: string | null;
+  payment_status?: string | null;
+  transaction_type?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+// Unified transaction interface
+interface UnifiedTransaction {
+  id: string;
+  type: 'purchase' | 'sale';
+  customer_name: string;
+  material_type: string;
+  transaction_date: string;
+  total_amount: number;
+  weight_kg: number;
+  price_per_kg: number;
+  payment_method?: string | null;
+  payment_status?: string | null;
+  created_at: string;
+  quality_grade?: string | null;
+  notes?: string | null;
+  transaction_reference: string;
+}
+
 interface Supplier {
   id: string;
   name: string;
@@ -42,76 +82,51 @@ interface Supplier {
   status: string;
   created_at: string;
   updated_at: string;
-  contact_person?: string | null;
-  website?: string | null;
-  notes?: string | null;
-  supplier_tier?: string | null;
-  credit_limit?: number | null;
-  preferred_payment_method?: string | null;
-  total_weight?: number | null;
-  first_transaction_date?: string | null;
-  last_transaction_date?: string | null;
-  average_transaction_value?: number | null;
-  registration_reason?: string | null;
-  registered_date?: string | null;
-  registered_by?: string | null;
 }
 
-// FIXED: Interface to match App.tsx expectations
-interface ReportTransaction {
-  id: string;
-  date: string;
-  material: string;
-  supplierName: string;
-  supplierId: string;
-  totalAmount: number;
-  weight: number;
-  createdAt: string;
-  paymentStatus: string;
-  isWalkin: boolean;
-  walkinName?: string | null;
-}
-
-// FIXED: Updated CustomReportProps to match what App.tsx passes
 interface CustomReportProps {
-  transactions: ReportTransaction[];
+  // Optional props - component will fetch its own data
 }
 
 interface GroupedData {
   key: string;
-  transactions: number;
-  revenue: number;
+  purchases: number;
+  sales: number;
+  purchaseRevenue: number;
+  salesRevenue: number;
+  netProfit: number;
   weight: number;
   materials: Set<string>;
   suppliers: Set<string>;
   avgPrice: number;
   materialCount: number;
   supplierCount: number;
+  margin: number;
 }
 
 // Loading component
 const LoadingSpinner = () => (
-  <div className="flex items-center justify-center py-12">
+  <div className="flex items-center justify-center py-8 sm:py-12">
     <div className="text-center">
-      <Loader2 className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-4" />
-      <p className="text-gray-600">Loading report data...</p>
+      <Loader2 className="animate-spin h-6 w-6 sm:h-8 sm:w-8 text-blue-600 mx-auto mb-2 sm:mb-4" />
+      <p className="text-gray-600 text-sm sm:text-base">Loading report data...</p>
     </div>
   </div>
 );
 
 // Error component
 const ErrorDisplay = ({ error, onRetry }: { error: string; onRetry: () => void }) => (
-  <div className="flex items-center justify-center py-12">
+  <div className="flex items-center justify-center py-8 sm:py-12">
     <div className="text-center">
-      <div className="bg-red-100 border border-red-400 text-red-700 px-6 py-4 rounded-lg max-w-lg">
+      <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 sm:px-6 sm:py-4 rounded-lg max-w-lg">
         <div className="flex items-center justify-center mb-2">
-          <AlertCircle className="w-5 h-5 mr-2" />
-          <p className="font-bold">Error loading report</p>
+          <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+          <p className="font-bold text-sm sm:text-base">Error loading report</p>
         </div>
-        <p className="text-sm mb-4">{error}</p>
+        <p className="text-xs sm:text-sm mb-3 sm:mb-4">{error}</p>
         <button 
           onClick={onRetry}
-          className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors"
+          className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 sm:px-4 rounded transition-colors text-sm"
         >
           Try Again
         </button>
@@ -122,16 +137,16 @@ const ErrorDisplay = ({ error, onRetry }: { error: string; onRetry: () => void }
 
 // Empty state component
 const EmptyState = () => (
-  <div className="text-center py-12">
-    <div className="bg-gray-100 rounded-full p-6 w-24 h-24 mx-auto mb-4">
-      <BarChart3 className="w-12 h-12 text-gray-400 mx-auto" />
+  <div className="text-center py-8 sm:py-12">
+    <div className="bg-gray-100 rounded-full p-4 sm:p-6 w-16 h-16 sm:w-24 sm:h-24 mx-auto mb-3 sm:mb-4">
+      <BarChart3 className="w-8 h-8 sm:w-12 sm:h-12 text-gray-400 mx-auto" />
     </div>
-    <h3 className="text-xl font-semibold text-gray-900 mb-2">No Data Found</h3>
-    <p className="text-gray-600 mb-6">
+    <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">No Data Found</h3>
+    <p className="text-gray-600 mb-4 sm:mb-6 text-sm sm:text-base">
       No transactions match your current filter criteria. Try adjusting your filters or date range.
     </p>
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md mx-auto">
-      <p className="text-sm text-blue-800">
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 max-w-md mx-auto">
+      <p className="text-xs sm:text-sm text-blue-800">
         • Expand your date range<br/>
         • Clear material or supplier filters<br/>
         • Check if data exists for the selected period
@@ -140,9 +155,41 @@ const EmptyState = () => (
   </div>
 );
 
-// FIXED: Updated component to use props from App.tsx
-const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
+// Mobile-first stats card component
+const CustomStatsCard = ({ 
+  title, 
+  value, 
+  subtitle, 
+  icon: Icon, 
+  bgColor, 
+  textColor
+}: { 
+  title: string; 
+  value: string; 
+  subtitle: string; 
+  icon: React.ComponentType<any>; 
+  bgColor: string; 
+  textColor: string;
+}) => (
+  <div className={`${bgColor} p-3 sm:p-4 rounded-lg w-full`}>
+    <div className="flex items-center justify-between">
+      <div className="flex-1 min-w-0">
+        <h3 className={`text-xs sm:text-sm font-medium ${textColor} opacity-80`}>{title}</h3>
+        <p className={`text-lg sm:text-2xl font-bold ${textColor} mt-1 truncate`}>{value}</p>
+        <p className={`text-xs ${textColor} opacity-70 mt-1`}>{subtitle}</p>
+      </div>
+      <div className="ml-2 shrink-0">
+        <Icon size={20} className={`${textColor} sm:w-6 sm:h-6`} />
+      </div>
+    </div>
+  </div>
+);
+
+const CustomReport: React.FC<CustomReportProps> = () => {
+  const [purchaseTransactions, setPurchaseTransactions] = useState<PurchaseTransaction[]>([]);
+  const [salesTransactions, setSalesTransactions] = useState<SalesTransaction[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [availableMaterials, setAvailableMaterials] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -154,15 +201,36 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
   });
   const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]);
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
+  const [selectedTransactionTypes, setSelectedTransactionTypes] = useState<string[]>([]);
   const [groupBy, setGroupBy] = useState<'day' | 'week' | 'month' | 'material' | 'supplier'>('day');
 
-  // Fetch suppliers (we still need this for additional context)
-  const fetchSuppliers = async () => {
+  // Fetch all data from Supabase
+  const fetchReportData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch suppliers from Supabase
+      // Fetch purchase transactions
+      const { data: purchaseData, error: purchaseError } = await supabase
+        .from('transactions')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (purchaseError) {
+        throw new Error(`Error fetching purchase transactions: ${purchaseError.message}`);
+      }
+
+      // Fetch sales transactions
+      const { data: salesData, error: salesError } = await supabase
+        .from('sales_transactions')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (salesError) {
+        throw new Error(`Error fetching sales transactions: ${salesError.message}`);
+      }
+
+      // Fetch suppliers
       const { data: suppliersData, error: suppliersError } = await supabase
         .from('suppliers')
         .select('*')
@@ -172,11 +240,19 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
         throw new Error(`Error fetching suppliers: ${suppliersError.message}`);
       }
 
+      // Extract unique materials from both transaction types
+      const purchaseMaterials = (purchaseData || []).map(t => t.material_type).filter(Boolean);
+      const salesMaterials = (salesData || []).map(t => t.material_name).filter(Boolean);
+      const allMaterials = [...new Set([...purchaseMaterials, ...salesMaterials])].sort();
+
+      setPurchaseTransactions(purchaseData || []);
+      setSalesTransactions(salesData || []);
       setSuppliers(suppliersData || []);
+      setAvailableMaterials(allMaterials);
 
     } catch (err) {
-      console.error('Error fetching suppliers:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred while fetching suppliers');
+      console.error('Error fetching report data:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
     } finally {
       setLoading(false);
     }
@@ -185,40 +261,90 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
   // Refresh data
   const refreshData = async () => {
     setIsRefreshing(true);
-    await fetchSuppliers();
+    await fetchReportData();
     setIsRefreshing(false);
   };
 
-  // Get unique materials and suppliers from prop transactions
-  const materials = [...new Set(transactions.map(t => t.material))].filter(Boolean);
-  const supplierNames = [...new Set(transactions.map(t => t.supplierName))].filter(Boolean);
+  // Helper function to get supplier name
+  const getSupplierName = (transaction: PurchaseTransaction): string => {
+    if (transaction.is_walkin) {
+      return transaction.walkin_name || 'Walk-in Customer';
+    }
+    
+    const supplier = suppliers.find(s => s.id === transaction.supplier_id);
+    return supplier?.name || 'Unknown Supplier';
+  };
 
-  // Filter transactions based on criteria using prop transactions
-  const filteredTransactions = transactions.filter(t => {
-    const transactionDate = new Date(t.date);
+  // Transform data into unified format
+  const unifiedTransactions: UnifiedTransaction[] = [
+    ...purchaseTransactions.map(t => ({
+      id: t.id,
+      type: 'purchase' as const,
+      customer_name: getSupplierName(t),
+      material_type: t.material_type,
+      transaction_date: t.transaction_date,
+      total_amount: t.total_amount || 0,
+      weight_kg: t.weight_kg || 0,
+      price_per_kg: t.unit_price || 0,
+      payment_method: t.payment_method,
+      payment_status: t.payment_status,
+      created_at: t.created_at,
+      quality_grade: t.quality_grade,
+      notes: t.notes,
+      transaction_reference: t.transaction_number || t.id
+    })),
+    ...salesTransactions.map(t => ({
+      id: t.id,
+      type: 'sale' as const,
+      customer_name: t.supplier_name || 'Unknown Customer',
+      material_type: t.material_name,
+      transaction_date: t.transaction_date,
+      total_amount: t.total_amount || 0,
+      weight_kg: t.weight_kg || 0,
+      price_per_kg: t.price_per_kg || 0,
+      payment_method: t.payment_method,
+      payment_status: t.payment_status,
+      created_at: t.created_at,
+      notes: t.notes,
+      transaction_reference: t.transaction_id || t.id
+    }))
+  ];
+
+  // Get unique supplier names from unified transactions
+  const supplierNames = [...new Set(unifiedTransactions.map(t => t.customer_name))].filter(Boolean).sort();
+
+  // Filter transactions based on criteria
+  const filteredTransactions = unifiedTransactions.filter(t => {
+    const transactionDate = new Date(t.transaction_date);
     const startDate = new Date(dateRange.start);
     const endDate = new Date(dateRange.end);
     endDate.setHours(23, 59, 59, 999); // Include entire end date
     
     const dateMatch = transactionDate >= startDate && transactionDate <= endDate;
-    const materialMatch = selectedMaterials.length === 0 || selectedMaterials.includes(t.material);
-    const supplierMatch = selectedSuppliers.length === 0 || selectedSuppliers.includes(t.supplierName);
+    const materialMatch = selectedMaterials.length === 0 || selectedMaterials.includes(t.material_type);
+    const supplierMatch = selectedSuppliers.length === 0 || selectedSuppliers.includes(t.customer_name);
+    const typeMatch = selectedTransactionTypes.length === 0 || selectedTransactionTypes.includes(t.type);
     
-    return dateMatch && materialMatch && supplierMatch;
+    return dateMatch && materialMatch && supplierMatch && typeMatch;
   });
 
-  // Calculate stats from filtered prop transactions
-  const totalRevenue = filteredTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
-  const totalWeight = filteredTransactions.reduce((sum, t) => sum + (t.weight || 0), 0);
-  const avgPricePerKg = totalWeight > 0 ? totalRevenue / totalWeight : 0;
+  // Calculate stats from filtered transactions
+  const purchases = filteredTransactions.filter(t => t.type === 'purchase');
+  const sales = filteredTransactions.filter(t => t.type === 'sale');
+  
+  const purchaseRevenue = purchases.reduce((sum, t) => sum + t.total_amount, 0);
+  const salesRevenue = sales.reduce((sum, t) => sum + t.total_amount, 0);
+  const netProfit = salesRevenue - purchaseRevenue;
+  const totalWeight = filteredTransactions.reduce((sum, t) => sum + t.weight_kg, 0);
+  const avgPricePerKg = totalWeight > 0 ? (purchaseRevenue + salesRevenue) / totalWeight : 0;
 
-  // Group data based on selection using prop transactions
+  // Group data based on selection
   const groupedData = React.useMemo(() => {
     const groups: Record<string, any> = {};
 
     filteredTransactions.forEach(transaction => {
       let key: string;
-      const date = new Date(transaction.date);
+      const date = new Date(transaction.transaction_date);
 
       switch (groupBy) {
         case 'day':
@@ -233,10 +359,10 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
           key = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
           break;
         case 'material':
-          key = transaction.material;
+          key = transaction.material_type;
           break;
         case 'supplier':
-          key = transaction.supplierName;
+          key = transaction.customer_name;
           break;
         default:
           key = 'Unknown';
@@ -244,27 +370,37 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
 
       if (!groups[key]) {
         groups[key] = {
-          transactions: 0,
-          revenue: 0,
+          purchases: 0,
+          sales: 0,
+          purchaseRevenue: 0,
+          salesRevenue: 0,
           weight: 0,
           materials: new Set(),
           suppliers: new Set()
         };
       }
 
-      groups[key].transactions++;
-      groups[key].revenue += transaction.totalAmount || 0;
-      groups[key].weight += transaction.weight || 0;
-      groups[key].materials.add(transaction.material);
-      groups[key].suppliers.add(transaction.supplierName);
+      if (transaction.type === 'purchase') {
+        groups[key].purchases++;
+        groups[key].purchaseRevenue += transaction.total_amount;
+      } else {
+        groups[key].sales++;
+        groups[key].salesRevenue += transaction.total_amount;
+      }
+      
+      groups[key].weight += transaction.weight_kg;
+      groups[key].materials.add(transaction.material_type);
+      groups[key].suppliers.add(transaction.customer_name);
     });
 
     return Object.entries(groups).map(([key, data]) => ({
       key,
       ...data,
-      avgPrice: data.weight > 0 ? data.revenue / data.weight : 0,
+      netProfit: data.salesRevenue - data.purchaseRevenue,
+      avgPrice: data.weight > 0 ? (data.purchaseRevenue + data.salesRevenue) / data.weight : 0,
       materialCount: data.materials.size,
-      supplierCount: data.suppliers.size
+      supplierCount: data.suppliers.size,
+      margin: data.salesRevenue > 0 ? ((data.salesRevenue - data.purchaseRevenue) / data.salesRevenue) * 100 : 0
     }));
   }, [filteredTransactions, groupBy]);
 
@@ -285,10 +421,19 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
     );
   };
 
+  const handleTransactionTypeToggle = (type: string) => {
+    setSelectedTransactionTypes(prev =>
+      prev.includes(type)
+        ? prev.filter(t => t !== type)
+        : [...prev, type]
+    );
+  };
+
   // Clear all filters
   const clearFilters = () => {
     setSelectedMaterials([]);
     setSelectedSuppliers([]);
+    setSelectedTransactionTypes([]);
     setDateRange({
       start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       end: new Date().toISOString().split('T')[0]
@@ -302,10 +447,14 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
       groupBy === 'week' ? 'Week' :
       groupBy === 'month' ? 'Month' :
       groupBy === 'material' ? 'Material' : 'Supplier',
-      'Transactions',
-      'Revenue',
+      'Purchases',
+      'Sales',
+      'Purchase Revenue',
+      'Sales Revenue',
+      'Net Profit',
       'Weight (kg)',
-      'Avg Price/kg'
+      'Avg Price/kg',
+      'Margin %'
     ];
 
     if (groupBy === 'day' || groupBy === 'week' || groupBy === 'month') {
@@ -317,10 +466,14 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
       ...groupedData.map(group => {
         const baseRow = [
           group.key,
-          group.transactions,
-          group.revenue,
+          group.purchases,
+          group.sales,
+          group.purchaseRevenue.toFixed(2),
+          group.salesRevenue.toFixed(2),
+          group.netProfit.toFixed(2),
           group.weight.toFixed(1),
-          group.avgPrice.toFixed(2)
+          group.avgPrice.toFixed(2),
+          group.margin.toFixed(1)
         ];
 
         if (groupBy === 'day' || groupBy === 'week' || groupBy === 'month') {
@@ -343,15 +496,15 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
     document.body.removeChild(a);
   };
 
-  // Load suppliers on component mount
+  // Load data on component mount
   useEffect(() => {
-    fetchSuppliers();
+    fetchReportData();
   }, []);
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="bg-white p-6 rounded-lg shadow-md">
+      <div className="space-y-3 sm:space-y-6">
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
           <LoadingSpinner />
         </div>
       </div>
@@ -360,55 +513,57 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
 
   if (error) {
     return (
-      <div className="space-y-6">
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <ErrorDisplay error={error} onRetry={fetchSuppliers} />
+      <div className="space-y-3 sm:space-y-6">
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
+          <ErrorDisplay error={error} onRetry={fetchReportData} />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-lg shadow-md">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">Custom Report</h2>
+    <div className="space-y-3 sm:space-y-6">
+      <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 sm:mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2 sm:mb-0">Custom Report</h2>
           <div className="flex items-center gap-2">
             <button
               onClick={refreshData}
               disabled={isRefreshing}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 transition-colors"
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              Refresh
+              <span className="hidden sm:inline">Refresh</span>
             </button>
             <button
               onClick={clearFilters}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
             >
               <Filter className="w-4 h-4" />
-              Clear Filters
+              <span className="hidden sm:inline">Clear Filters</span>
             </button>
           </div>
         </div>
 
-        {/* Show data source indicator */}
+        {/* Data source indicator */}
         <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-800">
-            ✓ Using {transactions.length} transactions from current data ({filteredTransactions.length} matching filters)
+          <p className="text-xs sm:text-sm text-blue-800">
+            ✓ Using {purchaseTransactions.length} purchases and {salesTransactions.length} sales ({filteredTransactions.length} matching filters)
           </p>
         </div>
 
-        {/* Filters */}
-        <div className="mb-6 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Filters - Mobile First */}
+        <div className="mb-4 sm:mb-6 space-y-4">
+          {/* Date Range and Group By */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
               <input
                 type="date"
                 value={dateRange.start}
                 onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
               />
             </div>
             <div>
@@ -417,7 +572,7 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
                 type="date"
                 value={dateRange.end}
                 onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
               />
             </div>
             <div>
@@ -425,7 +580,7 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
               <select
                 value={groupBy}
                 onChange={(e) => setGroupBy(e.target.value as any)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
               >
                 <option value="day">Day</option>
                 <option value="week">Week</option>
@@ -436,26 +591,61 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
             </div>
           </div>
 
+          {/* Transaction Types Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Transaction Types ({selectedTransactionTypes.length === 0 ? 'All' : selectedTransactionTypes.length} selected)
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {['purchase', 'sale'].map(type => (
+                <button
+                  key={type}
+                  onClick={() => handleTransactionTypeToggle(type)}
+                  className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                    selectedTransactionTypes.includes(type)
+                      ? type === 'purchase' ? 'bg-blue-600 text-white' : 'bg-green-600 text-white'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  {type === 'purchase' ? (
+                    <span className="flex items-center gap-1">
+                      <ArrowDownLeft size={14} />
+                      Purchase
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1">
+                      <ArrowUpRight size={14} />
+                      Sale
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Materials Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Materials ({selectedMaterials.length === 0 ? 'All' : selectedMaterials.length} selected)
             </label>
-            {materials.length === 0 ? (
-              <p className="text-gray-500 text-sm">No materials found in current data</p>
+            {availableMaterials.length === 0 ? (
+              <p className="text-gray-500 text-sm">No materials found in database</p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {materials.map(material => (
+              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 border border-gray-200 rounded-md">
+                {availableMaterials.map(material => (
                   <button
                     key={material}
                     onClick={() => handleMaterialToggle(material)}
-                    className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                    className={`px-3 py-1 rounded-full text-sm font-medium transition-colors flex items-center gap-1 ${
                       selectedMaterials.includes(material)
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-purple-600 text-white'
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                     }`}
                   >
                     {material}
+                    {selectedMaterials.includes(material) && (
+                      <X size={12} />
+                    )}
                   </button>
                 ))}
               </div>
@@ -465,10 +655,10 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
           {/* Suppliers Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Suppliers ({selectedSuppliers.length === 0 ? 'All' : selectedSuppliers.length} selected)
+              Partners ({selectedSuppliers.length === 0 ? 'All' : selectedSuppliers.length} selected)
             </label>
             {supplierNames.length === 0 ? (
-              <p className="text-gray-500 text-sm">No suppliers found in current data</p>
+              <p className="text-gray-500 text-sm">No partners found in current data</p>
             ) : (
               <div className="max-h-32 overflow-y-auto border border-gray-200 rounded-md p-2">
                 <div className="flex flex-wrap gap-2">
@@ -476,13 +666,16 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
                     <button
                       key={supplier}
                       onClick={() => handleSupplierToggle(supplier)}
-                      className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                      className={`px-3 py-1 rounded-full text-sm font-medium transition-colors flex items-center gap-1 ${
                         selectedSuppliers.includes(supplier)
-                          ? 'bg-green-600 text-white'
+                          ? 'bg-indigo-600 text-white'
                           : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                       }`}
                     >
                       {supplier}
+                      {selectedSuppliers.includes(supplier) && (
+                        <X size={12} />
+                      )}
                     </button>
                   ))}
                 </div>
@@ -491,44 +684,56 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
           </div>
         </div>
 
-        {/* Summary Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-blue-50 p-4 rounded-lg">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-medium text-blue-700">Transactions</h3>
-                <p className="text-2xl font-bold text-blue-900">{filteredTransactions.length}</p>
-              </div>
-              <Package className="text-blue-600" size={24} />
-            </div>
-          </div>
-          <div className="bg-green-50 p-4 rounded-lg">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-medium text-green-700">Total Revenue</h3>
-                <p className="text-2xl font-bold text-green-900">KES {totalRevenue.toLocaleString()}</p>
-              </div>
-              <DollarSign className="text-green-600" size={24} />
-            </div>
-          </div>
-          <div className="bg-purple-50 p-4 rounded-lg">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-medium text-purple-700">Total Weight</h3>
-                <p className="text-2xl font-bold text-purple-900">{totalWeight.toFixed(1)} kg</p>
-              </div>
-              <TrendingUp className="text-purple-600" size={24} />
-            </div>
-          </div>
-          <div className="bg-orange-50 p-4 rounded-lg">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-medium text-orange-700">Avg Price/kg</h3>
-                <p className="text-2xl font-bold text-orange-900">KES {avgPricePerKg.toFixed(2)}</p>
-              </div>
-              <div className="text-orange-600 text-xl">⚖️</div>
-            </div>
-          </div>
+        {/* Summary Stats - Mobile First Grid */}
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-4 mb-4 sm:mb-6">
+          <CustomStatsCard 
+            title="Purchases"
+            value={purchases.length.toString()}
+            subtitle="Transactions"
+            icon={ArrowDownLeft}
+            bgColor="bg-blue-50"
+            textColor="text-blue-900"
+          />
+          <CustomStatsCard 
+            title="Sales"
+            value={sales.length.toString()}
+            subtitle="Transactions"
+            icon={ArrowUpRight}
+            bgColor="bg-green-50"
+            textColor="text-green-900"
+          />
+          <CustomStatsCard 
+            title="Purchase Cost"
+            value={`${(purchaseRevenue / 1000).toFixed(1)}K`}
+            subtitle="KES spent"
+            icon={DollarSign}
+            bgColor="bg-red-50"
+            textColor="text-red-900"
+          />
+          <CustomStatsCard 
+            title="Sales Revenue"
+            value={`${(salesRevenue / 1000).toFixed(1)}K`}
+            subtitle="KES earned"
+            icon={DollarSign}
+            bgColor="bg-green-50"
+            textColor="text-green-900"
+          />
+          <CustomStatsCard 
+            title="Net Profit"
+            value={`${(netProfit / 1000).toFixed(1)}K`}
+            subtitle={netProfit >= 0 ? "Profit" : "Loss"}
+            icon={TrendingUp}
+            bgColor={netProfit >= 0 ? "bg-emerald-50" : "bg-red-50"}
+            textColor={netProfit >= 0 ? "text-emerald-900" : "text-red-900"}
+          />
+          <CustomStatsCard 
+            title="Total Weight"
+            value={`${totalWeight.toFixed(1)}`}
+            subtitle="kg processed"
+            icon={Package}
+            bgColor="bg-purple-50"
+            textColor="text-purple-900"
+          />
         </div>
 
         {/* Results */}
@@ -538,10 +743,20 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
           <>
             {/* Results Table */}
             <div>
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="text-lg font-semibold text-gray-800">Report Results</h3>
-                <div className="text-sm text-gray-600">
-                  {groupedData.length} {groupBy === 'day' ? 'days' : groupBy === 'week' ? 'weeks' : groupBy === 'month' ? 'months' : groupBy === 'material' ? 'materials' : 'suppliers'} found
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-3 gap-2">
+                <h3 className="text-sm sm:text-lg font-semibold text-gray-800">Report Results</h3>
+                <div className="flex items-center gap-4">
+                  <div className="text-xs sm:text-sm text-gray-600">
+                    {groupedData.length} {groupBy === 'day' ? 'days' : groupBy === 'week' ? 'weeks' : groupBy === 'month' ? 'months' : groupBy === 'material' ? 'materials' : 'partners'} found
+                  </div>
+                  <button 
+                    onClick={exportToCSV}
+                    className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
+                  >
+                    <Download size={14} />
+                    <span className="hidden sm:inline">Export CSV</span>
+                    <span className="sm:hidden">Export</span>
+                  </button>
                 </div>
               </div>
               
@@ -549,20 +764,20 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">
                         {groupBy === 'day' ? 'Date' : 
                          groupBy === 'week' ? 'Week' :
                          groupBy === 'month' ? 'Month' :
-                         groupBy === 'material' ? 'Material' : 'Supplier'}
+                         groupBy === 'material' ? 'Material' : 'Partner'}
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transactions</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (kg)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Price/kg</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Purchases</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Sales</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Net Profit</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (kg)</th>
                       {(groupBy === 'day' || groupBy === 'week' || groupBy === 'month') && (
                         <>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Materials</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Suppliers</th>
+                          <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Materials</th>
+                          <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Partners</th>
                         </>
                       )}
                     </tr>
@@ -571,21 +786,42 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
                     {groupedData
                       .sort((a, b) => {
                         if (groupBy === 'material' || groupBy === 'supplier') {
-                          return b.revenue - a.revenue;
+                          return b.netProfit - a.netProfit;
                         }
                         return a.key.localeCompare(b.key);
                       })
                       .map((group, index) => (
                         <tr key={group.key} className={`hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{group.key}</td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{group.transactions}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 font-medium">KES {group.revenue.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{group.weight.toFixed(1)}</td>
-                          <td className="px-4 py-3 text-sm text-gray-600">KES {group.avgPrice.toFixed(2)}</td>
+                          <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-medium text-gray-900">
+                            <div className="max-w-[120px] sm:max-w-none truncate" title={group.key}>
+                              {group.key}
+                            </div>
+                          </td>
+                          <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-600">
+                            <div>
+                              <div>{group.purchases} tx</div>
+                              <div className="text-red-600 font-medium">KES {group.purchaseRevenue.toLocaleString()}</div>
+                            </div>
+                          </td>
+                          <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-600">
+                            <div>
+                              <div>{group.sales} tx</div>
+                              <div className="text-green-600 font-medium">KES {group.salesRevenue.toLocaleString()}</div>
+                            </div>
+                          </td>
+                          <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm">
+                            <div className={`font-medium ${group.netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                              {group.netProfit >= 0 ? '+' : ''}KES {group.netProfit.toLocaleString()}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {group.margin.toFixed(1)}% margin
+                            </div>
+                          </td>
+                          <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-600">{group.weight.toFixed(1)}</td>
                           {(groupBy === 'day' || groupBy === 'week' || groupBy === 'month') && (
                             <>
-                              <td className="px-4 py-3 text-sm text-gray-600">{group.materialCount}</td>
-                              <td className="px-4 py-3 text-sm text-gray-600">{group.supplierCount}</td>
+                              <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-600">{group.materialCount}</td>
+                              <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-600">{group.supplierCount}</td>
                             </>
                           )}
                         </tr>
@@ -593,17 +829,6 @@ const CustomReport: React.FC<CustomReportProps> = ({ transactions }) => {
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            {/* Export Button */}
-            <div className="mt-6 flex justify-end">
-              <button 
-                onClick={exportToCSV}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-              >
-                <Download size={16} />
-                Export Report (CSV)
-              </button>
             </div>
           </>
         )}

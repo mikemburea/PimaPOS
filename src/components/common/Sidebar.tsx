@@ -95,7 +95,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div>
                 <h2 className="text-lg font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  ScrapFlow
+                  Meru Scrap
                 </h2>
                 <p className="text-xs text-slate-400 -mt-1">Smart Scrap Management</p>
               </div>
@@ -222,7 +222,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     <span className="text-xs font-bold text-white">SF</span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">ScrapFlow Pro</p>
+                    <p className="text-sm font-medium text-white truncate">Meru Scrap</p>
                     <p className="text-xs text-slate-400 truncate">v2.1.0</p>
                   </div>
                 </div>
@@ -283,7 +283,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                   <div>
                     <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                      ScrapFlow
+                     Meru Scrap
                     </h2>
                     <p className="text-xs text-slate-400 -mt-1">Smart Scrap Management</p>
                   </div>
@@ -467,10 +467,10 @@ const Sidebar: React.FC<SidebarProps> = ({
             <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
               <div className="flex items-center space-x-3">
                 <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-blue-500 rounded-full flex items-center justify-center">
-                  <span className="text-xs font-bold text-white">SF</span>
+                  <span className="text-xs font-bold text-white">MS</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">ScrapFlow Pro</p>
+                  <p className="text-sm font-medium text-white truncate">Meruscrap</p>
                   <p className="text-xs text-slate-400 truncate">v2.1.0</p>
                 </div>
               </div>
