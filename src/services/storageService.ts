@@ -1,4 +1,4 @@
-// src/services/storageService.ts - Extended version maintaining backward compatibility
+// src/services/storageService.ts - Fixed version with proper bucket creation
 import { supabase } from '../lib/supabase';
 
 export interface UploadResult {
@@ -80,28 +80,31 @@ export class StorageService {
   // ===== NEW METHODS FOR TRANSACTION PHOTOS =====
 
   /**
-   * Initialize transaction photos bucket if it doesn't exist
+   * Initialize transaction photos bucket - SIMPLIFIED VERSION
+   * This will attempt to create the bucket, but won't fail if it already exists
    */
   static async initializeTransactionPhotosBucket(): Promise<void> {
     try {
-      const { data: existingBucket, error: listError } = await supabase.storage.getBucket(this.TRANSACTION_PHOTOS_BUCKET);
+      // Try to create the bucket
+      const { data, error } = await supabase.storage.createBucket(this.TRANSACTION_PHOTOS_BUCKET, {
+        public: true,
+        allowedMimeTypes: this.ALLOWED_IMAGE_TYPES,
+        fileSizeLimit: this.MAX_FILE_SIZE
+      });
       
-      if (listError && listError.message.includes('not found')) {
-        // Create bucket if it doesn't exist
-        const { error: createError } = await supabase.storage.createBucket(this.TRANSACTION_PHOTOS_BUCKET, {
-          public: true, // Make public for easy access
-          allowedMimeTypes: this.ALLOWED_IMAGE_TYPES,
-          fileSizeLimit: this.MAX_FILE_SIZE
-        });
-        
-        if (createError) {
-          console.error(`Error creating transaction photos bucket:`, createError);
+      if (error) {
+        // If bucket already exists, that's fine
+        if (error.message.includes('already exists')) {
+          console.log(`Bucket ${this.TRANSACTION_PHOTOS_BUCKET} already exists`);
         } else {
-          console.log(`Successfully created transaction photos bucket`);
+          console.warn(`Could not create bucket: ${error.message}`);
         }
+      } else {
+        console.log(`Successfully created bucket: ${this.TRANSACTION_PHOTOS_BUCKET}`);
       }
     } catch (error) {
-      console.error('Error initializing transaction photos bucket:', error);
+      console.warn('Error initializing transaction photos bucket:', error);
+      // Don't throw - the app should still work even if bucket creation fails
     }
   }
 
@@ -131,6 +134,12 @@ export class StorageService {
         });
 
       if (error) {
+        // If bucket doesn't exist, try to use the main bucket as fallback
+        if (error.message.includes('not found')) {
+          console.warn('Transaction photos bucket not found, using main bucket as fallback');
+          const fallbackPath = `transaction-photos/${path}`;
+          return await this.uploadToMainBucket(file, fallbackPath, transactionId);
+        }
         throw new Error(`Photo upload failed: ${error.message}`);
       }
 
@@ -150,6 +159,35 @@ export class StorageService {
   }
 
   /**
+   * Fallback method to upload to main bucket if transaction photos bucket is not available
+   */
+  private static async uploadToMainBucket(
+    file: File, 
+    path: string, 
+    transactionId: string
+  ): Promise<UploadResult> {
+    const { data, error } = await supabase.storage
+      .from(this.BUCKET_NAME)
+      .upload(path, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+
+    if (error) {
+      throw new Error(`Fallback upload failed: ${error.message}`);
+    }
+
+    const url = this.getFileUrl(data.path);
+
+    return {
+      path: data.path,
+      url,
+      filename: file.name,
+      size: file.size
+    };
+  }
+
+  /**
    * Get public URL for transaction photo
    */
   static getTransactionPhotoUrl(path: string): string {
@@ -163,11 +201,23 @@ export class StorageService {
    * Delete transaction photo
    */
   static async deleteTransactionPhoto(path: string): Promise<void> {
-    const { error } = await supabase.storage
+    // Try transaction photos bucket first
+    let { error } = await supabase.storage
       .from(this.TRANSACTION_PHOTOS_BUCKET)
       .remove([path]);
 
-    if (error) {
+    if (error && error.message.includes('not found')) {
+      // Fallback to main bucket
+      const fallbackPath = `transaction-photos/${path}`;
+      const { error: fallbackError } = await supabase.storage
+        .from(this.BUCKET_NAME)
+        .remove([fallbackPath]);
+      
+      if (fallbackError) {
+        console.error('Error deleting transaction photo from main bucket:', fallbackError);
+        throw fallbackError;
+      }
+    } else if (error) {
       console.error('Error deleting transaction photo:', error);
       throw error;
     }
@@ -177,9 +227,23 @@ export class StorageService {
    * List all photos for a specific transaction
    */
   static async listTransactionPhotos(transactionId: string) {
+    // Try transaction photos bucket first
     const { data, error } = await supabase.storage
       .from(this.TRANSACTION_PHOTOS_BUCKET)
       .list(`transactions/${transactionId}`);
+
+    if (error && error.message.includes('not found')) {
+      // Fallback to main bucket
+      const { data: fallbackData, error: fallbackError } = await supabase.storage
+        .from(this.BUCKET_NAME)
+        .list(`transaction-photos/transactions/${transactionId}`);
+
+      if (fallbackError) {
+        console.error('Error listing transaction photos from main bucket:', fallbackError);
+        return [];
+      }
+      return fallbackData || [];
+    }
 
     if (error) {
       console.error('Error listing transaction photos:', error);
@@ -199,15 +263,24 @@ export class StorageService {
       
       if (photos.length === 0) return;
 
-      // Create paths array
+      // Try to delete from transaction photos bucket first
       const paths = photos.map(photo => `transactions/${transactionId}/${photo.name}`);
 
-      // Delete all files
       const { error } = await supabase.storage
         .from(this.TRANSACTION_PHOTOS_BUCKET)
         .remove(paths);
 
-      if (error) {
+      if (error && error.message.includes('not found')) {
+        // Fallback to main bucket
+        const fallbackPaths = photos.map(photo => `transaction-photos/transactions/${transactionId}/${photo.name}`);
+        const { error: fallbackError } = await supabase.storage
+          .from(this.BUCKET_NAME)
+          .remove(fallbackPaths);
+
+        if (fallbackError) {
+          throw fallbackError;
+        }
+      } else if (error) {
         throw error;
       }
 
@@ -310,14 +383,26 @@ export class StorageService {
     transactionPhotos: { count: number };
   }> {
     try {
-      const [supplierFiles, transactionFiles] = await Promise.all([
-        this.listFiles(), // Your original method
-        supabase.storage.from(this.TRANSACTION_PHOTOS_BUCKET).list()
-      ]);
+      const supplierFiles = await this.listFiles();
+      
+      // Try to get transaction photos count
+      let transactionCount = 0;
+      try {
+        const { data: transactionFiles } = await supabase.storage
+          .from(this.TRANSACTION_PHOTOS_BUCKET)
+          .list();
+        transactionCount = transactionFiles?.length || 0;
+      } catch {
+        // If transaction photos bucket doesn't exist, count from main bucket
+        const { data: fallbackFiles } = await supabase.storage
+          .from(this.BUCKET_NAME)
+          .list('transaction-photos');
+        transactionCount = fallbackFiles?.length || 0;
+      }
 
       return {
         supplierDocuments: { count: supplierFiles?.length || 0 },
-        transactionPhotos: { count: transactionFiles.data?.length || 0 }
+        transactionPhotos: { count: transactionCount }
       };
     } catch (error) {
       console.error('Error getting storage stats:', error);
@@ -330,4 +415,5 @@ export class StorageService {
 }
 
 // Initialize the transaction photos bucket when the service loads
+// This will run but won't break if it fails
 StorageService.initializeTransactionPhotosBucket();

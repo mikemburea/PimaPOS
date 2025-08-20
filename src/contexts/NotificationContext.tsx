@@ -1,17 +1,42 @@
-// src/contexts/NotificationContext.tsx - Enhanced with persistence and cross-session sync
+// src/contexts/NotificationContext.tsx - Fixed photo fetching and transaction type consistency
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
-// Types (keeping existing interfaces)
+// FIXED: Consistent transaction interface - using uppercase for transaction_type
 interface Transaction {
   id: string;
-  transaction_type: 'purchase' | 'sale';
+  transaction_type: 'Purchase' | 'Sale'; // FIXED: Consistent with App.tsx
   supplier_id?: string | null;
   material_type: string;
   transaction_date: string;
   total_amount: number;
   created_at: string;
   // ... other fields as before
+  transaction_number?: string | null;
+  is_walkin?: boolean;
+  walkin_name?: string | null;
+  walkin_phone?: string | null;
+  material_category?: string | null;
+  weight_kg?: number | null;
+  unit_price?: number | null;
+  payment_method?: string | null;
+  payment_status?: string | null;
+  payment_reference?: string | null;
+  quality_grade?: string | null;
+  deductions?: number | null;
+  final_amount?: number | null;
+  receipt_number?: string | null;
+  notes?: string | null;
+  created_by?: string | null;
+  updated_at?: string | null;
+  supplier_name?: string | null;
+  // Sales-specific fields
+  transaction_id?: string;
+  material_id?: number | null;
+  material_name?: string;
+  price_per_kg?: number | null;
+  is_special_price?: boolean;
+  original_price?: number | null;
 }
 
 interface TransactionPhoto {
@@ -45,7 +70,7 @@ interface Supplier {
 
 // Enhanced notification data with persistence info
 export interface NotificationData {
-  id: string; // This will be the notification_states.id from database
+  id: string;
   transaction: Transaction;
   suppliers: Supplier[];
   photos: TransactionPhoto[];
@@ -123,7 +148,7 @@ export const useNotifications = () => {
 interface NotificationProviderProps {
   children: ReactNode;
   suppliers: Supplier[];
-  userIdentifier?: string; // Device ID, user ID, or browser fingerprint
+  userIdentifier?: string;
 }
 
 export const NotificationProvider: React.FC<NotificationProviderProps> = ({ 
@@ -174,7 +199,6 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
 
       if (error) {
         console.error('Failed to initialize session:', error);
-        // Continue with fallback session info
       }
 
       const session: SessionInfo = {
@@ -187,7 +211,6 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       return session;
     } catch (error) {
       console.error('Error initializing session:', error);
-      // Return fallback session
       return {
         sessionId: generateSessionId(),
         userIdentifier,
@@ -213,9 +236,9 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     }
   }, [sessionInfo?.sessionId]);
 
-  // Enhanced photo fetching
-  const fetchTransactionPhotos = async (transactionId: string): Promise<TransactionPhoto[]> => {
-    console.log(`[NotificationContext] Fetching photos for transaction: ${transactionId}`);
+  // FIXED: Enhanced photo fetching with better error handling and retry logic
+  const fetchTransactionPhotos = async (transactionId: string, retryCount = 0): Promise<TransactionPhoto[]> => {
+    console.log(`[NotificationContext] Fetching photos for transaction: ${transactionId} (attempt ${retryCount + 1})`);
     
     try {
       const { data, error } = await supabase
@@ -226,18 +249,56 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
 
       if (error) {
         console.error('[NotificationContext] Error fetching transaction photos:', error);
+        
+        // FIXED: Retry logic for photo fetching
+        if (retryCount < 3) {
+          console.log(`[NotificationContext] Retrying photo fetch for transaction ${transactionId} in ${(retryCount + 1) * 2} seconds...`);
+          await new Promise(resolve => setTimeout(resolve, (retryCount + 1) * 2000)); // Wait 2s, 4s, 6s
+          return fetchTransactionPhotos(transactionId, retryCount + 1);
+        }
+        
         return [];
       }
 
-      console.log(`[NotificationContext] Fetched ${data?.length || 0} photos for transaction ${transactionId}`);
-      return data || [];
+      const photos = data || [];
+      console.log(`[NotificationContext] Successfully fetched ${photos.length} photos for transaction ${transactionId}`);
+      
+      // FIXED: If no photos found but this is a recent transaction, retry a few times
+      if (photos.length === 0 && retryCount < 3) {
+        console.log(`[NotificationContext] No photos found yet for transaction ${transactionId}, retrying in ${(retryCount + 1) * 2} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, (retryCount + 1) * 2000));
+        return fetchTransactionPhotos(transactionId, retryCount + 1);
+      }
+      
+      // FIXED: Validate photo data
+      const validPhotos = photos.filter(photo => {
+        const isValid = photo.file_path && photo.file_name;
+        if (!isValid) {
+          console.warn(`[NotificationContext] Invalid photo data for photo ${photo.id}:`, photo);
+        }
+        return isValid;
+      });
+
+      if (validPhotos.length !== photos.length) {
+        console.warn(`[NotificationContext] Filtered out ${photos.length - validPhotos.length} invalid photos`);
+      }
+
+      return validPhotos;
     } catch (error) {
       console.error('[NotificationContext] Unexpected error fetching transaction photos:', error);
+      
+      // FIXED: Retry on unexpected errors
+      if (retryCount < 3) {
+        console.log(`[NotificationContext] Retrying photo fetch after unexpected error for transaction ${transactionId} in ${(retryCount + 1) * 2} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, (retryCount + 1) * 2000));
+        return fetchTransactionPhotos(transactionId, retryCount + 1);
+      }
+      
       return [];
     }
   };
 
-  // Load notifications from database
+  // FIXED: Enhanced load notifications with better photo handling
   const loadNotificationsFromDB = async (): Promise<NotificationData[]> => {
     try {
       console.log('[NotificationContext] Loading notifications from database...');
@@ -245,7 +306,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       const { data: notificationStates, error } = await supabase
         .from('notification_states')
         .select('*')
-        .eq('is_dismissed', false) // Only load non-dismissed notifications
+        .eq('is_dismissed', false)
         .order('created_at', { ascending: true });
 
       if (error) {
@@ -267,13 +328,19 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         try {
           const notificationData = state.notification_data;
           
-          // Fetch photos for this transaction
-          const photos = await fetchTransactionPhotos(state.transaction_id);
+          // FIXED: Only fetch photos for purchase transactions
+          let photos: TransactionPhoto[] = [];
+          if (state.transaction_table === 'transactions') {
+            console.log(`[NotificationContext] Fetching photos for purchase transaction ${state.transaction_id}`);
+            photos = await fetchTransactionPhotos(state.transaction_id);
+          } else {
+            console.log(`[NotificationContext] Skipping photo fetch for sales transaction ${state.transaction_id}`);
+          }
           
           const notification: NotificationData = {
             id: state.id,
             transaction: notificationData.transaction,
-            suppliers: suppliers, // Use current suppliers
+            suppliers: suppliers,
             photos: photos,
             eventType: state.event_type as 'INSERT' | 'UPDATE' | 'DELETE',
             isHandled: state.is_handled,
@@ -299,7 +366,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     }
   };
 
-  // Save notification to database
+  // FIXED: Enhanced save notification with proper transaction table detection
   const saveNotificationToDB = async (notification: NotificationData): Promise<string | null> => {
     try {
       console.log('[NotificationContext] Saving notification to database:', notification.transaction.id);
@@ -308,8 +375,8 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       const hoursToExpiry = notification.eventType === 'DELETE' ? 1 : 24;
       const expiresAt = new Date(Date.now() + hoursToExpiry * 60 * 60 * 1000).toISOString();
       
-      // Determine correct table name based on transaction type
-      const transactionTable = notification.transaction.transaction_type === 'purchase' ? 'transactions' : 'sales_transactions';
+      // FIXED: Determine correct table name based on transaction type
+      const transactionTable = notification.transaction.transaction_type === 'Purchase' ? 'transactions' : 'sales_transactions';
       
       const { data, error } = await supabase
         .from('notification_states')
@@ -387,28 +454,35 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     }
   }, [isNotificationVisible]);
 
-  // Add notification (enhanced for persistence)
+  // FIXED: Enhanced add notification with better photo handling
   const addNotification = async (notification: Omit<NotificationData, 'id' | 'timestamp' | 'isHandled' | 'isDismissed' | 'photos'>) => {
-    console.log('[NotificationContext] addNotification called for transaction:', notification.transaction.id);
+    console.log('[NotificationContext] addNotification called for transaction:', notification.transaction.id, 'type:', notification.transaction.transaction_type);
     
-    // Fetch photos for this transaction
-    const photos = await fetchTransactionPhotos(notification.transaction.id);
+    // FIXED: Only fetch photos for purchase transactions
+    let photos: TransactionPhoto[] = [];
+    if (notification.transaction.transaction_type === 'Purchase') {
+      console.log(`[NotificationContext] Fetching photos for purchase transaction ${notification.transaction.id}`);
+      photos = await fetchTransactionPhotos(notification.transaction.id);
+      console.log(`[NotificationContext] Fetched ${photos.length} photos for purchase transaction`);
+    } else {
+      console.log(`[NotificationContext] Skipping photo fetch for sales transaction ${notification.transaction.id}`);
+    }
     
     const newNotification: NotificationData = {
       ...notification,
-      id: `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Temporary ID
+      id: `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       timestamp: new Date().toISOString(),
       isHandled: false,
       isDismissed: false,
       photos,
       priorityLevel: notification.priorityLevel || (notification.eventType === 'INSERT' ? 'HIGH' : 'MEDIUM'),
-      requiresAction: notification.requiresAction !== false // Default to true
+      requiresAction: notification.requiresAction !== false
     };
 
     // Save to database first
     const dbId = await saveNotificationToDB(newNotification);
     if (dbId) {
-      newNotification.id = dbId; // Use actual database ID
+      newNotification.id = dbId;
     }
 
     console.log('[NotificationContext] Adding notification to queue:', {
@@ -439,7 +513,6 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     });
 
     if (success) {
-      // Update local state
       setNotificationQueue(prev => 
         prev.map(n => n.id === notificationId ? { 
           ...n, 
@@ -463,7 +536,6 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     });
 
     if (success) {
-      // Update local state
       setNotificationQueue(prev => 
         prev.filter(n => n.id !== notificationId)
       );
@@ -510,7 +582,6 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
 
     console.log('[NotificationContext] Dismissing current notification');
     
-    // Dismiss in database
     dismissById(currentNotification.id);
     
     setIsNotificationVisible(false);
@@ -524,7 +595,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     }, 300);
   };
 
-  // Navigation methods (unchanged)
+  // Navigation methods
   const navigateToNext = () => {
     if (currentNotificationIndex < notificationQueue.length - 1) {
       console.log('[NotificationContext] Navigating to next notification');
@@ -565,11 +636,11 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     return notificationQueue.filter(n => !n.isHandled && !n.isDismissed).length;
   };
 
-  // Convert transaction types
+  // FIXED: Convert transaction types consistently
   const convertPurchaseTransaction = (purchaseData: any): Transaction => {
     return {
       ...purchaseData,
-      transaction_type: 'purchase' as const,
+      transaction_type: 'Purchase' as const, // FIXED: Use uppercase
       material_type: purchaseData.material_type
     };
   };
@@ -577,13 +648,13 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
   const convertSalesTransaction = (salesData: any): Transaction => {
     return {
       ...salesData,
-      transaction_type: 'sale' as const,
+      transaction_type: 'Sale' as const, // FIXED: Use uppercase
       material_type: salesData.material_name,
       material_name: salesData.material_name
     };
   };
 
-  // Enhanced validation functions based on actual database schema
+  // Enhanced validation functions
   const isValidPurchaseTransaction = (obj: any): boolean => {
     return obj && 
            typeof obj === 'object' && 
@@ -614,10 +685,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     const initializeProvider = async () => {
       console.log('[NotificationContext] Initializing notification provider...');
       
-      // Initialize session
       const session = await initializeSession();
-      
-      // Load existing notifications from database
       await refreshNotifications();
       
       setIsInitialized(true);
@@ -627,7 +695,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     initializeProvider();
   }, [initializeSession, refreshNotifications]);
 
-  // Setup real-time subscriptions for new transactions
+  // FIXED: Enhanced real-time subscriptions with better photo handling
   useEffect(() => {
     if (!isInitialized) return;
 
@@ -661,7 +729,12 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
             const transaction = convertPurchaseTransaction(transactionData);
             console.log('[NotificationContext] Processing purchase transaction:', transaction.id);
             
-            // Add notification with photos
+            // FIXED: Add delay for INSERT events to allow photos to be uploaded first
+            if (payload.eventType === 'INSERT') {
+              console.log('[NotificationContext] Waiting 8 seconds for photos to be uploaded...');
+              await new Promise(resolve => setTimeout(resolve, 8000));
+            }
+            
             try {
               await addNotification({
                 transaction,
@@ -708,7 +781,6 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
             const transaction = convertSalesTransaction(transactionData);
             console.log('[NotificationContext] Processing sales transaction:', transaction.id);
             
-            // Add notification with photos
             try {
               await addNotification({
                 transaction,
@@ -727,7 +799,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         console.log('[NotificationContext] Sales subscription status:', status);
       });
 
-    // Subscription for notification_states changes (cross-session sync)
+    // Subscription for notification_states changes
     const notificationStatesChannel = supabase
       .channel('notification-states-channel')
       .on(
@@ -741,7 +813,6 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
           const updatedState = payload.new;
           console.log('[NotificationContext] Notification state updated by another session:', updatedState.id);
           
-          // Update local state if the change was made by another session
           if (updatedState.handled_session !== sessionInfo?.sessionId) {
             setNotificationQueue(prev => 
               prev.map(n => n.id === updatedState.id ? {
@@ -750,7 +821,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
                 isDismissed: updatedState.is_dismissed,
                 handledAt: updatedState.handled_at || undefined,
                 handledBy: updatedState.handled_by || undefined
-              } : n).filter(n => !n.isDismissed) // Remove dismissed notifications
+              } : n).filter(n => !n.isDismissed)
             );
           }
         }
@@ -771,41 +842,39 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
   useEffect(() => {
     if (!sessionInfo) return;
 
-    const heartbeatInterval = setInterval(updateSessionHeartbeat, 30000); // Every 30 seconds
+    const heartbeatInterval = setInterval(updateSessionHeartbeat, 30000);
     
     return () => {
       clearInterval(heartbeatInterval);
     };
   }, [sessionInfo, updateSessionHeartbeat]);
 
- // Fixed cleanup effect - replace the existing useEffect at the end of the file
-
-// Cleanup on unmount
-useEffect(() => {
-  return () => {
-    if (sessionInfo?.sessionId) {
-      // Mark session as inactive
-      const markInactive = async () => {
-        try {
-          const { error } = await supabase
-            .from('user_sessions')
-            .update({ is_active: false })
-            .eq('session_id', sessionInfo.sessionId);
-          
-          if (error) {
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (sessionInfo?.sessionId) {
+        const markInactive = async () => {
+          try {
+            const { error } = await supabase
+              .from('user_sessions')
+              .update({ is_active: false })
+              .eq('session_id', sessionInfo.sessionId);
+            
+            if (error) {
+              console.error('Error marking session as inactive:', error);
+            } else {
+              console.log('[NotificationContext] Session marked as inactive on cleanup');
+            }
+          } catch (error) {
             console.error('Error marking session as inactive:', error);
-          } else {
-            console.log('[NotificationContext] Session marked as inactive on cleanup');
           }
-        } catch (error) {
-          console.error('Error marking session as inactive:', error);
-        }
-      };
-      
-      markInactive();
-    }
-  };
-}, [sessionInfo?.sessionId]);
+        };
+        
+        markInactive();
+      }
+    };
+  }, [sessionInfo?.sessionId]);
+
   const value: NotificationContextType = {
     notificationQueue,
     currentNotificationIndex,

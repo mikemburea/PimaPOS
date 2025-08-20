@@ -1,14 +1,14 @@
-// src/components/dashboard/TransactionNotification.tsx - Fixed TypeScript Interface
+// src/components/dashboard/TransactionNotification.tsx - Fixed photo display and transaction types
 import React, { useEffect, useState } from 'react';
 import { X, DollarSign, Package, User, Calendar, Camera, ChevronLeft, ChevronRight, Download, Eye, Loader2, TrendingUp, ShoppingCart } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
-// Unified Transaction interface for both purchase and sales transactions
+// FIXED: Consistent Transaction interface matching NotificationContext
 interface Transaction {
   id: string;
-  transaction_type: 'purchase' | 'sale';
+  transaction_type: 'Purchase' | 'Sale'; // FIXED: Uppercase to match NotificationContext
   supplier_id?: string | null;
-  material_type: string; // Unified field
+  material_type: string;
   transaction_date: string;
   total_amount: number;
   created_at: string;
@@ -31,15 +31,15 @@ interface Transaction {
   notes?: string | null;
   created_by?: string | null;
   updated_at?: string | null;
+  supplier_name?: string | null;
   
   // Sales-specific fields
-  transaction_id?: string; // For sales transactions
+  transaction_id?: string;
   material_id?: number | null;
-  material_name?: string; // For sales transactions
+  material_name?: string;
   price_per_kg?: number | null;
   is_special_price?: boolean;
   original_price?: number | null;
-  supplier_name?: string | null;
 }
 
 interface TransactionPhoto {
@@ -79,7 +79,6 @@ interface NotificationData {
   isHandled?: boolean;
 }
 
-// FIXED: Complete TransactionNotificationProps interface with all required props
 interface TransactionNotificationProps {
   transaction: Transaction | null;
   suppliers: Supplier[];
@@ -95,7 +94,7 @@ interface TransactionNotificationProps {
   supabaseUrl?: string;
   supabaseKey?: string;
   
-  // FIXED: All persistence props that App.tsx is passing
+  // Persistence props
   notificationId?: string;
   priorityLevel?: 'HIGH' | 'MEDIUM' | 'LOW';
   handledBy?: string;
@@ -121,7 +120,6 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
   currentQueueIndex = 0,
   supabaseUrl = '',
   supabaseKey = '',
-  // FIXED: Properly destructure all persistence props with defaults
   notificationId = '',
   priorityLevel = 'MEDIUM',
   handledBy = '',
@@ -135,6 +133,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
   const [loadingPhotos, setLoadingPhotos] = useState<Set<string>>(new Set());
   const [loadedPhotos, setLoadedPhotos] = useState<Set<string>>(new Set());
   const [failedPhotos, setFailedPhotos] = useState<Set<string>>(new Set());
+  const [photoRetries, setPhotoRetries] = useState<Map<string, number>>(new Map());
 
   // Reset states when switching between notifications or visibility changes
   useEffect(() => {
@@ -143,6 +142,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     setLoadingPhotos(new Set());
     setLoadedPhotos(new Set());
     setFailedPhotos(new Set());
+    setPhotoRetries(new Map());
     
     if (isVisible && !hasRendered) {
       setHasRendered(true);
@@ -157,17 +157,23 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     return undefined;
   }, [isVisible, currentQueueIndex]);
 
-  // Debug logging for photos and enhanced props
+  // FIXED: Enhanced debug logging
   useEffect(() => {
-    if (transaction && photos) {
+    if (transaction && isVisible) {
       console.log('TransactionNotification - Current state:', {
         transactionId: transaction.id,
         transactionType: transaction.transaction_type,
         photosCount: photos.length,
-        photos: photos,
+        photosData: photos.map(p => ({
+          id: p.id,
+          fileName: p.file_name,
+          filePath: p.file_path,
+          uploadOrder: p.upload_order,
+          isPrimary: p.is_primary,
+          bucket: p.storage_bucket
+        })),
         supabaseUrl: supabaseUrl || import.meta.env.VITE_SUPABASE_URL,
         isVisible: isVisible,
-        // Enhanced props info
         notificationId,
         priorityLevel,
         handledBy,
@@ -181,23 +187,22 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
   // Prevent double rendering
   if (!isVisible || !transaction || !hasRendered) return null;
 
-  // Get customer/supplier name based on transaction type
+  // FIXED: Get customer/supplier name based on transaction type
   const getCustomerSupplierName = () => {
-    if (transaction.transaction_type === 'purchase') {
+    if (transaction.transaction_type === 'Purchase') {
       if (transaction.is_walkin) {
         return transaction.walkin_name || 'Walk-in Customer';
       }
       const supplier = suppliers.find(s => s.id === transaction.supplier_id);
-      return supplier?.name || 'Unknown Supplier';
+      return supplier?.name || transaction.supplier_name || 'Unknown Supplier';
     } else {
       // For sales transactions
       return transaction.supplier_name || 'Unknown Customer';
     }
   };
 
-  // Enhanced priority level calculation using passed prop or fallback
+  // Enhanced priority level calculation
   const getPriorityLevel = () => {
-    // Use passed priorityLevel prop if available, otherwise calculate
     if (priorityLevel && priorityLevel !== 'MEDIUM') return priorityLevel;
     
     if (eventType === 'INSERT') return 'HIGH';
@@ -217,9 +222,9 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     return null;
   };
 
-  // Get transaction type display info
+  // FIXED: Get transaction type display info
   const getTransactionTypeInfo = () => {
-    if (transaction.transaction_type === 'purchase') {
+    if (transaction.transaction_type === 'Purchase') {
       return {
         icon: ShoppingCart,
         color: 'text-blue-600',
@@ -242,21 +247,28 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     }
   };
 
-  // FIXED: Construct Supabase storage URL for photos
+  // FIXED: Enhanced Supabase storage URL construction
   const getPhotoUrl = (photo: TransactionPhoto, thumbnail = false) => {
     if (!photo.file_path) {
       console.warn('No file_path for photo:', photo.id);
       return '';
     }
     
+    console.log(`Getting URL for photo ${photo.id}:`, {
+      filePath: photo.file_path,
+      bucket: photo.storage_bucket,
+      fileName: photo.file_name
+    });
+    
     // Method 1: Use Supabase client to get public URL (recommended)
     try {
+      const bucketName = photo.storage_bucket || 'transaction-photos';
       const { data } = supabase.storage
-        .from(photo.storage_bucket || 'transaction-photos')
+        .from(bucketName)
         .getPublicUrl(photo.file_path);
       
       if (data?.publicUrl) {
-        console.log('Generated photo URL using Supabase client:', data.publicUrl);
+        console.log(`Generated photo URL using Supabase client for ${photo.id}:`, data.publicUrl);
         return data.publicUrl;
       }
     } catch (error) {
@@ -277,11 +289,11 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     // Construct the URL
     const url = `${baseUrl}/storage/v1/object/public/${bucketName}/${cleanPath}`;
     
-    console.log('Fallback photo URL constructed:', url);
+    console.log(`Fallback photo URL constructed for ${photo.id}:`, url);
     return url;
   };
 
-  // Handle photo loading states
+  // FIXED: Enhanced photo loading handlers with retry logic
   const handlePhotoLoad = (photoId: string) => {
     console.log('Photo loaded successfully:', photoId);
     setLoadingPhotos(prev => {
@@ -290,19 +302,50 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
       return newSet;
     });
     setLoadedPhotos(prev => new Set([...prev, photoId]));
+    setFailedPhotos(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(photoId);
+      return newSet;
+    });
   };
 
   const handlePhotoError = (photoId: string) => {
-    console.error('Photo failed to load:', photoId);
+    const currentRetries = photoRetries.get(photoId) || 0;
+    console.error(`Photo failed to load (attempt ${currentRetries + 1}):`, photoId);
+    
     setLoadingPhotos(prev => {
       const newSet = new Set(prev);
       newSet.delete(photoId);
       return newSet;
     });
-    setFailedPhotos(prev => new Set([...prev, photoId]));
+    
+    // FIXED: Retry logic for failed photos
+    if (currentRetries < 2) {
+      setPhotoRetries(prev => new Map([...prev, [photoId, currentRetries + 1]]));
+      console.log(`Retrying photo load for ${photoId} in 2 seconds...`);
+      
+      setTimeout(() => {
+        const photo = sortedPhotos.find(p => p.id === photoId);
+        if (photo) {
+          console.log(`Retrying photo load for ${photoId}...`);
+          setLoadingPhotos(prev => new Set([...prev, photoId]));
+          setFailedPhotos(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(photoId);
+            return newSet;
+          });
+          
+          // Trigger re-render by updating a dummy state
+          setLoadedPhotos(prev => new Set(prev));
+        }
+      }, 2000);
+    } else {
+      setFailedPhotos(prev => new Set([...prev, photoId]));
+    }
   };
 
   const handlePhotoLoadStart = (photoId: string) => {
+    console.log('Photo load started:', photoId);
     setLoadingPhotos(prev => new Set([...prev, photoId]));
   };
 
@@ -314,13 +357,14 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Download photo
+  // FIXED: Enhanced download photo function
   const downloadPhoto = async (photo: TransactionPhoto, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       const url = getPhotoUrl(photo);
       if (!url) {
         console.error('No URL available for download');
+        alert('Unable to download photo - no URL available');
         return;
       }
       
@@ -336,16 +380,16 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
       
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = photo.file_name || `photo-${photo.id}.jpg`;
+      link.download = photo.file_name || `photo-${photo.id}-${Date.now()}.jpg`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
       
-      console.log('Photo downloaded successfully');
+      console.log('Photo downloaded successfully:', photo.file_name);
     } catch (error) {
       console.error('Failed to download photo:', error);
-      alert('Failed to download photo. Check console for details.');
+      alert(`Failed to download photo: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -385,7 +429,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
 
   // Handle skip/dismiss with warning for incomplete transactions
   const handleSkipOrDismiss = () => {
-    const shouldWarn = eventType === 'INSERT' && !isTransactionComplete && transaction.transaction_type === 'purchase';
+    const shouldWarn = eventType === 'INSERT' && !isTransactionComplete && transaction.transaction_type === 'Purchase';
     if (shouldWarn) {
       const confirmSkip = window.confirm(
         '⚠️ WARNING: Payment not marked as complete!\n\n' +
@@ -407,15 +451,17 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     }
   };
 
-  // Sort photos by upload_order or created_at
-  const sortedPhotos = [...photos].sort((a, b) => {
-    if (a.upload_order && b.upload_order) {
-      return a.upload_order - b.upload_order;
-    }
-    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-  });
+  // FIXED: Sort photos by upload_order or created_at, ensuring valid photos only
+  const sortedPhotos = photos
+    .filter(photo => photo && photo.file_path && photo.file_name) // Only include valid photos
+    .sort((a, b) => {
+      if (a.upload_order && b.upload_order) {
+        return a.upload_order - b.upload_order;
+      }
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
 
-  console.log('Rendering notification with sorted photos:', sortedPhotos.length);
+  console.log(`Rendering notification with ${sortedPhotos.length} valid photos out of ${photos.length} total photos`);
 
   return (
     <>
@@ -529,7 +575,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
           {process.env.NODE_ENV === 'development' && notificationId && (
             <div className="px-4 py-1 bg-gray-50 border-b border-gray-200">
               <div className="text-xs text-gray-500 font-mono">
-                ID: {notificationId}
+                ID: {notificationId} | Photos: {sortedPhotos.length}
               </div>
             </div>
           )}
@@ -566,37 +612,37 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
             {/* Transaction Instruction Box */}
             {eventType === 'INSERT' && (
               <div className={`mx-4 mt-3 p-3 border rounded-lg ${
-                transaction.transaction_type === 'purchase' 
+                transaction.transaction_type === 'Purchase' 
                   ? 'bg-green-50/90 border-green-200' 
                   : 'bg-blue-50/90 border-blue-200'
               }`}>
                 <div className="flex items-center gap-2 mb-1">
                   <DollarSign className={`w-4 h-4 ${
-                    transaction.transaction_type === 'purchase' ? 'text-green-600' : 'text-blue-600'
+                    transaction.transaction_type === 'Purchase' ? 'text-green-600' : 'text-blue-600'
                   }`} />
                   <h4 className={`font-semibold text-sm ${
-                    transaction.transaction_type === 'purchase' ? 'text-green-800' : 'text-blue-800'
+                    transaction.transaction_type === 'Purchase' ? 'text-green-800' : 'text-blue-800'
                   }`}>
-                    {transaction.transaction_type === 'purchase' ? '💰 PAYMENT INSTRUCTION' : '💰 SALE CONFIRMATION'}
+                    {transaction.transaction_type === 'Purchase' ? '💰 PAYMENT INSTRUCTION' : '💰 SALE CONFIRMATION'}
                   </h4>
                 </div>
                 <p className={`text-base font-bold ${
-                  transaction.transaction_type === 'purchase' ? 'text-green-800' : 'text-blue-800'
+                  transaction.transaction_type === 'Purchase' ? 'text-green-800' : 'text-blue-800'
                 }`}>
-                  {transaction.transaction_type === 'purchase' 
+                  {transaction.transaction_type === 'Purchase' 
                     ? `Pay customer: KES ${transaction.total_amount.toLocaleString()}`
                     : `Payment received: KES ${transaction.total_amount.toLocaleString()}`
                   }
                 </p>
                 <p className={`text-xs mt-0.5 ${
-                  transaction.transaction_type === 'purchase' ? 'text-green-600' : 'text-blue-600'
+                  transaction.transaction_type === 'Purchase' ? 'text-green-600' : 'text-blue-600'
                 }`}>
-                  {transaction.transaction_type === 'purchase'
+                  {transaction.transaction_type === 'Purchase'
                     ? '⏱️ Then wait for receipt to print before proceeding'
                     : '⏱️ Transaction recorded successfully'
                   }
                 </p>
-                {transaction.transaction_type === 'purchase' && (
+                {transaction.transaction_type === 'Purchase' && (
                   <p className="text-xs text-orange-600 mt-1 font-medium">
                     ⚠️ DO NOT navigate away until payment is complete
                   </p>
@@ -616,20 +662,20 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
 
               {/* Customer/Supplier */}
               <div className={`p-2 rounded-lg ${
-                transaction.transaction_type === 'purchase' ? 'bg-blue-50/90' : 'bg-green-50/90'
+                transaction.transaction_type === 'Purchase' ? 'bg-blue-50/90' : 'bg-green-50/90'
               }`}>
                 <div className="flex items-center gap-1.5 mb-0.5">
                   <User className={`w-3 h-3 ${
-                    transaction.transaction_type === 'purchase' ? 'text-blue-600' : 'text-green-600'
+                    transaction.transaction_type === 'Purchase' ? 'text-blue-600' : 'text-green-600'
                   }`} />
                   <span className={`text-xs ${
-                    transaction.transaction_type === 'purchase' ? 'text-blue-600' : 'text-green-600'
+                    transaction.transaction_type === 'Purchase' ? 'text-blue-600' : 'text-green-600'
                   }`}>
-                    {transaction.transaction_type === 'purchase' ? 'Customer/Supplier' : 'Sold To'}
+                    {transaction.transaction_type === 'Purchase' ? 'Customer/Supplier' : 'Sold To'}
                   </span>
                 </div>
                 <p className="font-semibold text-gray-900 text-sm break-words">{getCustomerSupplierName()}</p>
-                {transaction.transaction_type === 'purchase' && transaction.is_walkin && (
+                {transaction.transaction_type === 'Purchase' && transaction.is_walkin && (
                   <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-orange-100/90 text-orange-700 text-xs font-medium rounded-full">
                     <User className="w-3 h-3" />
                     WALK-IN
@@ -664,21 +710,21 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
 
               {/* Total Amount Highlight */}
               <div className={`p-3 rounded-lg text-center ${
-                transaction.transaction_type === 'purchase' ? 'bg-green-100/90' : 'bg-blue-100/90'
+                transaction.transaction_type === 'Purchase' ? 'bg-green-100/90' : 'bg-blue-100/90'
               }`}>
                 <span className={`text-xs ${
-                  transaction.transaction_type === 'purchase' ? 'text-green-700' : 'text-blue-700'
+                  transaction.transaction_type === 'Purchase' ? 'text-green-700' : 'text-blue-700'
                 }`}>
                   TOTAL AMOUNT
                 </span>
                 <p className={`text-xl font-bold mt-0.5 ${
-                  transaction.transaction_type === 'purchase' ? 'text-green-800' : 'text-blue-800'
+                  transaction.transaction_type === 'Purchase' ? 'text-green-800' : 'text-blue-800'
                 }`}>
                   KES {transaction.total_amount.toLocaleString()}
                 </p>
               </div>
 
-              {/* Transaction Photos Section */}
+              {/* FIXED: Enhanced Transaction Photos Section */}
               <div className="border-t border-gray-200/50 pt-3">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-1.5">
@@ -691,128 +737,154 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                     )}
                   </div>
                   <span className="text-xs text-gray-500">
-                    {sortedPhotos.length > 0 ? 'Click to view' : 'Optional'}
+                    {transaction.transaction_type === 'Purchase' ? 
+                      (sortedPhotos.length > 0 ? 'Click to view' : 'None uploaded') : 
+                      'Not available for sales'
+                    }
                   </span>
                 </div>
 
-                {sortedPhotos.length > 0 ? (
-                  <div className="space-y-2">
-                    {/* Photo Grid */}
-                    <div className="grid grid-cols-2 gap-2">
-                      {sortedPhotos.slice(0, 4).map((photo, index) => {
-                        const photoUrl = getPhotoUrl(photo);
-                        
-                        return (
-                          <div
-                            key={photo.id}
-                            className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:scale-105 transition-transform duration-200"
-                            onClick={() => {
-                              console.log('Opening photo viewer for index:', index);
-                              setSelectedPhotoIndex(index);
-                            }}
-                          >
-                            {/* Loading State */}
-                            {loadingPhotos.has(photo.id) && !loadedPhotos.has(photo.id) && (
-                              <div className="absolute inset-0 flex items-center justify-center bg-gray-200 z-10">
-                                <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
-                              </div>
-                            )}
+                {/* FIXED: Only show photos for Purchase transactions */}
+                {transaction.transaction_type === 'Purchase' ? (
+                  sortedPhotos.length > 0 ? (
+                    <div className="space-y-2">
+                      {/* Photo Grid */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {sortedPhotos.slice(0, 4).map((photo, index) => {
+                          const photoUrl = getPhotoUrl(photo);
+                          const isLoading = loadingPhotos.has(photo.id);
+                          const hasLoaded = loadedPhotos.has(photo.id);
+                          const hasFailed = failedPhotos.has(photo.id);
+                          const retryCount = photoRetries.get(photo.id) || 0;
+                          
+                          return (
+                            <div
+                              key={`${photo.id}-${retryCount}`} // FIXED: Force re-render on retry
+                              className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:scale-105 transition-transform duration-200"
+                              onClick={() => {
+                                console.log('Opening photo viewer for index:', index);
+                                setSelectedPhotoIndex(index);
+                              }}
+                            >
+                              {/* Loading State */}
+                              {isLoading && !hasLoaded && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-gray-200 z-10">
+                                  <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                                </div>
+                              )}
 
-                            {/* Failed State */}
-                            {failedPhotos.has(photo.id) && (
-                              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 z-10">
-                                <Camera className="w-4 h-4 text-gray-400 mb-1" />
-                                <span className="text-xs text-gray-500">Failed to load</span>
-                              </div>
-                            )}
+                              {/* Failed State */}
+                              {hasFailed && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 z-10">
+                                  <Camera className="w-4 h-4 text-gray-400 mb-1" />
+                                  <span className="text-xs text-gray-500 text-center px-1">
+                                    Failed to load
+                                    {retryCount > 0 && (
+                                      <div className="text-xs text-red-500">
+                                        ({retryCount} retries)
+                                      </div>
+                                    )}
+                                  </span>
+                                </div>
+                              )}
 
-                            {/* Photo Image */}
-                            {photoUrl ? (
-                              <img
-                                src={photoUrl}
-                                alt={photo.file_name || `Photo ${index + 1}`}
-                                className={`w-full h-full object-cover ${
-                                  loadingPhotos.has(photo.id) && !loadedPhotos.has(photo.id) ? 'opacity-0' : 'opacity-100'
-                                } transition-opacity duration-200`}
-                                onLoadStart={() => handlePhotoLoadStart(photo.id)}
-                                onLoad={() => handlePhotoLoad(photo.id)}
-                                onError={(e) => {
-                                  console.error(`Failed to load photo ${index + 1}:`, photoUrl);
-                                  handlePhotoError(photo.id);
-                                }}
-                              />
-                            ) : (
-                              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100">
-                                <Camera className="w-4 h-4 text-gray-400 mb-1" />
-                                <span className="text-xs text-gray-500">No URL</span>
-                              </div>
-                            )}
+                              {/* Photo Image */}
+                              {photoUrl && !hasFailed && (
+                                <img
+                                  key={`img-${photo.id}-${retryCount}`} // FIXED: Force image re-render on retry
+                                  src={photoUrl}
+                                  alt={photo.file_name || `Photo ${index + 1}`}
+                                  className={`w-full h-full object-cover ${
+                                    isLoading && !hasLoaded ? 'opacity-0' : 'opacity-100'
+                                  } transition-opacity duration-200`}
+                                  onLoadStart={() => handlePhotoLoadStart(photo.id)}
+                                  onLoad={() => handlePhotoLoad(photo.id)}
+                                  onError={() => handlePhotoError(photo.id)}
+                                />
+                              )}
 
-                            {/* Primary Photo Badge */}
-                            {photo.is_primary && (
-                              <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-blue-600 text-white text-xs font-medium rounded z-20">
-                                Primary
-                              </div>
-                            )}
+                              {/* No URL State */}
+                              {!photoUrl && !hasFailed && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100">
+                                  <Camera className="w-4 h-4 text-gray-400 mb-1" />
+                                  <span className="text-xs text-gray-500">No URL</span>
+                                </div>
+                              )}
 
-                            {/* Photo Actions */}
-                            <div className="absolute top-1 right-1 flex gap-1 opacity-0 hover:opacity-100 transition-opacity z-20">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedPhotoIndex(index);
-                                }}
-                                className="p-1 bg-black/50 hover:bg-black/70 rounded text-white transition-colors"
-                                title="View photo"
-                              >
-                                <Eye className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={(e) => downloadPhoto(photo, e)}
-                                className="p-1 bg-black/50 hover:bg-black/70 rounded text-white transition-colors"
-                                title="Download photo"
-                              >
-                                <Download className="w-3 h-3" />
-                              </button>
+                              {/* Primary Photo Badge */}
+                              {photo.is_primary && (
+                                <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-blue-600 text-white text-xs font-medium rounded z-20">
+                                  Primary
+                                </div>
+                              )}
+
+                              {/* Photo Actions */}
+                              <div className="absolute top-1 right-1 flex gap-1 opacity-0 hover:opacity-100 transition-opacity z-20">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedPhotoIndex(index);
+                                  }}
+                                  className="p-1 bg-black/50 hover:bg-black/70 rounded text-white transition-colors"
+                                  title="View photo"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={(e) => downloadPhoto(photo, e)}
+                                  className="p-1 bg-black/50 hover:bg-black/70 rounded text-white transition-colors"
+                                  title="Download photo"
+                                >
+                                  <Download className="w-3 h-3" />
+                                </button>
+                              </div>
+
+                              {/* Upload Order */}
+                              {photo.upload_order && (
+                                <div className="absolute bottom-1 left-1 px-1 py-0.5 bg-black/50 text-white text-xs rounded z-20">
+                                  #{photo.upload_order}
+                                </div>
+                              )}
                             </div>
-
-                            {/* Upload Order */}
-                            {photo.upload_order && (
-                              <div className="absolute bottom-1 left-1 px-1 py-0.5 bg-black/50 text-white text-xs rounded z-20">
-                                #{photo.upload_order}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Show More Photos Indicator */}
-                    {sortedPhotos.length > 4 && (
-                      <div className="text-center">
-                        <button
-                          onClick={() => setSelectedPhotoIndex(0)}
-                          className="text-xs text-blue-600 hover:text-blue-700 font-medium"
-                        >
-                          +{sortedPhotos.length - 4} more photos
-                        </button>
+                          );
+                        })}
                       </div>
-                    )}
 
-                    {/* Photo Stats */}
-                    <div className="text-xs text-gray-500 text-center">
-                      Total size: {formatFileSize(
-                        sortedPhotos.reduce((total, photo) => 
-                          total + (photo.file_size_bytes || 0), 0
-                        )
+                      {/* Show More Photos Indicator */}
+                      {sortedPhotos.length > 4 && (
+                        <div className="text-center">
+                          <button
+                            onClick={() => setSelectedPhotoIndex(0)}
+                            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                          >
+                            +{sortedPhotos.length - 4} more photos
+                          </button>
+                        </div>
                       )}
+
+                      {/* Photo Stats */}
+                      <div className="text-xs text-gray-500 text-center">
+                        Total size: {formatFileSize(
+                          sortedPhotos.reduce((total, photo) => 
+                            total + (photo.file_size_bytes || 0), 0
+                          )
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex items-center justify-center p-6 bg-gray-50/90 rounded-lg border-2 border-dashed border-gray-200">
+                      <div className="text-center">
+                        <Camera className="w-6 h-6 text-gray-400 mx-auto mb-1.5" />
+                        <p className="text-xs text-gray-500">No photos uploaded</p>
+                        <p className="text-xs text-gray-400 mt-1">Photos can be added during transaction creation</p>
+                      </div>
+                    </div>
+                  )
                 ) : (
                   <div className="flex items-center justify-center p-6 bg-gray-50/90 rounded-lg border-2 border-dashed border-gray-200">
                     <div className="text-center">
                       <Camera className="w-6 h-6 text-gray-400 mx-auto mb-1.5" />
-                      <p className="text-xs text-gray-500">No photos available</p>
+                      <p className="text-xs text-gray-500">Photos not available for sales transactions</p>
                     </div>
                   </div>
                 )}
@@ -862,7 +934,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                   />
                   <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
                     <DollarSign className="w-3.5 h-3.5 text-green-600" />
-                    {transaction.transaction_type === 'purchase' 
+                    {transaction.transaction_type === 'Purchase' 
                       ? 'Payment completed to customer'
                       : 'Sale transaction acknowledged'
                     }
@@ -942,7 +1014,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                     ? hasMoreUnhandled 
                       ? '✓ Mark as Complete & Next' 
                       : '✓ Mark as Complete & Close'
-                    : transaction.transaction_type === 'purchase'
+                    : transaction.transaction_type === 'Purchase'
                       ? '🔒 Complete Payment First'
                       : '🔒 Acknowledge Transaction First'
                   }
@@ -957,12 +1029,12 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                     handleSkipOrDismiss();
                   }}
                   className={`w-full py-2 px-4 rounded-lg font-medium transition-all text-xs ${
-                    eventType === 'INSERT' && !isTransactionComplete && transaction.transaction_type === 'purchase'
+                    eventType === 'INSERT' && !isTransactionComplete && transaction.transaction_type === 'Purchase'
                       ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-800 border border-yellow-300'
                       : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
                   }`}
                 >
-                  {eventType === 'INSERT' && !isTransactionComplete && transaction.transaction_type === 'purchase'
+                  {eventType === 'INSERT' && !isTransactionComplete && transaction.transaction_type === 'Purchase'
                     ? '⚠️ Skip Without Completing (Will Remain Unhandled)' 
                     : 'Close Notification Panel'}
                 </button>
@@ -972,7 +1044,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
         </div>
       </div>
 
-      {/* Photo Modal/Lightbox */}
+      {/* FIXED: Enhanced Photo Modal/Lightbox */}
       {selectedPhotoIndex !== null && sortedPhotos[selectedPhotoIndex] && (
         <div className="fixed inset-0 bg-black/90 z-[10000] flex items-center justify-center p-4">
           <div className="relative max-w-4xl max-h-full w-full h-full flex flex-col">
@@ -985,6 +1057,11 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                 <span className="text-sm text-gray-300">
                   {selectedPhotoIndex + 1} of {sortedPhotos.length}
                 </span>
+                {sortedPhotos[selectedPhotoIndex].is_primary && (
+                  <span className="px-2 py-1 bg-blue-600 text-white text-xs font-medium rounded">
+                    Primary
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -1041,9 +1118,15 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
             {/* Photo Modal Footer */}
             <div className="p-4 text-white text-sm text-center space-y-1">
               <div>Size: {formatFileSize(sortedPhotos[selectedPhotoIndex].file_size_bytes)}</div>
+              {sortedPhotos[selectedPhotoIndex].upload_order && (
+                <div className="text-gray-300">Upload Order: #{sortedPhotos[selectedPhotoIndex].upload_order}</div>
+              )}
               {sortedPhotos[selectedPhotoIndex].notes && (
                 <div className="text-gray-300">Notes: {sortedPhotos[selectedPhotoIndex].notes}</div>
               )}
+              <div className="text-gray-400 text-xs">
+                Uploaded: {new Date(sortedPhotos[selectedPhotoIndex].created_at).toLocaleString()}
+              </div>
             </div>
           </div>
         </div>

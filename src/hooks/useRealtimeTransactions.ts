@@ -1,11 +1,11 @@
-// src/hooks/useRealtimeTransactions.ts - Enhanced for both purchase and sales transactions
+// src/hooks/useRealtimeTransactions.ts - Fixed for consistent transaction types
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-// Unified transaction interface to handle both purchase and sales transactions
+// FIXED: Unified transaction interface to match App.tsx and NotificationContext
 interface Transaction {
   id: string;
-  transaction_type: 'purchase' | 'sale';
+  transaction_type: 'Purchase' | 'Sale'; // FIXED: Uppercase to match other components
   supplier_id?: string | null;
   material_type: string; // Unified field
   transaction_date: string;
@@ -30,6 +30,7 @@ interface Transaction {
   notes?: string | null;
   created_by?: string | null;
   updated_at?: string | null;
+  supplier_name?: string | null;
   
   // Sales-specific fields
   transaction_id?: string; // For sales transactions
@@ -38,7 +39,6 @@ interface Transaction {
   price_per_kg?: number | null;
   is_special_price?: boolean;
   original_price?: number | null;
-  supplier_name?: string | null;
 }
 
 interface UseRealtimeTransactionsReturn {
@@ -52,7 +52,7 @@ interface UseRealtimeTransactionsReturn {
   filterByStatus: (status: string) => Promise<void>;
   filterByDateRange: (startDate: string, endDate: string) => Promise<void>;
   filterByMaterial: (material: string) => Promise<void>;
-  filterByType: (type: 'all' | 'purchase' | 'sale') => Promise<void>;
+  filterByType: (type: 'all' | 'Purchase' | 'Sale') => Promise<void>; // FIXED: Uppercase
   getTodaysTransactions: () => Transaction[];
   getWeeklyTransactions: () => Transaction[];
   getMonthlyTransactions: () => Transaction[];
@@ -65,20 +65,20 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Convert purchase transaction to unified format
+  // FIXED: Convert purchase transaction to unified format with uppercase transaction_type
   const convertPurchaseTransaction = (purchaseData: any): Transaction => {
     return {
       ...purchaseData,
-      transaction_type: 'purchase' as const,
+      transaction_type: 'Purchase' as const, // FIXED: Uppercase
       material_type: purchaseData.material_type
     };
   };
 
-  // Convert sales transaction to unified format
+  // FIXED: Convert sales transaction to unified format with uppercase transaction_type
   const convertSalesTransaction = (salesData: any): Transaction => {
     return {
       ...salesData,
-      transaction_type: 'sale' as const,
+      transaction_type: 'Sale' as const, // FIXED: Uppercase
       material_type: salesData.material_name, // Map material_name to material_type for consistency
       material_name: salesData.material_name
     };
@@ -89,6 +89,8 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
     try {
       setLoading(true);
       setError(null);
+      
+      console.log('[useRealtimeTransactions] Fetching transactions from both tables...');
       
       // Fetch both purchase and sales transactions in parallel
       const [purchaseResult, salesResult] = await Promise.all([
@@ -112,6 +114,8 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
       // Convert and combine transactions
       const purchaseTransactions = (purchaseResult.data || []).map(convertPurchaseTransaction);
       const salesTransactions = (salesResult.data || []).map(convertSalesTransaction);
+      
+      console.log(`[useRealtimeTransactions] Fetched ${purchaseTransactions.length} purchase and ${salesTransactions.length} sales transactions`);
       
       // Combine and sort by created_at
       const allTransactions = [...purchaseTransactions, ...salesTransactions].sort((a, b) => 
@@ -138,12 +142,14 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
         return;
       }
 
+      console.log(`[useRealtimeTransactions] Searching for: "${query}"`);
+
       // Search in both tables
       const [purchaseResult, salesResult] = await Promise.all([
         supabase
           .from('transactions')
           .select('*')
-          .or(`transaction_number.ilike.%${query}%,walkin_name.ilike.%${query}%,material_type.ilike.%${query}%,notes.ilike.%${query}%`)
+          .or(`transaction_number.ilike.%${query}%,walkin_name.ilike.%${query}%,supplier_name.ilike.%${query}%,material_type.ilike.%${query}%,notes.ilike.%${query}%`)
           .order('created_at', { ascending: false }),
         supabase
           .from('sales_transactions')
@@ -167,6 +173,7 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
 
+      console.log(`[useRealtimeTransactions] Search found ${allTransactions.length} transactions`);
       setTransactions(allTransactions);
     } catch (err) {
       console.error('Error searching transactions:', err);
@@ -181,6 +188,8 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
     try {
       setLoading(true);
       setError(null);
+
+      console.log(`[useRealtimeTransactions] Filtering by status: ${status}`);
 
       const [purchaseResult, salesResult] = await Promise.all([
         status === 'all' 
@@ -220,6 +229,8 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
     try {
       setLoading(true);
       setError(null);
+
+      console.log(`[useRealtimeTransactions] Filtering by date range: ${startDate} to ${endDate}`);
 
       const [purchaseResult, salesResult] = await Promise.all([
         supabase
@@ -266,6 +277,8 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
       setLoading(true);
       setError(null);
 
+      console.log(`[useRealtimeTransactions] Filtering by material: ${material}`);
+
       const [purchaseResult, salesResult] = await Promise.all([
         material === 'all'
           ? supabase.from('transactions').select('*').order('created_at', { ascending: false })
@@ -299,18 +312,20 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
     }
   };
 
-  // Filter transactions by type (purchase/sale)
-  const filterByType = async (type: 'all' | 'purchase' | 'sale') => {
+  // FIXED: Filter transactions by type (Purchase/Sale) with uppercase types
+  const filterByType = async (type: 'all' | 'Purchase' | 'Sale') => {
     try {
       setLoading(true);
       setError(null);
+
+      console.log(`[useRealtimeTransactions] Filtering by type: ${type}`);
 
       if (type === 'all') {
         await fetchTransactions();
         return;
       }
 
-      if (type === 'purchase') {
+      if (type === 'Purchase') {
         const { data, error } = await supabase
           .from('transactions')
           .select('*')
@@ -322,7 +337,7 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
 
         const purchaseTransactions = (data || []).map(convertPurchaseTransaction);
         setTransactions(purchaseTransactions);
-      } else if (type === 'sale') {
+      } else if (type === 'Sale') {
         const { data, error } = await supabase
           .from('sales_transactions')
           .select('*')
@@ -376,14 +391,14 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
     });
   };
 
-  // Get purchase transactions only
+  // FIXED: Get purchase transactions only (uppercase)
   const getPurchaseTransactions = (): Transaction[] => {
-    return transactions.filter(tx => tx.transaction_type === 'purchase');
+    return transactions.filter(tx => tx.transaction_type === 'Purchase');
   };
 
-  // Get sales transactions only
+  // FIXED: Get sales transactions only (uppercase)
   const getSalesTransactions = (): Transaction[] => {
-    return transactions.filter(tx => tx.transaction_type === 'sale');
+    return transactions.filter(tx => tx.transaction_type === 'Sale');
   };
 
   // Calculate total revenue
@@ -396,10 +411,12 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
     return transactions.reduce((total, tx) => total + (tx.weight_kg || 0), 0);
   };
 
-  // Set up real-time subscriptions for both tables
+  // FIXED: Set up real-time subscriptions for both tables with consistent transaction types
   useEffect(() => {
     // Initial fetch
     fetchTransactions();
+
+    console.log('[useRealtimeTransactions] Setting up real-time subscriptions...');
 
     // Set up real-time subscription for purchase transactions
     const purchaseChannel = supabase
@@ -448,7 +465,9 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
           );
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[useRealtimeTransactions] Purchase subscription status:', status);
+      });
 
     // Set up real-time subscription for sales transactions
     const salesChannel = supabase
@@ -497,11 +516,13 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
           );
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[useRealtimeTransactions] Sales subscription status:', status);
+      });
 
     // Cleanup subscriptions on unmount
     return () => {
-      console.log('Cleaning up transaction subscriptions');
+      console.log('[useRealtimeTransactions] Cleaning up transaction subscriptions');
       purchaseChannel.unsubscribe();
       salesChannel.unsubscribe();
     };
