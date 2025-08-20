@@ -82,4 +82,4 @@ This project is licensed under the MIT License.
 
 Mike Mburea - [GitHub](https://github.com/mikemburea)
 
-Project Link: [https://github.com/mikemburea/PimaPOS](https://github.com/mikemburea/PimaPOS)
+Project Link: [https://github.com/mikemburea/PimaPOS](https://github.com/mikemburea/PimaPOS)"# Deploy trigger $(date)" 
