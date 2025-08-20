@@ -1,4 +1,4 @@
-// src/components/dashboard/TransactionNotification.tsx - Enhanced for both purchase and sales
+// src/components/dashboard/TransactionNotification.tsx - Fixed TypeScript Interface
 import React, { useEffect, useState } from 'react';
 import { X, DollarSign, Package, User, Calendar, Camera, ChevronLeft, ChevronRight, Download, Eye, Loader2, TrendingUp, ShoppingCart } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
@@ -79,6 +79,7 @@ interface NotificationData {
   isHandled?: boolean;
 }
 
+// FIXED: Complete TransactionNotificationProps interface with all required props
 interface TransactionNotificationProps {
   transaction: Transaction | null;
   suppliers: Supplier[];
@@ -93,6 +94,14 @@ interface TransactionNotificationProps {
   currentQueueIndex?: number;
   supabaseUrl?: string;
   supabaseKey?: string;
+  
+  // FIXED: All persistence props that App.tsx is passing
+  notificationId?: string;
+  priorityLevel?: 'HIGH' | 'MEDIUM' | 'LOW';
+  handledBy?: string;
+  handledAt?: string;
+  expiresAt?: string;
+  requiresAction?: boolean;
 }
 
 // Export for use in App component
@@ -111,7 +120,14 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
   notificationQueue = [],
   currentQueueIndex = 0,
   supabaseUrl = '',
-  supabaseKey = ''
+  supabaseKey = '',
+  // FIXED: Properly destructure all persistence props with defaults
+  notificationId = '',
+  priorityLevel = 'MEDIUM',
+  handledBy = '',
+  handledAt = '',
+  expiresAt = '',
+  requiresAction = true
 }) => {
   const [isTransactionComplete, setIsTransactionComplete] = useState(false);
   const [hasRendered, setHasRendered] = useState(false);
@@ -141,7 +157,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     return undefined;
   }, [isVisible, currentQueueIndex]);
 
-  // Debug logging for photos
+  // Debug logging for photos and enhanced props
   useEffect(() => {
     if (transaction && photos) {
       console.log('TransactionNotification - Current state:', {
@@ -150,10 +166,17 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
         photosCount: photos.length,
         photos: photos,
         supabaseUrl: supabaseUrl || import.meta.env.VITE_SUPABASE_URL,
-        isVisible: isVisible
+        isVisible: isVisible,
+        // Enhanced props info
+        notificationId,
+        priorityLevel,
+        handledBy,
+        handledAt,
+        expiresAt,
+        requiresAction
       });
     }
-  }, [transaction, photos, isVisible]);
+  }, [transaction, photos, isVisible, notificationId, priorityLevel, handledBy, handledAt, expiresAt, requiresAction]);
 
   // Prevent double rendering
   if (!isVisible || !transaction || !hasRendered) return null;
@@ -172,11 +195,26 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     }
   };
 
+  // Enhanced priority level calculation using passed prop or fallback
   const getPriorityLevel = () => {
+    // Use passed priorityLevel prop if available, otherwise calculate
+    if (priorityLevel && priorityLevel !== 'MEDIUM') return priorityLevel;
+    
     if (eventType === 'INSERT') return 'HIGH';
     if (transaction.total_amount > 100000) return 'HIGH';
     if (transaction.total_amount > 50000) return 'MEDIUM';
     return 'LOW';
+  };
+
+  // Check if notification has expired
+  const isExpired = expiresAt ? new Date(expiresAt) < new Date() : false;
+
+  // Format handled info
+  const formatHandledInfo = () => {
+    if (handledBy && handledAt) {
+      return `Handled by ${handledBy} at ${new Date(handledAt).toLocaleString()}`;
+    }
+    return null;
   };
 
   // Get transaction type display info
@@ -486,6 +524,42 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Enhanced notification info display */}
+          {process.env.NODE_ENV === 'development' && notificationId && (
+            <div className="px-4 py-1 bg-gray-50 border-b border-gray-200">
+              <div className="text-xs text-gray-500 font-mono">
+                ID: {notificationId}
+              </div>
+            </div>
+          )}
+
+          {/* Expiry warning */}
+          {isExpired && (
+            <div className="mx-4 mt-3 p-2 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">⚠️ This notification has expired</span>
+              </div>
+            </div>
+          )}
+
+          {/* Handled info */}
+          {formatHandledInfo() && (
+            <div className="mx-4 mt-2 p-2 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+              <div className="text-sm">
+                ✅ {formatHandledInfo()}
+              </div>
+            </div>
+          )}
+
+          {/* Action requirement indicator */}
+          {requiresAction && eventType === 'INSERT' && (
+            <div className="mx-4 mt-2 p-2 bg-orange-50 border border-orange-200 text-orange-700 rounded-lg">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🔔 This notification requires your attention</span>
+              </div>
+            </div>
+          )}
 
           {/* Scrollable Content Area */}
           <div className="flex-1 overflow-y-auto">
