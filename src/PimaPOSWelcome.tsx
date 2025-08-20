@@ -142,10 +142,10 @@ const PimaPOSWelcome: React.FC = () => {
               <div>
                 <h1 className="text-4xl sm:text-5xl font-black">
                   <span className="bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 bg-clip-text text-transparent">
-                    Pima
+                    Meru
                   </span>
                   <span className="bg-gradient-to-r from-purple-600 via-pink-500 to-orange-500 bg-clip-text text-transparent">
-                    POS
+                    Scrap
                   </span>
                 </h1>
               </div>
@@ -297,7 +297,7 @@ const PimaPOSWelcome: React.FC = () => {
           {/* Mobile Form Toggle - Clean Design */}
           <div className="mt-8 text-center">
             <p className="text-gray-600 text-base">
-              {isLogin ? "New to PimaPOS?" : "Already have an account?"}
+              {isLogin ? "New to MeruScrap?" : "Already have an account?"}
             </p>
             <button
               onClick={toggleForm}
@@ -310,7 +310,7 @@ const PimaPOSWelcome: React.FC = () => {
           {/* Mobile Footer - Professional */}
           <div className="mt-10 pt-8 border-t border-gray-200 text-center">
             <p className="text-sm text-gray-500">
-              © 2025 PimaPOS • Powered by <span className="font-semibold text-blue-600">Nesis</span>
+              © 2025 MeruScrap • Powered by <span className="font-semibold text-blue-600">Nesis</span>
             </p>
           </div>
         </div>
@@ -344,10 +344,10 @@ const PimaPOSWelcome: React.FC = () => {
                 <div className="text-left">
                   <h1 className="text-7xl xl:text-8xl font-black mb-3">
                     <span className="bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 bg-clip-text text-transparent">
-                      Pima
+                      Meru
                     </span>
                     <span className="bg-gradient-to-r from-purple-600 via-pink-500 to-orange-500 bg-clip-text text-transparent">
-                      POS
+                      Scrap
                     </span>
                   </h1>
                   <p className="text-3xl text-transparent bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text font-bold">
@@ -407,10 +407,10 @@ const PimaPOSWelcome: React.FC = () => {
                 ))}
               </div>
               <p className="text-lg text-gray-800 italic mb-5 leading-relaxed text-center font-medium">
-                "PimaPOS transformed our operations completely. The efficiency gains are remarkable."
+                "MeruScrap transformed our operations completely. The efficiency gains are remarkable."
               </p>
               <div className="text-center text-base text-gray-600 space-y-1">
-                <p>© 2025 PimaPOS. All rights reserved.</p>
+                <p>© 2025 MeruScrap. All rights reserved.</p>
                 <p>Powered by <span className="font-bold text-blue-600">Nesis</span></p>
               </div>
             </div>
@@ -574,7 +574,7 @@ const PimaPOSWelcome: React.FC = () => {
                 </div>
                 <div className="relative flex justify-center">
                   <span className="px-4 bg-white text-gray-600 text-lg">
-                    {isLogin ? "New to PimaPOS?" : "Already have an account?"}
+                    {isLogin ? "New to MeruScrap?" : "Already have an account?"}
                   </span>
                 </div>
               </div>
