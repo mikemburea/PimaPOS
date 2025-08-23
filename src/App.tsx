@@ -1,4 +1,4 @@
-// App.tsx - Complete Updated Version with Enhanced Persistent Notification System
+// App.tsx - UPDATED: Production ready with enhanced bell notification system
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { Menu, X, AlertTriangle, RefreshCw, Wifi, WifiOff } from 'lucide-react';
@@ -8,12 +8,9 @@ import { NotificationProvider, useNotifications } from './contexts/NotificationC
 import TransactionNotification from './components/dashboard/TransactionNotification';
 import { NotificationPersistenceService } from './services/notificationPersistenceService';
 
-// Import debug utility
-import PhotoDebugUtility from './components/debug/PhotoDebugUtility';
-
 // Import your actual component files
 import Sidebar from './components/common/Sidebar';
-import Header from './components/common/Header';
+import Header from './components/common/Header'; // UPDATED: Now supports bell notifications
 import Dashboard from './components/dashboard/Dashboard';
 import MaterialsPage from './pages/MaterialsPage';
 import Suppliers from './components/suppliers/Suppliers';
@@ -493,7 +490,10 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     markCurrentAsHandled,
     getUnhandledCount,
     refreshNotifications,
-    sessionInfo
+    sessionInfo,
+    // FIXED: Get bell notification data for header
+    bellNotifications,
+    unreadBellCount
   } = useNotifications();
 
   // State management
@@ -543,7 +543,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       // Trigger sync when coming back online
       setTimeout(() => {
         fetchData();
-        refreshNotifications();
+        refreshNotifications(); // This handles both queue and bell notifications
       }, 1000);
     };
     
@@ -614,6 +614,14 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       stopCleanup();
     };
   }, []);
+
+  // FIXED: Initialize bell notifications on startup
+  useEffect(() => {
+    // Load bell notifications after a brief delay to ensure context is ready
+    setTimeout(() => {
+      refreshNotifications(); // This will also load bell notifications internally
+    }, 1000);
+  }, [refreshNotifications]);
 
   // Enhanced tab change handler with navigation blocking
   const handleTabChange = (tab: string) => {
@@ -867,7 +875,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     setShowRecovery(false);
     try {
       console.log('Triggering notification recovery...');
-      await refreshNotifications();
+      await refreshNotifications(); // This handles both queue and bell notifications
       console.log('Notifications refreshed from persistent storage');
     } catch (error) {
       console.error('Failed to refresh notifications:', error);
@@ -893,9 +901,10 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
-  // Enhanced notification click handler with stats
+  // FIXED: Enhanced notification click handler - now uses bell notifications
   const handleNotificationClick = async () => {
-    console.log('Notifications clicked - count:', getUnhandledCount());
+    const totalCount = getUnhandledCount() + unreadBellCount;
+    console.log('Notifications clicked - total count:', totalCount, 'unhandled:', getUnhandledCount(), 'bell:', unreadBellCount);
     
     try {
       const stats = await NotificationPersistenceService.getNotificationStats();
@@ -943,7 +952,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   const handleEmergencyRecovery = async () => {
     try {
       await NotificationPersistenceService.emergencyRecovery();
-      await refreshNotifications();
+      await refreshNotifications(); // This handles both queue and bell notifications
     } catch (error) {
       console.error('Emergency recovery failed:', error);
     }
@@ -1061,16 +1070,16 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
           />
         )}
 
-        {/* Session Info Display (Development only) */}
+        {/* REMOVED: Development session info - only show in development mode */}
         {process.env.NODE_ENV === 'development' && sessionInfo && (
           <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[60] bg-black text-white text-xs p-2 rounded max-w-xs">
             <div className="flex items-center gap-2">
               <Wifi className="w-3 h-3" />
               <span>Session: {sessionInfo.sessionId.slice(-8)}</span>
               <span>•</span>
-              <span>Notifications: {notificationQueue.length}</span>
+              <span>Queue: {notificationQueue.length}</span>
               <span>•</span>
-              <span>Last Sync: {lastSyncTime.toLocaleTimeString()}</span>
+              <span>Bell: {bellNotifications.length}</span>
             </div>
           </div>
         )}
@@ -1105,12 +1114,12 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
         <div className={`flex-1 flex flex-col overflow-hidden min-w-0 ${
           isMobile ? '' : (sidebarOpen ? 'md:ml-0' : 'md:ml-0')
         }`}>
-          {/* Header */}
+          {/* FIXED: Enhanced Header with bell notifications */}
           <div className="relative">
             <Header
               activeTab={activeTab}
               userName="Admin User"
-              notificationCount={getUnhandledCount()}
+              notificationCount={getUnhandledCount()} // FIXED: Only unhandled notifications for immediate action
               onNotificationClick={handleNotificationClick}
               onProfileClick={handleProfileClick}
             />
@@ -1133,10 +1142,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
         </div>
       </div>
 
-      {/* Debug utility */}
-      <PhotoDebugUtility />
-
-      {/* Enhanced Global Transaction Notification Modal */}
+      {/* FIXED: Production-ready Transaction Notification Modal */}
       {currentNotification && (
         <TransactionNotification
           transaction={currentNotification.transaction}
@@ -1152,13 +1158,6 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
           currentQueueIndex={currentNotificationIndex}
           supabaseUrl={supabaseUrl}
           supabaseKey={supabaseKey}
-          // Enhanced persistence props (now supported by enhanced component)
-          notificationId={currentNotification.id}
-          priorityLevel={currentNotification.priorityLevel}
-          handledBy={currentNotification.handledBy}
-          handledAt={currentNotification.handledAt}
-          expiresAt={currentNotification.expiresAt}
-          requiresAction={currentNotification.requiresAction}
         />
       )}
     </>

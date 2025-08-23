@@ -1,8 +1,8 @@
-// src/hooks/useRealtimeTransactions.ts - Fixed for consistent transaction types
+// src/hooks/useRealtimeTransactions.ts - FIXED for consistent uppercase transaction types
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-// FIXED: Unified transaction interface to match App.tsx and NotificationContext
+// FIXED: Unified transaction interface with UPPERCASE transaction types to match App.tsx
 interface Transaction {
   id: string;
   transaction_type: 'Purchase' | 'Sale'; // FIXED: Uppercase to match other components
@@ -65,7 +65,7 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // FIXED: Convert purchase transaction to unified format with uppercase transaction_type
+  // FIXED: Convert purchase transaction to unified format with UPPERCASE transaction_type
   const convertPurchaseTransaction = (purchaseData: any): Transaction => {
     return {
       ...purchaseData,
@@ -74,7 +74,7 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
     };
   };
 
-  // FIXED: Convert sales transaction to unified format with uppercase transaction_type
+  // FIXED: Convert sales transaction to unified format with UPPERCASE transaction_type
   const convertSalesTransaction = (salesData: any): Transaction => {
     return {
       ...salesData,
@@ -312,7 +312,7 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
     }
   };
 
-  // FIXED: Filter transactions by type (Purchase/Sale) with uppercase types
+  // FIXED: Filter transactions by type with UPPERCASE transaction types
   const filterByType = async (type: 'all' | 'Purchase' | 'Sale') => {
     try {
       setLoading(true);
@@ -391,12 +391,12 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
     });
   };
 
-  // FIXED: Get purchase transactions only (uppercase)
+  // FIXED: Get purchase transactions only with UPPERCASE comparison
   const getPurchaseTransactions = (): Transaction[] => {
     return transactions.filter(tx => tx.transaction_type === 'Purchase');
   };
 
-  // FIXED: Get sales transactions only (uppercase)
+  // FIXED: Get sales transactions only with UPPERCASE comparison
   const getSalesTransactions = (): Transaction[] => {
     return transactions.filter(tx => tx.transaction_type === 'Sale');
   };
@@ -411,7 +411,7 @@ export const useRealtimeTransactions = (): UseRealtimeTransactionsReturn => {
     return transactions.reduce((total, tx) => total + (tx.weight_kg || 0), 0);
   };
 
-  // FIXED: Set up real-time subscriptions for both tables with consistent transaction types
+  // FIXED: Set up real-time subscriptions with proper transaction type conversion
   useEffect(() => {
     // Initial fetch
     fetchTransactions();

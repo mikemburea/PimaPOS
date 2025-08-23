@@ -1,5 +1,7 @@
+// src/components/common/Header.tsx - Enhanced with Complete Bell Notifications System
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, User } from 'lucide-react';
+import { Bell, User, Check, X, Eye, Clock, Package, TrendingUp } from 'lucide-react';
+import { useNotifications } from '../../contexts/NotificationContext';
 
 interface HeaderProps {
   activeTab?: string;
@@ -50,38 +52,112 @@ const Header: React.FC<HeaderProps> = ({
   onProfileClick
 }) => {
   const [showProfilePopup, setShowProfilePopup] = useState(false);
+  const [showBellDropdown, setShowBellDropdown] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
+  const bellRef = useRef<HTMLButtonElement>(null);
+  const bellDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Handle clicks outside to close popup
-useEffect(() => {
-  const handleClickOutside = (event: MouseEvent) => {
-    if (
-      popupRef.current && 
-      profileRef.current &&
-      !popupRef.current.contains(event.target as Node) &&
-      !profileRef.current.contains(event.target as Node)
-    ) {
-      setShowProfilePopup(false);
+  // Get bell notifications from context
+  const { 
+    bellNotifications, 
+    unreadBellCount, 
+    markBellNotificationAsRead, 
+    markAllBellNotificationsAsRead,
+    clearBellNotifications,
+    openNotificationFromBell
+  } = useNotifications();
+
+  // Handle clicks outside to close popups
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Handle profile popup
+      if (
+        popupRef.current && 
+        profileRef.current &&
+        !popupRef.current.contains(event.target as Node) &&
+        !profileRef.current.contains(event.target as Node)
+      ) {
+        setShowProfilePopup(false);
+      }
+
+      // Handle bell dropdown
+      if (
+        bellDropdownRef.current && 
+        bellRef.current &&
+        !bellDropdownRef.current.contains(event.target as Node) &&
+        !bellRef.current.contains(event.target as Node)
+      ) {
+        setShowBellDropdown(false);
+      }
+    };
+
+    if (showProfilePopup || showBellDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  };
-
-  if (showProfilePopup) {
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }
-  
-  // Add this explicit return to satisfy TypeScript
-  return undefined;
-}, [showProfilePopup]);
+    
+    return undefined;
+  }, [showProfilePopup, showBellDropdown]);
 
   const handleProfileClickInternal = () => {
     setShowProfilePopup(!showProfilePopup);
+    // Close bell dropdown if open
+    setShowBellDropdown(false);
+    
     // Still call the original onClick if provided
     if (onProfileClick) {
       onProfileClick();
     }
   };
+
+  const handleBellClick = () => {
+    setShowBellDropdown(!showBellDropdown);
+    // Close profile popup if open
+    setShowProfilePopup(false);
+    
+    // Call original notification click handler for backward compatibility
+    if (onNotificationClick) {
+      onNotificationClick();
+    }
+  };
+
+  const formatRelativeTime = (dateString: string) => {
+    const now = new Date();
+    const date = new Date(dateString);
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diffInSeconds < 60) return 'Just now';
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
+    
+    return date.toLocaleDateString();
+  };
+
+  const getEventIcon = (eventType: string, transactionType: string) => {
+    if (eventType === 'INSERT') {
+      return transactionType === 'Purchase' ? Package : TrendingUp;
+    }
+    if (eventType === 'UPDATE') {
+      return Eye;
+    }
+    return X;
+  };
+
+  const getEventColor = (eventType: string, transactionType: string) => {
+    if (eventType === 'INSERT') {
+      return transactionType === 'Purchase' ? 'text-blue-600' : 'text-green-600';
+    }
+    if (eventType === 'UPDATE') {
+      return 'text-orange-600';
+    }
+    return 'text-red-600';
+  };
+
+  // Calculate display count - show unhandled notifications + unread bell notifications
+  const totalDisplayCount = notificationCount + unreadBellCount;
+
   return (
     <header style={{
       ...glassmorphismStyle,
@@ -246,6 +322,87 @@ useEffect(() => {
         .profile-avatar svg {
           width: 14px;
           height: 14px;
+        }
+
+        /* Bell Dropdown Styles */
+        .bell-dropdown {
+          position: absolute;
+          top: calc(100% + 8px);
+          right: 0;
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
+          border: 1px solid rgba(59, 130, 246, 0.2);
+          border-radius: 16px;
+          box-shadow: 0 16px 48px rgba(0, 0, 0, 0.15), 0 4px 16px rgba(59, 130, 246, 0.1);
+          backdrop-filter: blur(24px);
+          z-index: 100;
+          width: 380px;
+          max-width: 90vw;
+          max-height: 480px;
+          opacity: 0;
+          transform: translateY(-8px) scale(0.95);
+          transition: all 0.2s ease-out;
+          pointer-events: none;
+          overflow: hidden;
+        }
+
+        .bell-dropdown.show {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+          pointer-events: all;
+        }
+
+        .bell-dropdown::before {
+          content: '';
+          position: absolute;
+          top: -6px;
+          right: 20px;
+          width: 12px;
+          height: 12px;
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
+          border: 1px solid rgba(59, 130, 246, 0.2);
+          border-bottom: none;
+          border-right: none;
+          transform: rotate(45deg);
+          backdrop-filter: blur(24px);
+        }
+
+        .bell-header {
+          padding: 1rem 1.25rem 0.75rem;
+          border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.03) 0%, rgba(37, 99, 235, 0.03) 100%);
+        }
+
+        .bell-content {
+          max-height: 360px;
+          overflow-y: auto;
+          padding: 0.5rem 0;
+        }
+
+        .bell-item {
+          padding: 0.75rem 1.25rem;
+          border-bottom: 1px solid rgba(59, 130, 246, 0.06);
+          cursor: pointer;
+          transition: all 0.2s ease;
+          position: relative;
+        }
+
+        .bell-item:hover {
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.04) 0%, rgba(37, 99, 235, 0.04) 100%);
+        }
+
+        .bell-item:last-child {
+          border-bottom: none;
+        }
+
+        .bell-item.unread {
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.03) 0%, rgba(37, 99, 235, 0.03) 100%);
+          border-left: 3px solid #3b82f6;
+        }
+
+        .bell-footer {
+          padding: 0.75rem 1.25rem;
+          border-top: 1px solid rgba(59, 130, 246, 0.1);
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.02) 0%, rgba(37, 99, 235, 0.02) 100%);
         }
 
         /* Hide profile details on mobile by default */
@@ -477,6 +634,10 @@ useEffect(() => {
           .right-section {
             gap: 0.75rem;
           }
+
+          .bell-dropdown {
+            right: -20px;
+          }
         }
 
         /* Desktop styles (lg: 1024px and up) */
@@ -627,6 +788,11 @@ useEffect(() => {
           .popup-user-role {
             font-size: 0.6875rem;
           }
+
+          .bell-dropdown {
+            width: 320px;
+            right: -10px;
+          }
         }
       `}</style>
       
@@ -634,9 +800,8 @@ useEffect(() => {
         {/* Left side - Logo and Title */}
         <div className="left-section">
           <div className="logo-title-section">
-            {/* PimaPOS Logo */}
+            {/* MeruScrap Logo */}
             <div className="logo-container">
-              {/* Your PimaPOS Logo SVG */}
               <svg className="logo-svg" viewBox="0 0 100 100" style={{ filter: 'drop-shadow(0 1px 2px rgba(59, 130, 246, 0.3))' }}>
                 {/* Bluetooth icon in top-left */}
                 <rect x="8" y="8" width="20" height="20" rx="6" fill="#3b82f6"/>
@@ -662,8 +827,8 @@ useEffect(() => {
                 <path d="M18 18 L35 35" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" opacity="0.7"/>
                 <path d="M15 82 L85 82" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" opacity="0.3"/>
                 
-                {/* Letter P */}
-                <path d="M75 15 L75 35 M75 15 L85 15 L85 25 L75 25" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+                {/* Letter M for MeruScrap */}
+                <path d="M75 15 L75 35 M75 15 L82 25 L89 15 M89 15 L89 35" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
             
@@ -687,21 +852,182 @@ useEffect(() => {
         {/* Right side - Notifications and Profile */}
         <div className="right-section">
           {showNotifications && (
-            <button 
-              className="notification-btn"
-              onClick={onNotificationClick}
-              aria-label="Notifications"
-            >
-              <Bell color="#64748b" />
-              {notificationCount > 0 && (
-                <span 
-                  className="pulse-notification notification-badge"
-                  aria-label={`${notificationCount} notifications`}
-                >
-                  {notificationCount > 9 ? '9+' : notificationCount}
-                </span>
-              )}
-            </button>
+            <div className="relative">
+              <button 
+                ref={bellRef}
+                className="notification-btn"
+                onClick={handleBellClick}
+                aria-label="Notifications"
+                aria-expanded={showBellDropdown}
+              >
+                <Bell color="#64748b" />
+                {totalDisplayCount > 0 && (
+                  <span 
+                    className="pulse-notification notification-badge"
+                    aria-label={`${totalDisplayCount} notifications`}
+                  >
+                    {totalDisplayCount > 9 ? '9+' : totalDisplayCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Bell Notifications Dropdown */}
+              <div 
+                ref={bellDropdownRef}
+                className={`bell-dropdown ${showBellDropdown ? 'show' : ''}`}
+                role="menu"
+                aria-hidden={!showBellDropdown}
+              >
+                {/* Header */}
+                <div className="bell-header">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-900 text-sm">Notifications</h3>
+                      <p className="text-xs text-gray-600 mt-1">
+                        {notificationCount > 0 && `${notificationCount} pending • `}
+                        {unreadBellCount > 0 ? `${unreadBellCount} unread` : 'All caught up'}
+                      </p>
+                    </div>
+                    {(bellNotifications.length > 0 || notificationCount > 0) && (
+                      <div className="flex items-center gap-2">
+                        {unreadBellCount > 0 && (
+                          <button
+                            onClick={() => markAllBellNotificationsAsRead()}
+                            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                          >
+                            Mark all read
+                          </button>
+                        )}
+                        {bellNotifications.length > 0 && (
+                          <button
+                            onClick={() => clearBellNotifications()}
+                            className="text-xs text-gray-500 hover:text-gray-700"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="bell-content">
+                  {/* Current pending notifications notice */}
+                  {notificationCount > 0 && (
+                    <div className="bell-item bg-orange-50 border-l-4 border-l-orange-400">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                          <Clock className="w-4 h-4 text-orange-600" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium text-sm text-orange-800">
+                            {notificationCount} {notificationCount === 1 ? 'Transaction' : 'Transactions'} Pending Action
+                          </div>
+                          <div className="text-xs text-orange-600 mt-1">
+                            Complete or dismiss these to continue working
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Bell notifications (unhandled notifications) */}
+                  {bellNotifications.length > 0 ? (
+                    bellNotifications.map((notification) => {
+                      const EventIcon = getEventIcon(notification.eventType, notification.transaction.transaction_type);
+                      const eventColor = getEventColor(notification.eventType, notification.transaction.transaction_type);
+                      
+                      return (
+                        <div
+                          key={notification.id}
+                          className={`bell-item ${!notification.isRead ? 'unread' : ''}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            console.log('Bell notification clicked:', notification.id);
+                            // Mark as read
+                            markBellNotificationAsRead(notification.id);
+                            // Open the notification modal for handling
+                            openNotificationFromBell(notification.id);
+                            // Close the dropdown
+                            setShowBellDropdown(false);
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                              notification.transaction.transaction_type === 'Purchase' 
+                                ? 'bg-blue-50' 
+                                : 'bg-green-50'
+                            }`}>
+                              <EventIcon className={`w-4 h-4 ${eventColor}`} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-sm text-gray-900 truncate">
+                                {notification.summary}
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                                  notification.transaction.transaction_type === 'Purchase'
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : 'bg-green-100 text-green-700'
+                                }`}>
+                                  {notification.transaction.transaction_type}
+                                </span>
+                                <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                                  notification.priorityLevel === 'HIGH' ? 'bg-red-100 text-red-700' :
+                                  notification.priorityLevel === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {notification.priorityLevel}
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  {formatRelativeTime(notification.timestamp)}
+                                </span>
+                              </div>
+                              <div className="text-xs text-gray-600 mt-1">
+                                KES {notification.transaction.total_amount.toLocaleString()} • {notification.transaction.material_type}
+                              </div>
+                              <div className="text-xs text-blue-600 font-medium mt-1 hover:text-blue-800">
+                                👆 Click here to handle this transaction
+                              </div>
+                            </div>
+                            {!notification.isRead && (
+                              <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-2"></div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : notificationCount === 0 ? (
+                    <div className="bell-item text-center py-8">
+                      <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <Bell className="w-6 h-6 text-gray-400" />
+                      </div>
+                      <div className="font-medium text-sm text-gray-600">All caught up!</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        No new notifications at this time
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Footer */}
+                {(bellNotifications.length > 0 || notificationCount > 0) && (
+                  <div className="bell-footer">
+                    <div className="text-xs text-gray-500 text-center">
+                      {bellNotifications.length > 0 && (
+                        <span>Click any notification above to handle it</span>
+                      )}
+                      {notificationCount > 0 && bellNotifications.length === 0 && (
+                        <span>Loading notifications...</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
           
           <div 

@@ -1,315 +1,401 @@
-// src/services/storageService.ts - Fixed version with proper bucket creation
+// src/services/storageService.ts - FIXED version that creates database records
 import { supabase } from '../lib/supabase';
 
-export interface UploadResult {
+interface UploadResult {
   path: string;
-  url: string;
-  filename: string;
-  size: number;
+  fullPath: string;
+  publicUrl: string;
+  photoRecord?: any;
+}
+
+interface PhotoUploadOptions {
+  cacheControl?: string;
+  upsert?: boolean;
+  metadata?: Record<string, any>;
+  uploadOrder?: number;
+  isPrimary?: boolean;
+  notes?: string;
 }
 
 export class StorageService {
-  // Keep your original bucket name for backward compatibility
-  private static BUCKET_NAME = 'supplier-documents';
-  
-  // Add new bucket for transaction photos
-  private static TRANSACTION_PHOTOS_BUCKET = 'transaction-photos';
-  private static MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-  private static ALLOWED_IMAGE_TYPES = [
-    'image/jpeg',
-    'image/jpg', 
-    'image/png',
-    'image/webp',
-    'image/gif'
-  ];
-
-  // ===== ORIGINAL METHODS (UNCHANGED) =====
-
-  // Upload file (your original method)
-  static async uploadFile(file: File, path: string): Promise<string> {
-    const { data, error } = await supabase.storage
-      .from(this.BUCKET_NAME)
-      .upload(path, file, {
-        cacheControl: '3600',
-        upsert: false
-      });
-
-    if (error) {
-      console.error('Error uploading file:', error);
-      throw error;
-    }
-
-    return data.path;
-  }
-
-  // Get file URL (your original method)
-  static getFileUrl(path: string): string {
-    const { data } = supabase.storage
-      .from(this.BUCKET_NAME)
-      .getPublicUrl(path);
-
-    return data.publicUrl;
-  }
-
-  // Delete file (your original method)
-  static async deleteFile(path: string): Promise<void> {
-    const { error } = await supabase.storage
-      .from(this.BUCKET_NAME)
-      .remove([path]);
-
-    if (error) {
-      console.error('Error deleting file:', error);
-      throw error;
-    }
-  }
-
-  // List files in folder (your original method)
-  static async listFiles(folder: string = '') {
-    const { data, error } = await supabase.storage
-      .from(this.BUCKET_NAME)
-      .list(folder);
-
-    if (error) {
-      console.error('Error listing files:', error);
-      throw error;
-    }
-
-    return data;
-  }
-
-  // ===== NEW METHODS FOR TRANSACTION PHOTOS =====
+  private static readonly BUCKET_NAME = 'transaction-photos';
+  private static readonly MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+  private static readonly ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
 
   /**
-   * Initialize transaction photos bucket - SIMPLIFIED VERSION
-   * This will attempt to create the bucket, but won't fail if it already exists
-   */
-  static async initializeTransactionPhotosBucket(): Promise<void> {
-    try {
-      // Try to create the bucket
-      const { data, error } = await supabase.storage.createBucket(this.TRANSACTION_PHOTOS_BUCKET, {
-        public: true,
-        allowedMimeTypes: this.ALLOWED_IMAGE_TYPES,
-        fileSizeLimit: this.MAX_FILE_SIZE
-      });
-      
-      if (error) {
-        // If bucket already exists, that's fine
-        if (error.message.includes('already exists')) {
-          console.log(`Bucket ${this.TRANSACTION_PHOTOS_BUCKET} already exists`);
-        } else {
-          console.warn(`Could not create bucket: ${error.message}`);
-        }
-      } else {
-        console.log(`Successfully created bucket: ${this.TRANSACTION_PHOTOS_BUCKET}`);
-      }
-    } catch (error) {
-      console.warn('Error initializing transaction photos bucket:', error);
-      // Don't throw - the app should still work even if bucket creation fails
-    }
-  }
-
-  /**
-   * Upload transaction photo with validation
+   * Upload a transaction photo and create database record
+   * FIXED: Now properly creates database records after successful upload
    */
   static async uploadTransactionPhoto(
-    file: File, 
-    transactionId: string
+    file: File,
+    transactionId: string,
+    options: PhotoUploadOptions = {}
   ): Promise<UploadResult> {
-    // Validate image file
-    this.validateImageFile(file);
-
-    // Generate unique filename
-    const timestamp = Date.now();
-    const extension = this.getFileExtension(file.name);
-    const filename = `transaction_${transactionId}_${timestamp}.${extension}`;
-    const path = `transactions/${transactionId}/${filename}`;
-
     try {
-      // Upload to transaction photos bucket
-      const { data, error } = await supabase.storage
-        .from(this.TRANSACTION_PHOTOS_BUCKET)
-        .upload(path, file, {
-          cacheControl: '3600',
-          upsert: false
+      console.log(`[StorageService] Starting upload for transaction: ${transactionId}`);
+      console.log(`[StorageService] File: ${file.name} (${file.size} bytes, ${file.type})`);
+
+      // Validate file
+      this.validateFile(file);
+
+      // Generate unique filename
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2, 15);
+      const fileExtension = this.getFileExtension(file.name);
+      const fileName = `transaction_${transactionId}_${timestamp}_${randomId}.${fileExtension}`;
+      
+      // Create storage path
+      const storagePath = `transactions/${transactionId}/${fileName}`;
+      
+      console.log(`[StorageService] Upload path: ${storagePath}`);
+
+      // Upload to storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from(this.BUCKET_NAME)
+        .upload(storagePath, file, {
+          cacheControl: options.cacheControl || '3600',
+          upsert: options.upsert || false,
+          contentType: file.type
         });
 
-      if (error) {
-        // If bucket doesn't exist, try to use the main bucket as fallback
-        if (error.message.includes('not found')) {
-          console.warn('Transaction photos bucket not found, using main bucket as fallback');
-          const fallbackPath = `transaction-photos/${path}`;
-          return await this.uploadToMainBucket(file, fallbackPath, transactionId);
-        }
-        throw new Error(`Photo upload failed: ${error.message}`);
+      if (uploadError) {
+        console.error(`[StorageService] Upload failed:`, uploadError);
+        throw new Error(`Upload failed: ${uploadError.message}`);
       }
+
+      console.log(`[StorageService] Upload successful:`, uploadData);
 
       // Get public URL
-      const url = this.getTransactionPhotoUrl(data.path);
+      const { data: urlData } = supabase.storage
+        .from(this.BUCKET_NAME)
+        .getPublicUrl(storagePath);
 
-      return {
-        path: data.path,
-        url,
-        filename: file.name,
-        size: file.size
-      };
-    } catch (error) {
-      console.error('Error uploading transaction photo:', error);
-      throw error;
-    }
-  }
+      console.log(`[StorageService] Public URL generated:`, urlData.publicUrl);
 
-  /**
-   * Fallback method to upload to main bucket if transaction photos bucket is not available
-   */
-  private static async uploadToMainBucket(
-    file: File, 
-    path: string, 
-    transactionId: string
-  ): Promise<UploadResult> {
-    const { data, error } = await supabase.storage
-      .from(this.BUCKET_NAME)
-      .upload(path, file, {
-        cacheControl: '3600',
-        upsert: false
+      // FIXED: Create database record after successful upload
+      const photoRecord = await this.createPhotoRecord({
+        transactionId,
+        fileName: file.name,
+        storagePath,
+        fileSize: file.size,
+        mimeType: file.type,
+        uploadOrder: options.uploadOrder,
+        isPrimary: options.isPrimary,
+        notes: options.notes
       });
 
-    if (error) {
-      throw new Error(`Fallback upload failed: ${error.message}`);
-    }
+      console.log(`[StorageService] Database record created:`, photoRecord.id);
 
-    const url = this.getFileUrl(data.path);
+      return {
+        path: uploadData.path,
+        fullPath: storagePath,
+        publicUrl: urlData.publicUrl,
+        photoRecord
+      };
 
-    return {
-      path: data.path,
-      url,
-      filename: file.name,
-      size: file.size
-    };
-  }
-
-  /**
-   * Get public URL for transaction photo
-   */
-  static getTransactionPhotoUrl(path: string): string {
-    const { data } = supabase.storage
-      .from(this.TRANSACTION_PHOTOS_BUCKET)
-      .getPublicUrl(path);
-    return data.publicUrl;
-  }
-
-  /**
-   * Delete transaction photo
-   */
-  static async deleteTransactionPhoto(path: string): Promise<void> {
-    // Try transaction photos bucket first
-    let { error } = await supabase.storage
-      .from(this.TRANSACTION_PHOTOS_BUCKET)
-      .remove([path]);
-
-    if (error && error.message.includes('not found')) {
-      // Fallback to main bucket
-      const fallbackPath = `transaction-photos/${path}`;
-      const { error: fallbackError } = await supabase.storage
-        .from(this.BUCKET_NAME)
-        .remove([fallbackPath]);
-      
-      if (fallbackError) {
-        console.error('Error deleting transaction photo from main bucket:', fallbackError);
-        throw fallbackError;
-      }
-    } else if (error) {
-      console.error('Error deleting transaction photo:', error);
+    } catch (error) {
+      console.error(`[StorageService] Upload process failed:`, error);
       throw error;
     }
   }
 
   /**
-   * List all photos for a specific transaction
+   * FIXED: Create database record for uploaded photo
    */
-  static async listTransactionPhotos(transactionId: string) {
-    // Try transaction photos bucket first
-    const { data, error } = await supabase.storage
-      .from(this.TRANSACTION_PHOTOS_BUCKET)
-      .list(`transactions/${transactionId}`);
-
-    if (error && error.message.includes('not found')) {
-      // Fallback to main bucket
-      const { data: fallbackData, error: fallbackError } = await supabase.storage
-        .from(this.BUCKET_NAME)
-        .list(`transaction-photos/transactions/${transactionId}`);
-
-      if (fallbackError) {
-        console.error('Error listing transaction photos from main bucket:', fallbackError);
-        return [];
-      }
-      return fallbackData || [];
-    }
-
-    if (error) {
-      console.error('Error listing transaction photos:', error);
-      throw error;
-    }
-
-    return data || [];
-  }
-
-  /**
-   * Delete all photos for a transaction
-   */
-  static async deleteAllTransactionPhotos(transactionId: string): Promise<void> {
+  private static async createPhotoRecord(params: {
+    transactionId: string;
+    fileName: string;
+    storagePath: string;
+    fileSize: number;
+    mimeType: string;
+    uploadOrder?: number;
+    isPrimary?: boolean;
+    notes?: string;
+  }) {
     try {
-      // Get all photos for the transaction
-      const photos = await this.listTransactionPhotos(transactionId);
-      
-      if (photos.length === 0) return;
+      console.log(`[StorageService] Creating database record for transaction: ${params.transactionId}`);
 
-      // Try to delete from transaction photos bucket first
-      const paths = photos.map(photo => `transactions/${transactionId}/${photo.name}`);
+      // Check if this is the first photo for this transaction (make it primary)
+      const { data: existingPhotos, error: checkError } = await supabase
+        .from('transaction_photos')
+        .select('id')
+        .eq('transaction_id', params.transactionId);
 
-      const { error } = await supabase.storage
-        .from(this.TRANSACTION_PHOTOS_BUCKET)
-        .remove(paths);
+      if (checkError) {
+        console.warn(`[StorageService] Could not check existing photos: ${checkError.message}`);
+      }
 
-      if (error && error.message.includes('not found')) {
-        // Fallback to main bucket
-        const fallbackPaths = photos.map(photo => `transaction-photos/transactions/${transactionId}/${photo.name}`);
-        const { error: fallbackError } = await supabase.storage
-          .from(this.BUCKET_NAME)
-          .remove(fallbackPaths);
+      const isFirstPhoto = !existingPhotos || existingPhotos.length === 0;
+      const isPrimary = params.isPrimary !== undefined ? params.isPrimary : isFirstPhoto;
+      const uploadOrder = params.uploadOrder || (existingPhotos?.length || 0) + 1;
 
-        if (fallbackError) {
-          throw fallbackError;
+      // Create the database record
+      const photoData = {
+        transaction_id: params.transactionId,
+        file_name: params.fileName,
+        file_path: params.storagePath,
+        file_size_bytes: params.fileSize,
+        mime_type: params.mimeType,
+        upload_order: uploadOrder,
+        storage_bucket: this.BUCKET_NAME,
+        is_primary: isPrimary,
+        notes: params.notes || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      console.log(`[StorageService] Inserting photo record:`, photoData);
+
+      const { data: insertedPhoto, error: insertError } = await supabase
+        .from('transaction_photos')
+        .insert(photoData)
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error(`[StorageService] Database insert failed:`, insertError);
+        
+        // Try to clean up uploaded file if database insert fails
+        try {
+          await supabase.storage
+            .from(this.BUCKET_NAME)
+            .remove([params.storagePath]);
+          console.log(`[StorageService] Cleaned up uploaded file after database error`);
+        } catch (cleanupError) {
+          console.error(`[StorageService] Failed to cleanup file:`, cleanupError);
         }
-      } else if (error) {
+        
+        throw new Error(`Failed to create photo record: ${insertError.message}`);
+      }
+
+      console.log(`[StorageService] Photo record created successfully:`, insertedPhoto.id);
+      return insertedPhoto;
+
+    } catch (error) {
+      console.error(`[StorageService] Failed to create photo record:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Upload multiple photos for a transaction
+   */
+  static async uploadMultiplePhotos(
+    files: File[],
+    transactionId: string,
+    options: PhotoUploadOptions = {}
+  ): Promise<UploadResult[]> {
+    console.log(`[StorageService] Uploading ${files.length} photos for transaction: ${transactionId}`);
+    
+    const results: UploadResult[] = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const fileOptions = {
+        ...options,
+        uploadOrder: (options.uploadOrder || 0) + i + 1,
+        isPrimary: i === 0 && options.isPrimary !== false // First photo is primary unless explicitly set
+      };
+      
+      try {
+        const result = await this.uploadTransactionPhoto(file, transactionId, fileOptions);
+        results.push(result);
+        console.log(`[StorageService] Uploaded photo ${i + 1}/${files.length}: ${file.name}`);
+      } catch (error) {
+        console.error(`[StorageService] Failed to upload photo ${i + 1}/${files.length}:`, error);
         throw error;
       }
+    }
+    
+    console.log(`[StorageService] Successfully uploaded ${results.length} photos`);
+    return results;
+  }
 
-      console.log(`Deleted ${paths.length} photos for transaction ${transactionId}`);
+  /**
+   * Delete a transaction photo (both storage and database)
+   */
+  static async deleteTransactionPhoto(photoId: string): Promise<void> {
+    try {
+      console.log(`[StorageService] Deleting photo: ${photoId}`);
+
+      // Get photo record first
+      const { data: photo, error: fetchError } = await supabase
+        .from('transaction_photos')
+        .select('*')
+        .eq('id', photoId)
+        .single();
+
+      if (fetchError) {
+        throw new Error(`Failed to fetch photo record: ${fetchError.message}`);
+      }
+
+      // Delete from storage
+      const { error: storageError } = await supabase.storage
+        .from(this.BUCKET_NAME)
+        .remove([photo.file_path]);
+
+      if (storageError) {
+        console.warn(`[StorageService] Storage deletion failed: ${storageError.message}`);
+        // Continue with database deletion even if storage fails
+      }
+
+      // Delete from database
+      const { error: dbError } = await supabase
+        .from('transaction_photos')
+        .delete()
+        .eq('id', photoId);
+
+      if (dbError) {
+        throw new Error(`Failed to delete photo record: ${dbError.message}`);
+      }
+
+      console.log(`[StorageService] Photo deleted successfully: ${photoId}`);
+
     } catch (error) {
-      console.error('Error deleting all transaction photos:', error);
+      console.error(`[StorageService] Failed to delete photo:`, error);
       throw error;
     }
   }
 
-  // ===== UTILITY METHODS =====
+  /**
+   * Get all photos for a transaction
+   */
+  static async getTransactionPhotos(transactionId: string): Promise<any[]> {
+    try {
+      console.log(`[StorageService] Fetching photos for transaction: ${transactionId}`);
+
+      const { data: photos, error } = await supabase
+        .from('transaction_photos')
+        .select('*')
+        .eq('transaction_id', transactionId)
+        .order('upload_order', { ascending: true });
+
+      if (error) {
+        throw new Error(`Failed to fetch photos: ${error.message}`);
+      }
+
+      console.log(`[StorageService] Found ${photos?.length || 0} photos for transaction: ${transactionId}`);
+      return photos || [];
+
+    } catch (error) {
+      console.error(`[StorageService] Failed to fetch photos:`, error);
+      throw error;
+    }
+  }
 
   /**
-   * Validate image file
+   * Repair missing database records for existing storage files
+   * UTILITY FUNCTION to fix your current issue
    */
-  private static validateImageFile(file: File): void {
-    // Check file size
+  static async repairMissingPhotoRecords(transactionId: string): Promise<{
+    found: number;
+    created: number;
+    errors: string[];
+  }> {
+    console.log(`[StorageService] Repairing missing photo records for transaction: ${transactionId}`);
+    
+    const result = {
+      found: 0,
+      created: 0,
+      errors: [] as string[]
+    };
+
+    try {
+      // Get files from storage
+      const { data: storageFiles, error: storageError } = await supabase.storage
+        .from(this.BUCKET_NAME)
+        .list(`transactions/${transactionId}`);
+
+      if (storageError) {
+        result.errors.push(`Storage error: ${storageError.message}`);
+        return result;
+      }
+
+      if (!storageFiles || storageFiles.length === 0) {
+        console.log(`[StorageService] No files found in storage for transaction: ${transactionId}`);
+        return result;
+      }
+
+      result.found = storageFiles.length;
+      console.log(`[StorageService] Found ${result.found} files in storage`);
+
+      // Get existing database records
+      const { data: existingRecords, error: dbError } = await supabase
+        .from('transaction_photos')
+        .select('file_path')
+        .eq('transaction_id', transactionId);
+
+      if (dbError) {
+        result.errors.push(`Database error: ${dbError.message}`);
+        return result;
+      }
+
+      const existingPaths = new Set(existingRecords?.map(r => r.file_path) || []);
+
+      // Create missing records
+      for (let i = 0; i < storageFiles.length; i++) {
+        const file = storageFiles[i];
+        const filePath = `transactions/${transactionId}/${file.name}`;
+
+        if (existingPaths.has(filePath)) {
+          console.log(`[StorageService] Record already exists for: ${file.name}`);
+          continue;
+        }
+
+        try {
+          const photoData = {
+            transaction_id: transactionId,
+            file_name: file.name,
+            file_path: filePath,
+            file_size_bytes: file.metadata?.size || null,
+            mime_type: file.metadata?.mimetype || 'image/jpeg',
+            upload_order: i + 1,
+            storage_bucket: this.BUCKET_NAME,
+            is_primary: i === 0,
+            notes: 'Repaired missing record',
+            created_at: file.created_at || new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+
+          const { error: insertError } = await supabase
+            .from('transaction_photos')
+            .insert(photoData);
+
+          if (insertError) {
+            result.errors.push(`Failed to create record for ${file.name}: ${insertError.message}`);
+          } else {
+            result.created++;
+            console.log(`[StorageService] Created missing record for: ${file.name}`);
+          }
+
+        } catch (error) {
+          result.errors.push(`Error processing ${file.name}: ${error}`);
+        }
+      }
+
+      console.log(`[StorageService] Repair complete: ${result.created} records created`);
+      return result;
+
+    } catch (error) {
+      result.errors.push(`Repair failed: ${error}`);
+      return result;
+    }
+  }
+
+  /**
+   * Validate uploaded file
+   */
+  private static validateFile(file: File): void {
+    if (!file) {
+      throw new Error('No file provided');
+    }
+
     if (file.size > this.MAX_FILE_SIZE) {
-      throw new Error(`File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds maximum allowed size of ${this.MAX_FILE_SIZE / 1024 / 1024}MB`);
+      throw new Error(`File size (${(file.size / 1024 / 1024).toFixed(1)}MB) exceeds maximum allowed size (5MB)`);
     }
 
-    // Check file type
-    if (!this.ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      throw new Error(`File type ${file.type} is not supported. Allowed types: ${this.ALLOWED_IMAGE_TYPES.join(', ')}`);
-    }
-
-    // Check if file is actually an image
-    if (!file.type.startsWith('image/')) {
-      throw new Error('File must be an image');
+    if (!this.ALLOWED_TYPES.includes(file.type.toLowerCase())) {
+      throw new Error(`File type ${file.type} is not allowed. Supported types: ${this.ALLOWED_TYPES.join(', ')}`);
     }
   }
 
@@ -317,103 +403,53 @@ export class StorageService {
    * Get file extension from filename
    */
   private static getFileExtension(filename: string): string {
-    return filename.split('.').pop()?.toLowerCase() || 'jpg';
+    const extension = filename.split('.').pop()?.toLowerCase();
+    return extension || 'jpg';
   }
 
   /**
-   * Compress image for better performance (optional)
+   * Test storage and database connectivity
    */
-  static async compressImage(file: File, quality: number = 0.8): Promise<File> {
-    return new Promise((resolve) => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const img = new Image();
-
-      img.onload = () => {
-        // Calculate new dimensions (max 1920x1080 to keep reasonable size)
-        const maxWidth = 1920;
-        const maxHeight = 1080;
-        let { width, height } = img;
-
-        if (width > height) {
-          if (width > maxWidth) {
-            height = (height * maxWidth) / width;
-            width = maxWidth;
-          }
-        } else {
-          if (height > maxHeight) {
-            width = (width * maxHeight) / height;
-            height = maxHeight;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-
-        // Draw and compress
-        ctx?.drawImage(img, 0, 0, width, height);
-        
-        canvas.toBlob(
-          (blob) => {
-            if (blob) {
-              const compressedFile = new File([blob], file.name, {
-                type: file.type,
-                lastModified: Date.now(),
-              });
-              resolve(compressedFile);
-            } else {
-              resolve(file); // Fallback to original
-            }
-          },
-          file.type,
-          quality
-        );
-      };
-
-      img.onerror = () => resolve(file); // Fallback to original on error
-      img.src = URL.createObjectURL(file);
-    });
-  }
-
-  /**
-   * Get storage usage statistics
-   */
-  static async getStorageStats(): Promise<{
-    supplierDocuments: { count: number };
-    transactionPhotos: { count: number };
+  static async testConnectivity(): Promise<{
+    storage: boolean;
+    database: boolean;
+    errors: string[];
   }> {
+    const result = {
+      storage: false,
+      database: false,
+      errors: [] as string[]
+    };
+
     try {
-      const supplierFiles = await this.listFiles();
-      
-      // Try to get transaction photos count
-      let transactionCount = 0;
-      try {
-        const { data: transactionFiles } = await supabase.storage
-          .from(this.TRANSACTION_PHOTOS_BUCKET)
-          .list();
-        transactionCount = transactionFiles?.length || 0;
-      } catch {
-        // If transaction photos bucket doesn't exist, count from main bucket
-        const { data: fallbackFiles } = await supabase.storage
-          .from(this.BUCKET_NAME)
-          .list('transaction-photos');
-        transactionCount = fallbackFiles?.length || 0;
+      // Test storage
+      const { data: buckets, error: storageError } = await supabase.storage.listBuckets();
+      if (storageError) {
+        result.errors.push(`Storage error: ${storageError.message}`);
+      } else {
+        const bucketExists = buckets?.some(b => b.name === this.BUCKET_NAME);
+        result.storage = !!bucketExists;
+        if (!bucketExists) {
+          result.errors.push(`Bucket ${this.BUCKET_NAME} not found`);
+        }
       }
 
-      return {
-        supplierDocuments: { count: supplierFiles?.length || 0 },
-        transactionPhotos: { count: transactionCount }
-      };
+      // Test database
+      const { data: photos, error: dbError } = await supabase
+        .from('transaction_photos')
+        .select('id')
+        .limit(1);
+
+      if (dbError) {
+        result.errors.push(`Database error: ${dbError.message}`);
+      } else {
+        result.database = true;
+      }
+
     } catch (error) {
-      console.error('Error getting storage stats:', error);
-      return {
-        supplierDocuments: { count: 0 },
-        transactionPhotos: { count: 0 }
-      };
+      result.errors.push(`Connectivity test failed: ${error}`);
     }
+
+    return result;
   }
 }
-
-// Initialize the transaction photos bucket when the service loads
-// This will run but won't break if it fails
-StorageService.initializeTransactionPhotosBucket();

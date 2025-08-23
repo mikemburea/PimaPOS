@@ -1,12 +1,13 @@
-// src/components/dashboard/TransactionNotification.tsx - Fixed photo display and transaction types
+// src/components/dashboard/TransactionNotification.tsx - PRODUCTION READY: Fixed button responsiveness
 import React, { useEffect, useState } from 'react';
-import { X, DollarSign, Package, User, Calendar, Camera, ChevronLeft, ChevronRight, Download, Eye, Loader2, TrendingUp, ShoppingCart } from 'lucide-react';
+import { X, DollarSign, Package, User, Calendar, Camera, ChevronLeft, ChevronRight, Download, Eye, Loader2, TrendingUp, ShoppingCart, RefreshCw, AlertCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useNotifications } from '../../contexts/NotificationContext';
 
 // FIXED: Consistent Transaction interface matching NotificationContext
 interface Transaction {
   id: string;
-  transaction_type: 'Purchase' | 'Sale'; // FIXED: Uppercase to match NotificationContext
+  transaction_type: 'Purchase' | 'Sale';
   supplier_id?: string | null;
   material_type: string;
   transaction_date: string;
@@ -77,6 +78,9 @@ interface NotificationData {
   photos?: TransactionPhoto[];
   eventType: 'INSERT' | 'UPDATE' | 'DELETE';
   isHandled?: boolean;
+  photosFetched?: boolean;
+  photoRetryCount?: number;
+  lastPhotoFetch?: string;
 }
 
 interface TransactionNotificationProps {
@@ -93,14 +97,6 @@ interface TransactionNotificationProps {
   currentQueueIndex?: number;
   supabaseUrl?: string;
   supabaseKey?: string;
-  
-  // Persistence props
-  notificationId?: string;
-  priorityLevel?: 'HIGH' | 'MEDIUM' | 'LOW';
-  handledBy?: string;
-  handledAt?: string;
-  expiresAt?: string;
-  requiresAction?: boolean;
 }
 
 // Export for use in App component
@@ -119,13 +115,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
   notificationQueue = [],
   currentQueueIndex = 0,
   supabaseUrl = '',
-  supabaseKey = '',
-  notificationId = '',
-  priorityLevel = 'MEDIUM',
-  handledBy = '',
-  handledAt = '',
-  expiresAt = '',
-  requiresAction = true
+  supabaseKey = ''
 }) => {
   const [isTransactionComplete, setIsTransactionComplete] = useState(false);
   const [hasRendered, setHasRendered] = useState(false);
@@ -134,6 +124,11 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
   const [loadedPhotos, setLoadedPhotos] = useState<Set<string>>(new Set());
   const [failedPhotos, setFailedPhotos] = useState<Set<string>>(new Set());
   const [photoRetries, setPhotoRetries] = useState<Map<string, number>>(new Map());
+  const [isRefreshingPhotos, setIsRefreshingPhotos] = useState(false);
+  const [localPhotos, setLocalPhotos] = useState<TransactionPhoto[]>(photos);
+
+  // Get notification context methods
+  const { retryPhotoFetch, refreshPhotosForTransaction } = useNotifications();
 
   // Reset states when switching between notifications or visibility changes
   useEffect(() => {
@@ -143,6 +138,8 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     setLoadedPhotos(new Set());
     setFailedPhotos(new Set());
     setPhotoRetries(new Map());
+    setIsRefreshingPhotos(false);
+    setLocalPhotos(photos);
     
     if (isVisible && !hasRendered) {
       setHasRendered(true);
@@ -155,39 +152,24 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     }
     
     return undefined;
-  }, [isVisible, currentQueueIndex]);
+  }, [isVisible, currentQueueIndex, photos]);
 
-  // FIXED: Enhanced debug logging
+  // Update local photos when props change
+  useEffect(() => {
+    setLocalPhotos(photos);
+  }, [photos]);
+
+  // PRODUCTION: Minimal logging only for critical issues
   useEffect(() => {
     if (transaction && isVisible) {
-      console.log('TransactionNotification - Current state:', {
-        transactionId: transaction.id,
-        transactionType: transaction.transaction_type,
-        photosCount: photos.length,
-        photosData: photos.map(p => ({
-          id: p.id,
-          fileName: p.file_name,
-          filePath: p.file_path,
-          uploadOrder: p.upload_order,
-          isPrimary: p.is_primary,
-          bucket: p.storage_bucket
-        })),
-        supabaseUrl: supabaseUrl || import.meta.env.VITE_SUPABASE_URL,
-        isVisible: isVisible,
-        notificationId,
-        priorityLevel,
-        handledBy,
-        handledAt,
-        expiresAt,
-        requiresAction
-      });
+      console.log(`[Notification] Showing ${transaction.transaction_type} transaction ${transaction.id} with ${localPhotos.length} photos`);
     }
-  }, [transaction, photos, isVisible, notificationId, priorityLevel, handledBy, handledAt, expiresAt, requiresAction]);
+  }, [transaction, localPhotos, isVisible]);
 
   // Prevent double rendering
   if (!isVisible || !transaction || !hasRendered) return null;
 
-  // FIXED: Get customer/supplier name based on transaction type
+  // Get customer/supplier name based on transaction type
   const getCustomerSupplierName = () => {
     if (transaction.transaction_type === 'Purchase') {
       if (transaction.is_walkin) {
@@ -201,28 +183,15 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     }
   };
 
-  // Enhanced priority level calculation
+  // Enhanced priority level calculation (simplified for production)
   const getPriorityLevel = () => {
-    if (priorityLevel && priorityLevel !== 'MEDIUM') return priorityLevel;
-    
     if (eventType === 'INSERT') return 'HIGH';
     if (transaction.total_amount > 100000) return 'HIGH';
     if (transaction.total_amount > 50000) return 'MEDIUM';
     return 'LOW';
   };
 
-  // Check if notification has expired
-  const isExpired = expiresAt ? new Date(expiresAt) < new Date() : false;
-
-  // Format handled info
-  const formatHandledInfo = () => {
-    if (handledBy && handledAt) {
-      return `Handled by ${handledBy} at ${new Date(handledAt).toLocaleString()}`;
-    }
-    return null;
-  };
-
-  // FIXED: Get transaction type display info
+  // Get transaction type display info
   const getTransactionTypeInfo = () => {
     if (transaction.transaction_type === 'Purchase') {
       return {
@@ -247,18 +216,12 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     }
   };
 
-  // FIXED: Enhanced Supabase storage URL construction
+  // ENHANCED: Improved Supabase storage URL construction with fallback options
   const getPhotoUrl = (photo: TransactionPhoto, thumbnail = false) => {
     if (!photo.file_path) {
       console.warn('No file_path for photo:', photo.id);
       return '';
     }
-    
-    console.log(`Getting URL for photo ${photo.id}:`, {
-      filePath: photo.file_path,
-      bucket: photo.storage_bucket,
-      fileName: photo.file_name
-    });
     
     // Method 1: Use Supabase client to get public URL (recommended)
     try {
@@ -268,7 +231,6 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
         .getPublicUrl(photo.file_path);
       
       if (data?.publicUrl) {
-        console.log(`Generated photo URL using Supabase client for ${photo.id}:`, data.publicUrl);
         return data.publicUrl;
       }
     } catch (error) {
@@ -289,13 +251,11 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     // Construct the URL
     const url = `${baseUrl}/storage/v1/object/public/${bucketName}/${cleanPath}`;
     
-    console.log(`Fallback photo URL constructed for ${photo.id}:`, url);
     return url;
   };
 
-  // FIXED: Enhanced photo loading handlers with retry logic
+  // Photo loading handlers with retry logic
   const handlePhotoLoad = (photoId: string) => {
-    console.log('Photo loaded successfully:', photoId);
     setLoadingPhotos(prev => {
       const newSet = new Set(prev);
       newSet.delete(photoId);
@@ -311,7 +271,6 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
 
   const handlePhotoError = (photoId: string) => {
     const currentRetries = photoRetries.get(photoId) || 0;
-    console.error(`Photo failed to load (attempt ${currentRetries + 1}):`, photoId);
     
     setLoadingPhotos(prev => {
       const newSet = new Set(prev);
@@ -319,15 +278,13 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
       return newSet;
     });
     
-    // FIXED: Retry logic for failed photos
-    if (currentRetries < 2) {
+    // Retry logic for failed photos (reduced retries for production)
+    if (currentRetries < 1) { // Only 1 retry in production
       setPhotoRetries(prev => new Map([...prev, [photoId, currentRetries + 1]]));
-      console.log(`Retrying photo load for ${photoId} in 2 seconds...`);
       
       setTimeout(() => {
         const photo = sortedPhotos.find(p => p.id === photoId);
         if (photo) {
-          console.log(`Retrying photo load for ${photoId}...`);
           setLoadingPhotos(prev => new Set([...prev, photoId]));
           setFailedPhotos(prev => {
             const newSet = new Set(prev);
@@ -335,7 +292,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
             return newSet;
           });
           
-          // Trigger re-render by updating a dummy state
+          // Trigger re-render
           setLoadedPhotos(prev => new Set(prev));
         }
       }, 2000);
@@ -345,8 +302,25 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
   };
 
   const handlePhotoLoadStart = (photoId: string) => {
-    console.log('Photo load started:', photoId);
     setLoadingPhotos(prev => new Set([...prev, photoId]));
+  };
+
+  // Manual photo refresh function
+  const handleRefreshPhotos = async () => {
+    if (!transaction || transaction.transaction_type !== 'Purchase') return;
+    
+    setIsRefreshingPhotos(true);
+    
+    try {
+      const freshPhotos = await refreshPhotosForTransaction(transaction.id);
+      setLocalPhotos(freshPhotos);
+      
+      console.log(`Successfully refreshed photos: ${freshPhotos.length} found`);
+    } catch (error) {
+      console.error('Failed to refresh photos:', error);
+    } finally {
+      setIsRefreshingPhotos(false);
+    }
   };
 
   // Format file size
@@ -357,18 +331,15 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // FIXED: Enhanced download photo function
+  // Enhanced download photo function
   const downloadPhoto = async (photo: TransactionPhoto, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       const url = getPhotoUrl(photo);
       if (!url) {
-        console.error('No URL available for download');
         alert('Unable to download photo - no URL available');
         return;
       }
-      
-      console.log('Downloading photo from:', url);
       
       const response = await fetch(url);
       if (!response.ok) {
@@ -386,7 +357,6 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
       document.body.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
       
-      console.log('Photo downloaded successfully:', photo.file_name);
     } catch (error) {
       console.error('Failed to download photo:', error);
       alert(`Failed to download photo: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -415,9 +385,15 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
   // Check if there are more unhandled notifications after current
   const hasMoreUnhandled = notificationQueue.some((n, i) => i !== currentQueueIndex && !n.isHandled);
 
-  // Handle marking as complete
-  const handleMarkAsComplete = () => {
+  // Handle marking as complete - FIXED: Prevent event bubbling and ensure responsiveness
+  const handleMarkAsComplete = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
     if (isTransactionComplete && onMarkAsHandled) {
+      console.log('[TransactionNotification] Marking transaction as complete');
       onMarkAsHandled();
       if (!hasMoreUnhandled) {
         setTimeout(() => {
@@ -427,8 +403,13 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     }
   };
 
-  // Handle skip/dismiss with warning for incomplete transactions
-  const handleSkipOrDismiss = () => {
+  // Handle skip/dismiss with warning for incomplete transactions - FIXED: Prevent event bubbling
+  const handleSkipOrDismiss = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
     const shouldWarn = eventType === 'INSERT' && !isTransactionComplete && transaction.transaction_type === 'Purchase';
     if (shouldWarn) {
       const confirmSkip = window.confirm(
@@ -451,8 +432,8 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
     }
   };
 
-  // FIXED: Sort photos by upload_order or created_at, ensuring valid photos only
-  const sortedPhotos = photos
+  // Sort photos by upload_order or created_at, ensuring valid photos only
+  const sortedPhotos = localPhotos
     .filter(photo => photo && photo.file_path && photo.file_name) // Only include valid photos
     .sort((a, b) => {
       if (a.upload_order && b.upload_order) {
@@ -460,8 +441,6 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
       }
       return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     });
-
-  console.log(`Rendering notification with ${sortedPhotos.length} valid photos out of ${photos.length} total photos`);
 
   return (
     <>
@@ -570,42 +549,6 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
               </button>
             </div>
           </div>
-
-          {/* Enhanced notification info display */}
-          {process.env.NODE_ENV === 'development' && notificationId && (
-            <div className="px-4 py-1 bg-gray-50 border-b border-gray-200">
-              <div className="text-xs text-gray-500 font-mono">
-                ID: {notificationId} | Photos: {sortedPhotos.length}
-              </div>
-            </div>
-          )}
-
-          {/* Expiry warning */}
-          {isExpired && (
-            <div className="mx-4 mt-3 p-2 bg-red-100 border border-red-400 text-red-700 rounded-lg">
-              <div className="flex items-center gap-2">
-                <span className="text-sm">⚠️ This notification has expired</span>
-              </div>
-            </div>
-          )}
-
-          {/* Handled info */}
-          {formatHandledInfo() && (
-            <div className="mx-4 mt-2 p-2 bg-green-50 border border-green-200 text-green-700 rounded-lg">
-              <div className="text-sm">
-                ✅ {formatHandledInfo()}
-              </div>
-            </div>
-          )}
-
-          {/* Action requirement indicator */}
-          {requiresAction && eventType === 'INSERT' && (
-            <div className="mx-4 mt-2 p-2 bg-orange-50 border border-orange-200 text-orange-700 rounded-lg">
-              <div className="flex items-center gap-2">
-                <span className="text-sm">🔔 This notification requires your attention</span>
-              </div>
-            </div>
-          )}
 
           {/* Scrollable Content Area */}
           <div className="flex-1 overflow-y-auto">
@@ -724,7 +667,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                 </p>
               </div>
 
-              {/* FIXED: Enhanced Transaction Photos Section */}
+              {/* Transaction Photos Section */}
               <div className="border-t border-gray-200/50 pt-3">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-1.5">
@@ -736,15 +679,28 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                       </span>
                     )}
                   </div>
-                  <span className="text-xs text-gray-500">
-                    {transaction.transaction_type === 'Purchase' ? 
-                      (sortedPhotos.length > 0 ? 'Click to view' : 'None uploaded') : 
-                      'Not available for sales'
-                    }
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-gray-500">
+                      {transaction.transaction_type === 'Purchase' ? 
+                        (sortedPhotos.length > 0 ? 'Click to view' : 'None uploaded') : 
+                        'Not available for sales'
+                      }
+                    </span>
+                    {/* Refresh button for purchase transactions */}
+                    {transaction.transaction_type === 'Purchase' && (
+                      <button
+                        onClick={handleRefreshPhotos}
+                        disabled={isRefreshingPhotos}
+                        className="p-1 hover:bg-gray-100 rounded transition-colors"
+                        title="Refresh photos"
+                      >
+                        <RefreshCw className={`w-3 h-3 text-gray-500 ${isRefreshingPhotos ? 'animate-spin' : ''}`} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {/* FIXED: Only show photos for Purchase transactions */}
+                {/* Only show photos for Purchase transactions */}
                 {transaction.transaction_type === 'Purchase' ? (
                   sortedPhotos.length > 0 ? (
                     <div className="space-y-2">
@@ -759,10 +715,9 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                           
                           return (
                             <div
-                              key={`${photo.id}-${retryCount}`} // FIXED: Force re-render on retry
+                              key={`${photo.id}-${retryCount}`}
                               className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:scale-105 transition-transform duration-200"
                               onClick={() => {
-                                console.log('Opening photo viewer for index:', index);
                                 setSelectedPhotoIndex(index);
                               }}
                             >
@@ -779,11 +734,6 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                                   <Camera className="w-4 h-4 text-gray-400 mb-1" />
                                   <span className="text-xs text-gray-500 text-center px-1">
                                     Failed to load
-                                    {retryCount > 0 && (
-                                      <div className="text-xs text-red-500">
-                                        ({retryCount} retries)
-                                      </div>
-                                    )}
                                   </span>
                                 </div>
                               )}
@@ -791,7 +741,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                               {/* Photo Image */}
                               {photoUrl && !hasFailed && (
                                 <img
-                                  key={`img-${photo.id}-${retryCount}`} // FIXED: Force image re-render on retry
+                                  key={`img-${photo.id}-${retryCount}`}
                                   src={photoUrl}
                                   alt={photo.file_name || `Photo ${index + 1}`}
                                   className={`w-full h-full object-cover ${
@@ -862,7 +812,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
                         </div>
                       )}
 
-                      {/* Photo Stats */}
+                      {/* Photo Stats - simplified for production */}
                       <div className="text-xs text-gray-500 text-center">
                         Total size: {formatFileSize(
                           sortedPhotos.reduce((total, photo) => 
@@ -994,19 +944,16 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
               </div>
             )}
 
-            {/* Action Buttons */}
+            {/* Action Buttons - FIXED: Better event handling */}
             <div className="p-4 space-y-2">
               {eventType === 'INSERT' && (
                 <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleMarkAsComplete();
-                  }}
+                  type="button"
+                  onClick={handleMarkAsComplete}
                   disabled={!isTransactionComplete}
-                  className={`w-full py-2.5 px-4 rounded-lg font-medium transition-all text-sm ${
+                  className={`w-full py-2.5 px-4 rounded-lg font-medium transition-all text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                     isTransactionComplete 
-                      ? 'bg-green-600 hover:bg-green-700 text-white shadow-sm' 
+                      ? 'bg-green-600 hover:bg-green-700 text-white shadow-sm focus:ring-green-500' 
                       : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   }`}
                 >
@@ -1023,15 +970,12 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
               
               {(eventType === 'INSERT' && !isTransactionComplete) || eventType !== 'INSERT' ? (
                 <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleSkipOrDismiss();
-                  }}
-                  className={`w-full py-2 px-4 rounded-lg font-medium transition-all text-xs ${
+                  type="button"
+                  onClick={handleSkipOrDismiss}
+                  className={`w-full py-2 px-4 rounded-lg font-medium transition-all text-xs focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                     eventType === 'INSERT' && !isTransactionComplete && transaction.transaction_type === 'Purchase'
-                      ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-800 border border-yellow-300'
-                      : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                      ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-800 border border-yellow-300 focus:ring-yellow-500'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-600 focus:ring-gray-500'
                   }`}
                 >
                   {eventType === 'INSERT' && !isTransactionComplete && transaction.transaction_type === 'Purchase'
@@ -1044,7 +988,7 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
         </div>
       </div>
 
-      {/* FIXED: Enhanced Photo Modal/Lightbox */}
+      {/* Photo Modal/Lightbox */}
       {selectedPhotoIndex !== null && sortedPhotos[selectedPhotoIndex] && (
         <div className="fixed inset-0 bg-black/90 z-[10000] flex items-center justify-center p-4">
           <div className="relative max-w-4xl max-h-full w-full h-full flex flex-col">
@@ -1115,15 +1059,9 @@ const TransactionNotification: React.FC<TransactionNotificationProps> = ({
               )}
             </div>
 
-            {/* Photo Modal Footer */}
+            {/* Photo Modal Footer - simplified for production */}
             <div className="p-4 text-white text-sm text-center space-y-1">
               <div>Size: {formatFileSize(sortedPhotos[selectedPhotoIndex].file_size_bytes)}</div>
-              {sortedPhotos[selectedPhotoIndex].upload_order && (
-                <div className="text-gray-300">Upload Order: #{sortedPhotos[selectedPhotoIndex].upload_order}</div>
-              )}
-              {sortedPhotos[selectedPhotoIndex].notes && (
-                <div className="text-gray-300">Notes: {sortedPhotos[selectedPhotoIndex].notes}</div>
-              )}
               <div className="text-gray-400 text-xs">
                 Uploaded: {new Date(sortedPhotos[selectedPhotoIndex].created_at).toLocaleString()}
               </div>
