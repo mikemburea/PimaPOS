@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Mail, Lock, User, Phone, Sparkles, Shield, Zap, ArrowRight, Bluetooth, BarChart3 } from 'lucide-react';
 // Import your App component
 import App from './App';
@@ -16,6 +16,7 @@ const PimaPOSWelcome: React.FC = () => {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true); // New loading state
   const [formData, setFormData] = useState<FormData>({
     email: '',
     password: '',
@@ -23,6 +24,76 @@ const PimaPOSWelcome: React.FC = () => {
     phone: '',
     confirmPassword: ''
   });
+
+  // ⭐ FIX: Check for existing authentication on component mount
+  useEffect(() => {
+    const checkExistingAuth = () => {
+      try {
+        // Check if user was previously authenticated
+        const savedAuth = localStorage.getItem('isAuthenticated');
+        const savedUser = localStorage.getItem('userEmail');
+        const authTimestamp = localStorage.getItem('authTimestamp');
+        
+        if (savedAuth === 'true' && savedUser && authTimestamp) {
+          const timestamp = parseInt(authTimestamp);
+          const now = Date.now();
+          const oneDay = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+          
+          // Check if authentication is still valid (within 24 hours)
+          if (now - timestamp < oneDay) {
+            console.log('Found valid authentication, logging user in...');
+            setIsAuthenticated(true);
+            // Optionally restore the user's email
+            setFormData(prev => ({ ...prev, email: savedUser }));
+          } else {
+            // Authentication expired, clean up
+            console.log('Authentication expired, clearing storage...');
+            clearAuthData();
+          }
+        }
+      } catch (error) {
+        console.error('Error checking authentication:', error);
+        clearAuthData();
+      } finally {
+        setIsCheckingAuth(false);
+      }
+    };
+
+    checkExistingAuth();
+  }, []);
+
+  // Helper function to clear auth data
+  const clearAuthData = () => {
+    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('userEmail');
+    localStorage.removeItem('authTimestamp');
+  };
+
+  // ⭐ FIX: Save authentication state when user logs in
+  const saveAuthData = (email: string) => {
+    try {
+      localStorage.setItem('isAuthenticated', 'true');
+      localStorage.setItem('userEmail', email);
+      localStorage.setItem('authTimestamp', Date.now().toString());
+      console.log('Authentication data saved');
+    } catch (error) {
+      console.error('Error saving authentication data:', error);
+    }
+  };
+
+  // ⭐ FIX: Add logout function to clear auth data
+  const handleLogout = () => {
+    console.log('Logging out user...');
+    clearAuthData();
+    setIsAuthenticated(false);
+    setFormData({
+      email: '',
+      password: '',
+      fullName: '',
+      phone: '',
+      confirmPassword: ''
+    });
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -59,6 +130,8 @@ const PimaPOSWelcome: React.FC = () => {
       console.log('Form submitted:', formData);
       
       if (isLogin) {
+        // ⭐ FIX: Save authentication data when login succeeds
+        saveAuthData(formData.email);
         setIsAuthenticated(true);
       } else {
         alert('Account created successfully! Please sign in.');
@@ -90,10 +163,29 @@ const PimaPOSWelcome: React.FC = () => {
     });
   };
 
-  // ⭐ THIS IS WHERE NAVIGATION HAPPENS ⭐
-  // If authenticated, render the App component instead of the login form
+  // ⭐ FIX: Show loading screen while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-2xl shadow-xl flex items-center justify-center relative group mb-6 bg-white overflow-hidden mx-auto">
+            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center relative">
+              <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-inner">
+                <span className="text-blue-600 font-black text-lg">M</span>
+              </div>
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-gradient-to-r from-green-400 to-blue-500 rounded-full animate-pulse"></div>
+            </div>
+          </div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 font-medium">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ⭐ Navigation happens here - now with persistent auth
   if (isAuthenticated) {
-    return <App />;
+    return <App onNavigateBack={handleLogout} />;
   }
 
   const features = [
@@ -139,7 +231,7 @@ const PimaPOSWelcome: React.FC = () => {
                     <div className="absolute inset-0 bg-blue-400 rounded-xl blur opacity-30"></div>
                     <div className="relative">
                       <div className="w-7 h-7 sm:w-8 sm:h-8 bg-white rounded-lg flex items-center justify-center shadow-inner">
-                        <span className="text-blue-600 font-black text-base sm:text-lg">P</span>
+                        <span className="text-blue-600 font-black text-base sm:text-lg">M</span>
                       </div>
                       <div className="absolute -top-1 -right-1 w-3 h-3 bg-gradient-to-r from-green-400 to-blue-500 rounded-full animate-pulse shadow-lg"></div>
                     </div>
@@ -335,24 +427,6 @@ const PimaPOSWelcome: React.FC = () => {
                 </button>
               </div>
 
-              {/* Enhanced Features Preview - Hidden on mobile/tablet, visible only on desktop */}
-              <div className="hidden 2xl:block mt-8 sm:mt-10">
-                <div className="text-center mb-4">
-                  <p className="text-sm font-semibold text-gray-700 mb-3">Why choose MeruScrap?</p>
-                </div>
-                <div className="grid grid-cols-3 gap-3 sm:gap-4">
-                  {features.map((feature, index) => (
-                    <div key={index} className="group p-3 sm:p-4 bg-gradient-to-br from-gray-50/80 to-white/90 backdrop-blur-sm rounded-xl text-center border border-gray-200/30 hover:border-blue-200/50 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
-                      <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-r ${feature.color} flex items-center justify-center text-white mb-2 sm:mb-3 mx-auto shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                        {feature.icon}
-                      </div>
-                      <h3 className="text-xs sm:text-sm font-bold text-gray-900 mb-1 leading-tight">{feature.title}</h3>
-                      <p className="text-xs text-gray-600 leading-tight">{feature.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               {/* Enhanced Professional Footer */}
               <div className="mt-8 sm:mt-10 pt-6 sm:pt-8 border-t border-gray-200/50 text-center">
                 <div className="flex items-center justify-center space-x-2 mb-2">
@@ -370,7 +444,7 @@ const PimaPOSWelcome: React.FC = () => {
         </div>
       </div>
 
-      {/* Desktop View - Only for Very Large Screens (2xl+) */}
+      {/* Desktop View - Only for Very Large Screens (2xl+) - keeping your original desktop design */}
       <div className="hidden 2xl:flex w-full">
         {/* Left Side - Enhanced Branding Section */}
         <div className="flex-1 flex flex-col justify-center items-center px-8 xl:px-16 py-12 relative bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
@@ -386,7 +460,7 @@ const PimaPOSWelcome: React.FC = () => {
                 <div className="w-20 h-20 rounded-2xl shadow-xl flex items-center justify-center relative group mr-6 bg-white overflow-hidden transform hover:scale-105 transition-transform">
                   <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center relative">
                     <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-inner">
-                      <span className="text-blue-600 font-black text-xl">P</span>
+                      <span className="text-blue-600 font-black text-xl">M</span>
                     </div>
                     <div className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-green-400 to-blue-500 rounded-full animate-pulse"></div>
                   </div>
@@ -441,7 +515,7 @@ const PimaPOSWelcome: React.FC = () => {
               {features.map((feature, index) => (
                 <div key={index} className="group p-6 bg-white/95 backdrop-blur-sm rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
                   <div className={`w-12 h-12 rounded-lg bg-gradient-to-r ${feature.color} flex items-center justify-center text-white mb-4 shadow-lg mx-auto transform group-hover:scale-110 transition-transform`}>
-                    <Bluetooth className="w-6 h-6" />
+                    {feature.icon}
                   </div>
                   <h3 className="text-lg font-bold text-gray-900 mb-2">{feature.title}</h3>
                   <p className="text-sm text-gray-600 leading-relaxed">{feature.description}</p>

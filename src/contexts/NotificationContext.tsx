@@ -1,5 +1,5 @@
-// src/contexts/NotificationContext.tsx - Enhanced with persistence fixes and duplicate prevention
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
 // FIXED: Consistent transaction interface - using uppercase for transaction_type
@@ -147,6 +147,7 @@ interface NotificationContextType {
   isNavigationBlocked: boolean;
   attemptedNavigation: string | null;
   sessionInfo: SessionInfo | null;
+  crossSessionAlert: string | null;
   
   // Bell notifications (for header dropdown - shows unhandled notifications)
   bellNotifications: BellNotification[];
@@ -197,6 +198,25 @@ interface NotificationProviderProps {
   userIdentifier?: string;
 }
 
+// CRITICAL: Helper function to check if notification is handled
+const isNotificationReallyHandled = (notificationId: string): boolean => {
+  // Check multiple possible keys
+  const keys = [
+    `handled_${notificationId}`,
+    `dismissed_${notificationId}`,
+    notificationId // Just the ID itself
+  ];
+  
+  for (const key of keys) {
+    if (localStorage.getItem(`handled_${key}`) !== null || 
+        localStorage.getItem(`dismissed_${key}`) !== null) {
+      return true;
+    }
+  }
+  
+  return false;
+};
+
 export const NotificationProvider: React.FC<NotificationProviderProps> = ({ 
   children, 
   suppliers,
@@ -209,12 +229,28 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
   const [attemptedNavigation, setAttemptedNavigation] = useState<string | null>(null);
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [crossSessionAlert, setCrossSessionAlert] = useState<string | null>(null);
 
   // Bell notification state
   const [bellNotifications, setBellNotifications] = useState<BellNotification[]>([]);
   const [readBellNotifications, setReadBellNotifications] = useState<Set<string>>(new Set());
+  
+  // Refs for stable references in subscriptions
+  const notificationQueueRef = useRef<NotificationData[]>([]);
+  const processingNotificationsRef = useRef<Set<string>>(new Set());
+  const subscriptionRef = useRef<any>(null);
+  const isNotificationVisibleRef = useRef<boolean>(false);
+  const pendingModalShowRef = useRef<boolean>(false); // NEW: Track pending modal show
 
-  // Computed values
+  // Keep refs in sync with state
+  useEffect(() => {
+    notificationQueueRef.current = notificationQueue;
+  }, [notificationQueue]);
+
+  useEffect(() => {
+    isNotificationVisibleRef.current = isNotificationVisible;
+  }, [isNotificationVisible]);
+
   const hasUnhandledNotifications = notificationQueue.some(n => !n.isHandled && !n.isDismissed);
   const isNavigationBlocked = hasUnhandledNotifications && isNotificationVisible;
   const unreadBellCount = bellNotifications.filter(n => !readBellNotifications.has(n.id)).length;
@@ -261,13 +297,13 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     return obj && 
            typeof obj === 'object' && 
            typeof obj.id === 'string' &&
-           typeof obj.transaction_id === 'string' &&
            typeof obj.material_name === 'string' &&
            typeof obj.transaction_date === 'string' &&
            typeof obj.total_amount === 'number' &&
            typeof obj.weight_kg === 'number' &&
            typeof obj.price_per_kg === 'number' &&
-           typeof obj.created_at === 'string';
+           typeof obj.created_at === 'string' &&
+           (obj.transaction_id == null || typeof obj.transaction_id === 'string');
   };
 
   // ===== CLEANUP FUNCTIONS =====
@@ -285,9 +321,8 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
             const timestamp = new Date(data.dismissedAt || data.handledAt || 0).getTime();
             const ageHours = (now - timestamp) / (1000 * 60 * 60);
             
-            // Clean up handled notifications after 2 hours (they should be gone from DB)
-            // Clean up dismissed notifications after 24 hours
-            const maxAge = key.startsWith('handled_') ? 2 : 24;
+            // Clean up handled notifications after 168 hours (7 days), dismissed after 24 hours
+            const maxAge = key.startsWith('handled_') ? 168 : 24;
             
             if (ageHours > maxAge) {
               localStorage.removeItem(key);
@@ -573,7 +608,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     }
   };
 
-  // Enhanced loadNotificationsFromDB function with better filtering
+  // CRITICAL FIX: Enhanced loadNotificationsFromDB function with STRICT filtering
   const loadNotificationsFromDB = async (): Promise<NotificationData[]> => {
     try {
       console.log('[NotificationContext] Loading UNHANDLED notifications from database...');
@@ -596,39 +631,34 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         return [];
       }
 
-      // Additional safety check to filter out any handled notifications
+      // TRIPLE-CHECK: Filter out ANY handled/dismissed notifications
       const unhandledStates = notificationStates.filter(state => {
-        if (state.is_handled === true) {
-          console.error(`[NotificationContext] CRITICAL: Handled notification ${state.id} was returned from query - filtering out`);
+        // Check database flags
+        if (state.is_handled === true || state.is_dismissed === true) {
+          console.warn(`[NotificationContext] CRITICAL: Filtering out handled/dismissed notification ${state.id}`);
           return false;
         }
+        
+        // Check localStorage (belt and suspenders)
+        if (isNotificationReallyHandled(state.id)) {
+          console.log(`[NotificationContext] Filtering out locally handled/dismissed notification: ${state.id}`);
+          return false;
+        }
+        
         return true;
       });
 
-      console.log(`[NotificationContext] Found ${unhandledStates.length} unhandled notifications (verified)`);
-
-      // Filter out any locally dismissed notifications (belt and suspenders approach)
-      const filteredStates = unhandledStates.filter(state => {
-        const dismissedKey = `dismissed_${state.id}`;
-        const localDismissed = localStorage.getItem(dismissedKey);
-        if (localDismissed) {
-          console.log(`[NotificationContext] Filtering out locally dismissed notification: ${state.id}`);
-          return false;
-        }
-        // Final check to ensure not handled (triple verification)
-        if (state.is_handled === true) {
-          console.error(`[NotificationContext] CRITICAL: Handled notification ${state.id} made it through filters - blocking`);
-          return false;
-        }
-        return true;
-      });
-
-      console.log(`[NotificationContext] After all filters: ${filteredStates.length} notifications`);
+      console.log(`[NotificationContext] Found ${unhandledStates.length} truly unhandled notifications (from ${notificationStates.length} total)`);
+      
+      // If we have unhandled notifications, ensure they will be displayed
+      if (unhandledStates.length > 0) {
+        console.log(`[NotificationContext] Will process ${unhandledStates.length} unhandled notifications for display`);
+      };
 
       // Transform database rows to NotificationData
       const notifications: NotificationData[] = [];
       
-      for (const state of filteredStates) {
+      for (const state of unhandledStates) {
         try {
           const notificationData = state.notification_data;
           
@@ -637,7 +667,11 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
           let photosFetched = false;
           let photoRetryCount = 0;
           
-          if (state.transaction_table === 'transactions') {
+          // CRITICAL: Check transaction table to determine type
+          const isPurchase = state.transaction_table === 'transactions';
+          const isSale = state.transaction_table === 'sales_transactions';
+          
+          if (isPurchase) {
             console.log(`[NotificationContext] Fetching photos for purchase transaction ${state.transaction_id}`);
             try {
               photos = await fetchTransactionPhotos(state.transaction_id);
@@ -648,9 +682,12 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
               photosFetched = false;
               photoRetryCount = 1;
             }
-          } else {
+          } else if (isSale) {
             console.log(`[NotificationContext] Skipping photo fetch for sales transaction ${state.transaction_id}`);
             photosFetched = true; // Sales don't have photos, so mark as "fetched"
+          } else {
+            console.warn(`[NotificationContext] Unknown transaction table: ${state.transaction_table}`);
+            photosFetched = true; // Default to true to avoid blocking
           }
           
           const notification: NotificationData = {
@@ -659,8 +696,8 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
             suppliers: suppliers,
             photos: photos,
             eventType: state.event_type as 'INSERT' | 'UPDATE' | 'DELETE',
-            isHandled: state.is_handled,
-            isDismissed: state.is_dismissed,
+            isHandled: false, // ALWAYS false since we filtered
+            isDismissed: false, // ALWAYS false since we filtered
             timestamp: state.created_at,
             priorityLevel: state.priority_level as 'HIGH' | 'MEDIUM' | 'LOW',
             requiresAction: state.requires_action,
@@ -685,9 +722,29 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     }
   };
 
+  // ===== CRITICAL FIX: Force modal display for any unhandled notifications =====
+  useEffect(() => {
+    // Check for unhandled notifications
+    const unhandledNotifications = notificationQueue.filter(n => !n.isHandled && !n.isDismissed);
+    
+    if (unhandledNotifications.length > 0 && !isNotificationVisible) {
+      console.log(`[NotificationContext] 🚨 FORCE SHOWING MODAL for ${unhandledNotifications.length} unhandled notifications`);
+      
+      // Find the first unhandled notification index
+      const firstUnhandledIndex = notificationQueue.findIndex(n => !n.isHandled && !n.isDismissed);
+      
+      if (firstUnhandledIndex !== -1) {
+        // Immediately show modal
+        setCurrentNotificationIndex(firstUnhandledIndex);
+        setIsNotificationVisible(true);
+        console.log(`[NotificationContext] ✅ Modal forced visible at index ${firstUnhandledIndex}`);
+      }
+    }
+  }, [notificationQueue, isNotificationVisible]); // React to ANY change in queue or visibility
+
   // ===== BELL NOTIFICATION FUNCTIONS =====
 
-  // Load bell notifications (unhandled notifications for dropdown) - ENHANCED to exclude handled
+  // CRITICAL FIX: Load bell notifications with STRICT filtering
   const loadBellNotifications = useCallback(async () => {
     try {
       console.log('[NotificationContext] Loading bell notifications (unhandled only)...');
@@ -704,19 +761,20 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         return;
       }
 
-      // Additional filter to ensure no handled notifications
+      // TRIPLE-CHECK filtering
       const unhandledStates = (notificationStates || []).filter(state => {
-        // Check localStorage for handled status
-        const handledKey = `handled_${state.id}`;
-        if (localStorage.getItem(handledKey)) {
+        // Check database
+        if (state.is_handled === true || state.is_dismissed === true) {
+          console.warn(`[NotificationContext] Filtering out handled/dismissed from bell: ${state.id}`);
+          return false;
+        }
+        
+        // Check localStorage
+        if (isNotificationReallyHandled(state.id)) {
           console.log(`[NotificationContext] Excluding handled notification ${state.id} from bell`);
           return false;
         }
-        // Verify not handled
-        if (state.is_handled === true) {
-          console.error(`[NotificationContext] CRITICAL: Handled notification ${state.id} in bell query - blocking`);
-          return false;
-        }
+        
         return true;
       });
 
@@ -753,7 +811,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       });
 
       setBellNotifications(bellNotifs);
-      console.log(`[NotificationContext] Loaded ${bellNotifs.length} bell notifications (all unhandled)`);
+      console.log(`[NotificationContext] Loaded ${bellNotifs.length} bell notifications (all verified unhandled)`);
     } catch (error) {
       console.error('Error loading bell notifications:', error);
     }
@@ -778,7 +836,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
 
   // ===== MAIN NOTIFICATION FUNCTIONS =====
 
-  // Refresh notifications from database - ENHANCED to exclude handled
+  // CRITICAL FIX: Refresh notifications with STRICT filtering
   const refreshNotifications = useCallback(async () => {
     try {
       console.log('[NotificationContext] Refreshing UNHANDLED notifications only...');
@@ -786,17 +844,14 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       // Load only unhandled notifications
       const notifications = await loadNotificationsFromDB();
       
-      // Additional filter to exclude any handled notifications from localStorage
+      // TRIPLE-CHECK filtering
       const filteredNotifications = notifications.filter(n => {
-        const handledKey = `handled_${n.id}`;
-        const isHandled = localStorage.getItem(handledKey);
-        if (isHandled) {
+        if (isNotificationReallyHandled(n.id)) {
           console.log(`[NotificationContext] Excluding handled notification ${n.id} from refresh`);
           return false;
         }
-        // Double-check the notification isn't handled
-        if (n.isHandled === true) {
-          console.error(`[NotificationContext] CRITICAL: Handled notification ${n.id} in refresh - blocking`);
+        if (n.isHandled === true || n.isDismissed === true) {
+          console.error(`[NotificationContext] CRITICAL: Handled/dismissed notification ${n.id} in refresh - blocking`);
           return false;
         }
         return true;
@@ -804,25 +859,46 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       
       setNotificationQueue(filteredNotifications);
       
+      // CRITICAL: If we have unhandled notifications, force show modal immediately
+      if (filteredNotifications.length > 0 && !isNotificationVisible) {
+        console.log(`[NotificationContext] Force showing modal for ${filteredNotifications.length} unhandled notifications from refresh`);
+        setCurrentNotificationIndex(0);
+        setIsNotificationVisible(true);
+      }
+      
       // Reload bell notifications as well
       await loadBellNotifications();
-      
-      // Show notifications if there are unhandled ones and none currently visible
-      const hasUnhandled = filteredNotifications.some(n => !n.isHandled && !n.isDismissed);
-      if (hasUnhandled && !isNotificationVisible) {
-        setIsNotificationVisible(true);
-        setCurrentNotificationIndex(0);
-      }
       
       console.log(`[NotificationContext] Refreshed ${filteredNotifications.length} unhandled notifications (${notifications.length} before filter)`);
     } catch (error) {
       console.error('Error refreshing notifications:', error);
     }
-  }, [isNotificationVisible, loadBellNotifications]);
+  }, [loadBellNotifications]);
 
-  // Open notification from bell dropdown
-  const openNotificationFromBell = useCallback((notificationId: string) => {
+  // Open notification from bell dropdown - ENHANCED with cross-session check
+  const openNotificationFromBell = useCallback(async (notificationId: string) => {
     console.log('[NotificationContext] Opening notification from bell:', notificationId);
+    
+    // First check if this notification is still unhandled in the database
+    const { data: dbState, error } = await supabase
+      .from('notification_states')
+      .select('is_handled, is_dismissed, handled_session')
+      .eq('id', notificationId)
+      .single();
+    
+    if (error) {
+      console.error('[NotificationContext] Error checking notification state:', error);
+    } else if (dbState && (dbState.is_handled || dbState.is_dismissed)) {
+      console.log('[NotificationContext] Notification was already handled/dismissed by another session');
+      
+      // Remove it from local state
+      setNotificationQueue(prev => prev.filter(n => n.id !== notificationId));
+      setBellNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
+      // Show alert to user
+      alert('This notification has already been handled on another device.');
+      return;
+    }
     
     // Find the notification in the queue
     const notificationIndex = notificationQueue.findIndex(n => n.id === notificationId);
@@ -837,18 +913,20 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     } else {
       console.warn('Notification not found in queue:', notificationId);
       // Refresh notifications and try again
-      refreshNotifications().then(() => {
-        const updatedIndex = notificationQueue.findIndex(n => n.id === notificationId);
-        if (updatedIndex !== -1) {
-          setCurrentNotificationIndex(updatedIndex);
-          setIsNotificationVisible(true);
-          setReadBellNotifications(prev => new Set([...prev, notificationId]));
-        }
-      });
+      await refreshNotifications();
+      const updatedQueue = notificationQueue;
+      const updatedIndex = updatedQueue.findIndex(n => n.id === notificationId);
+      if (updatedIndex !== -1) {
+        setCurrentNotificationIndex(updatedIndex);
+        setIsNotificationVisible(true);
+        setReadBellNotifications(prev => new Set([...prev, notificationId]));
+      } else {
+        alert('This notification is no longer available. It may have been handled on another device.');
+      }
     }
   }, [notificationQueue, refreshNotifications]);
 
-  // Mark notification as handled - ENHANCED with verification
+  // Mark notification as handled - ENHANCED with cross-session verification
   const markAsHandledById = async (notificationId: string): Promise<void> => {
     if (!sessionInfo) {
       console.warn('[NotificationContext] No session info available for marking notification as handled');
@@ -858,6 +936,29 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     console.log(`[NotificationContext] Marking notification ${notificationId} as HANDLED (permanent)`);
 
     try {
+      // FIRST: Check if already handled by another session
+      const { data: checkData, error: checkError } = await supabase
+        .from('notification_states')
+        .select('is_handled, is_dismissed, handled_session, handled_by')
+        .eq('id', notificationId)
+        .single();
+
+      if (checkError) {
+        console.error('Error checking notification state before handling:', checkError);
+      } else if (checkData && checkData.is_handled) {
+        console.log(`[NotificationContext] Notification already handled by ${checkData.handled_by} in session ${checkData.handled_session}`);
+        
+        // Remove from local state
+        setNotificationQueue(prev => prev.filter(n => n.id !== notificationId));
+        setBellNotifications(prev => prev.filter(n => n.id !== notificationId));
+        
+        // Show alert
+        setCrossSessionAlert('This notification was already handled on another device');
+        setTimeout(() => setCrossSessionAlert(null), 3000);
+        
+        return;
+      }
+
       // Update in database with explicit handled status
       const { error } = await supabase
         .from('notification_states')
@@ -977,88 +1078,244 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     }
   };
 
-  // Add notification with photo fetching and duplicate prevention
+  // FIXED: Simplified addNotification without embedded modal logic
   const addNotification = async (notification: Omit<NotificationData, 'id' | 'timestamp' | 'isHandled' | 'isDismissed' | 'photos' | 'photosFetched' | 'photoRetryCount'>) => {
-    console.log('[NotificationContext] addNotification called for transaction:', notification.transaction.id, 'type:', notification.transaction.transaction_type);
+    const notificationKey = `${notification.transaction.id}-${notification.eventType}`;
+    console.log('[NotificationContext] 🚨 addNotification called for:', notificationKey, 'Type:', notification.transaction.transaction_type);
     
-    // Check for existing notification to prevent duplicates
-    const existingNotification = notificationQueue.find(n => 
-      n.transaction.id === notification.transaction.id && 
-      n.eventType === notification.eventType
-    );
-
-    if (existingNotification) {
-      console.log(`[NotificationContext] Duplicate notification prevented for transaction: ${notification.transaction.id}`);
-      return;
-    }
-
-    // Check if this notification was recently dismissed
-    const dismissedKey = `dismissed_${notification.transaction.id}`;
-    const localDismissed = localStorage.getItem(dismissedKey);
-    if (localDismissed) {
-      console.log(`[NotificationContext] Skipping dismissed notification for transaction: ${notification.transaction.id}`);
-      return;
-    }
-    
-    let photos: TransactionPhoto[] = [];
-    let photosFetched = false;
-    let photoRetryCount = 0;
-    
-    // Only fetch photos for Purchase transactions
-    if (notification.transaction.transaction_type === 'Purchase') {
-      console.log(`[NotificationContext] Fetching photos for purchase transaction ${notification.transaction.id}`);
-      try {
-        photos = await fetchTransactionPhotos(notification.transaction.id);
-        photosFetched = true;
-        console.log(`[NotificationContext] Fetched ${photos.length} photos for purchase transaction`);
-      } catch (error) {
-        console.error(`[NotificationContext] Failed to fetch photos for transaction ${notification.transaction.id}:`, error);
-        photosFetched = false;
-        photoRetryCount = 1;
+    // For sales, don't block on processing flag since they're fast
+    if (notification.transaction.transaction_type !== 'Sale') {
+      // Check if we're already processing this notification
+      if (processingNotificationsRef.current.has(notificationKey)) {
+        console.log(`[NotificationContext] Already processing notification: ${notificationKey}`);
+        return;
       }
-    } else {
-      console.log(`[NotificationContext] Skipping photo fetch for sales transaction ${notification.transaction.id}`);
-      photosFetched = true; // Sales don't have photos
     }
     
-    const newNotification: NotificationData = {
-      ...notification,
-      id: `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: new Date().toISOString(),
-      isHandled: false,
-      isDismissed: false,
-      photos,
-      photosFetched,
-      photoRetryCount,
-      lastPhotoFetch: new Date().toISOString(),
-      priorityLevel: notification.priorityLevel || (notification.eventType === 'INSERT' ? 'HIGH' : 'MEDIUM'),
-      requiresAction: notification.requiresAction !== false
-    };
-
-    // Save to database first
-    const dbId = await saveNotificationToDB(newNotification);
-    if (dbId) {
-      newNotification.id = dbId;
-    }
-
-    console.log('[NotificationContext] Adding notification to queue:', {
-      id: newNotification.id,
-      transactionId: newNotification.transaction.id,
-      transactionType: newNotification.transaction.transaction_type,
-      photoCount: newNotification.photos.length,
-      photosFetched: newNotification.photosFetched,
-      eventType: newNotification.eventType
-    });
-
-    setNotificationQueue(prev => [...prev, newNotification]);
-    setIsNotificationVisible(true);
+    // Mark as processing
+    processingNotificationsRef.current.add(notificationKey);
     
-    if (notificationQueue.length === 0) {
-      setCurrentNotificationIndex(0);
-    }
+    try {
+      // Check for existing notification to prevent duplicates
+      const existingNotification = notificationQueueRef.current.find(n => 
+        n.transaction.id === notification.transaction.id && 
+        n.eventType === notification.eventType
+      );
 
-    // Also refresh bell notifications
-    await loadBellNotifications();
+      if (existingNotification) {
+        console.log(`[NotificationContext] Duplicate notification prevented for: ${notificationKey}`);
+        return;
+      }
+
+      // CRITICAL: Check if this notification was already handled
+      const tempCheckKey = `${notification.transaction.id}-${notification.eventType}`;
+      if (isNotificationReallyHandled(tempCheckKey)) {
+        console.log(`[NotificationContext] Skipping already handled notification: ${notificationKey}`);
+        return;
+      }
+      
+      // Check database for existing notification
+      const { data: existingDb, error: checkError } = await supabase
+        .from('notification_states')
+        .select('*')
+        .eq('transaction_id', notification.transaction.id)
+        .eq('event_type', notification.eventType)
+        .single();
+      
+      if (!checkError && existingDb) {
+        // Now check if the DB notification is handled using its ID
+        if (isNotificationReallyHandled(existingDb.id)) {
+          console.log(`[NotificationContext] Notification ${existingDb.id} is locally marked as handled/dismissed`);
+          return;
+        }
+        
+        if (existingDb.is_handled || existingDb.is_dismissed) {
+          console.log(`[NotificationContext] Notification already ${existingDb.is_handled ? 'handled' : 'dismissed'} in database: ${notificationKey}`);
+          return;
+        }
+        
+        // CRITICAL FIX: If unhandled notification exists in DB but not in queue, add it to queue
+        console.log(`[NotificationContext] Unhandled notification exists in database, adding to queue: ${notificationKey}`);
+        
+        // Fetch photos if needed (only for purchases)
+        let photos: TransactionPhoto[] = [];
+        let photosFetched = false;
+        let photoRetryCount = 0;
+        
+        if (notification.transaction.transaction_type === 'Purchase') {
+          try {
+            photos = await fetchTransactionPhotos(notification.transaction.id);
+            photosFetched = true;
+            console.log(`[NotificationContext] Fetched ${photos.length} photos for existing purchase`);
+          } catch (error) {
+            console.error(`[NotificationContext] Failed to fetch photos:`, error);
+            photosFetched = false;
+            photoRetryCount = 1;
+          }
+        } else {
+          photosFetched = true; // Sales don't have photos
+        }
+        
+        // Create notification from existing DB record
+        const existingNotification: NotificationData = {
+          id: existingDb.id,
+          transaction: notification.transaction,
+          suppliers: suppliers,
+          photos,
+          eventType: notification.eventType as 'INSERT' | 'UPDATE' | 'DELETE',
+          isHandled: false,
+          isDismissed: false,
+          timestamp: existingDb.created_at,
+          priorityLevel: existingDb.priority_level as 'HIGH' | 'MEDIUM' | 'LOW',
+          requiresAction: existingDb.requires_action,
+          photosFetched,
+          photoRetryCount,
+          lastPhotoFetch: new Date().toISOString()
+        };
+        
+        // Add to queue if not already there
+        const inQueue = notificationQueueRef.current.find(n => n.id === existingDb.id);
+        if (!inQueue) {
+          setNotificationQueue(prev => {
+            const updated = [...prev, existingNotification];
+            console.log(`[NotificationContext] Added existing notification to queue: ${prev.length} -> ${updated.length}`);
+            return updated;
+          });
+          
+          // Force show modal
+          if (!isNotificationVisibleRef.current) {
+            requestAnimationFrame(() => {
+              const currentQueue = notificationQueueRef.current;
+              const index = currentQueue.findIndex(n => n.id === existingDb.id);
+              if (index !== -1) {
+                console.log(`[NotificationContext] 🚨 SHOWING MODAL for existing notification at index ${index}`);
+                setCurrentNotificationIndex(index);
+                setIsNotificationVisible(true);
+              }
+            });
+          }
+          // Also refresh bell notifications
+          await loadBellNotifications();
+        } else {
+          console.log(`[NotificationContext] Notification ${existingDb.id} already in queue`);
+        }
+        
+        return; // Exit here since we've handled the existing notification
+      }
+      
+      let photos: TransactionPhoto[] = [];
+      let photosFetched = false;
+      let photoRetryCount = 0;
+      
+      // Only fetch photos for Purchase transactions
+      if (notification.transaction.transaction_type === 'Purchase') {
+        console.log(`[NotificationContext] Fetching photos for purchase transaction ${notification.transaction.id}`);
+        try {
+          photos = await fetchTransactionPhotos(notification.transaction.id);
+          photosFetched = true;
+          console.log(`[NotificationContext] Fetched ${photos.length} photos for purchase transaction`);
+        } catch (error) {
+          console.error(`[NotificationContext] Failed to fetch photos for transaction ${notification.transaction.id}:`, error);
+          photosFetched = false;
+          photoRetryCount = 1;
+        }
+      } else {
+        console.log(`[NotificationContext] Skipping photo fetch for sales transaction ${notification.transaction.id}`);
+        photosFetched = true; // Sales don't have photos
+      }
+      
+      const newNotification: NotificationData = {
+        ...notification,
+        id: `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: new Date().toISOString(),
+        isHandled: false,
+        isDismissed: false,
+        photos,
+        photosFetched,
+        photoRetryCount,
+        lastPhotoFetch: new Date().toISOString(),
+        priorityLevel: notification.priorityLevel || (notification.eventType === 'INSERT' ? 'HIGH' : 'MEDIUM'),
+        requiresAction: notification.requiresAction !== false
+      };
+
+      // Save to database first
+      const dbId = await saveNotificationToDB(newNotification);
+      if (dbId) {
+        newNotification.id = dbId;
+        console.log('[NotificationContext] Notification saved to database with ID:', dbId);
+      } else {
+        console.warn('[NotificationContext] Failed to save to database, using temporary ID');
+      }
+
+      console.log('[NotificationContext] 🚀 Adding notification to queue:', {
+        id: newNotification.id,
+        transactionId: newNotification.transaction.id,
+        transactionType: newNotification.transaction.transaction_type,
+        photoCount: newNotification.photos.length,
+        eventType: newNotification.eventType
+      });
+
+      // FIXED: Simply update the queue - the useEffect above will handle modal display
+      setNotificationQueue(prev => {
+        const updated = [...prev, newNotification];
+        console.log(`[NotificationContext] Queue updated: ${prev.length} -> ${updated.length} notifications`);
+        return updated;
+      });
+      
+      // Also refresh bell notifications
+      await loadBellNotifications();
+      
+      // FORCE immediate modal display for new notifications
+      if (!isNotificationVisibleRef.current) {
+        console.log('[NotificationContext] 🎯 FORCING immediate modal display for new notification');
+        
+        // For sales, show immediately without delay
+        if (notification.transaction.transaction_type === 'Sale') {
+          const currentQueue = notificationQueueRef.current;
+          const unhandledIndex = currentQueue.findIndex(n => 
+            n.id === newNotification.id || (n.transaction.id === newNotification.transaction.id && !n.isHandled && !n.isDismissed)
+          );
+          
+          if (unhandledIndex !== -1) {
+            console.log(`[NotificationContext] 🚨 IMMEDIATE MODAL for Sale at index ${unhandledIndex}`);
+            setCurrentNotificationIndex(unhandledIndex);
+            setIsNotificationVisible(true);
+          }
+        } else {
+          // Use requestAnimationFrame for purchases
+          requestAnimationFrame(() => {
+            const currentQueue = notificationQueueRef.current;
+            const unhandledIndex = currentQueue.findIndex(n => 
+              n.id === newNotification.id || (n.transaction.id === newNotification.transaction.id && !n.isHandled && !n.isDismissed)
+            );
+            
+            if (unhandledIndex !== -1) {
+              console.log(`[NotificationContext] 🚨 FORCE SHOWING MODAL at index ${unhandledIndex}`);
+              setCurrentNotificationIndex(unhandledIndex);
+              setIsNotificationVisible(true);
+              
+              // Double-check after a short delay
+              setTimeout(() => {
+                if (!isNotificationVisibleRef.current && notificationQueueRef.current.length > 0) {
+                  console.log(`[NotificationContext] 🔄 RETRY: Forcing modal visible`);
+                  setIsNotificationVisible(true);
+                }
+              }, 50);
+            }
+          });
+        }
+      } else {
+        console.log('[NotificationContext] Modal already visible, notification added to queue');
+      }
+      
+    } finally {
+      // Remove from processing after a delay to prevent rapid duplicates
+      // Shorter delay for sales since they don't need photo processing
+      const delay = notification.transaction.transaction_type === 'Sale' ? 500 : 2000;
+      setTimeout(() => {
+        processingNotificationsRef.current.delete(notificationKey);
+      }, delay);
+    }
   };
 
   // ===== NAVIGATION AND CONTROL FUNCTIONS =====
@@ -1243,7 +1500,19 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       console.log('[NotificationContext] Initializing notification provider...');
       
       const session = await initializeSession();
+      
+      // Load notifications and force display if any exist
       await refreshNotifications();
+      
+      // After refresh, check if we have unhandled notifications that need display
+      setTimeout(() => {
+        const unhandled = notificationQueueRef.current.filter(n => !n.isHandled && !n.isDismissed);
+        if (unhandled.length > 0 && !isNotificationVisibleRef.current) {
+          console.log(`[NotificationContext] Post-init: Force showing modal for ${unhandled.length} unhandled notifications`);
+          setCurrentNotificationIndex(0);
+          setIsNotificationVisible(true);
+        }
+      }, 500);
       
       setIsInitialized(true);
       console.log('[NotificationContext] Notification provider initialized');
@@ -1252,15 +1521,138 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     initializeProvider();
   }, [initializeSession, refreshNotifications]);
 
-  // Real-time subscriptions with enhanced duplicate prevention
+  // CRITICAL FIX: Real-time subscriptions with immediate modal trigger and proper sales handling
   useEffect(() => {
-    if (!isInitialized) return;
-
-    console.log('[NotificationContext] Setting up real-time subscriptions...');
+    if (!isInitialized || !sessionInfo) return;
     
-    // Purchase transactions subscription with duplicate prevention
+    // Clean up any existing subscription
+    if (subscriptionRef.current) {
+      console.log('[NotificationContext] Cleaning up existing subscriptions before creating new ones');
+      subscriptionRef.current.forEach((channel: any) => {
+        supabase.removeChannel(channel);
+      });
+      subscriptionRef.current = [];
+    }
+
+    console.log('[NotificationContext] Setting up real-time subscriptions with IMMEDIATE MODAL TRIGGERS...');
+    
+    const channels: any[] = [];
+    
+    // CRITICAL FIX: Enhanced notification handler that doesn't wait for photos on sales
+    const handleTransactionNotification = async (
+      payload: any,
+      transactionType: 'Purchase' | 'Sale',
+      validator: (data: any) => boolean,
+      converter: (data: any) => Transaction
+    ) => {
+      const transactionData = payload.eventType === 'DELETE' ? payload.old : payload.new;
+      const transactionId = transactionData?.id;
+      const notificationKey = `${transactionId}-${payload.eventType}`;
+
+      console.log(`[NotificationContext] 🚨 REAL-TIME ${transactionType} event:`, {
+        eventType: payload.eventType,
+        transactionId: transactionId,
+        timestamp: new Date().toISOString()
+      });
+
+      // Quick validation checks
+      const existingNotification = notificationQueueRef.current.find(n => 
+        n.transaction.id === transactionId && 
+        n.eventType === payload.eventType
+      );
+
+      if (existingNotification) {
+        console.log(`[NotificationContext] Duplicate in queue: ${notificationKey}`);
+        return;
+      }
+
+      // CRITICAL: Check if already handled
+      const tempCheckId = transactionId;
+      if (isNotificationReallyHandled(tempCheckId)) {
+        console.log(`[NotificationContext] Skipping already handled: ${notificationKey}`);
+        return;
+      }
+      
+      // Also check with the event type in the key
+      const fullCheckId = `${transactionId}-${payload.eventType}`;
+      if (isNotificationReallyHandled(fullCheckId)) {
+        console.log(`[NotificationContext] Skipping already handled (with event type): ${fullCheckId}`);
+        return;
+      }
+      
+      if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+        if (!validator(transactionData)) {
+          console.warn(`[NotificationContext] Invalid ${transactionType} data:`, transactionData);
+          return;
+        }
+        
+        const transaction = converter(transactionData);
+        console.log(`[NotificationContext] 🚀 Processing REAL-TIME ${transactionType}:`, transaction.id);
+        
+        try {
+          // CRITICAL FIX: Only wait for photos on Purchase INSERT events
+          if (payload.eventType === 'INSERT' && transactionType === 'Purchase') {
+            console.log('[NotificationContext] Waiting 2 seconds for photos on purchase...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } else if (transactionType === 'Sale') {
+            // For sales, ensure immediate processing
+            console.log('[NotificationContext] Processing sale immediately - no photo wait needed');
+          }
+          
+          // Add notification - this will handle its own processing flag
+          await addNotification({
+            transaction,
+            suppliers,
+            eventType: payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE',
+            priorityLevel: payload.eventType === 'INSERT' ? 'HIGH' : 'MEDIUM',
+            requiresAction: payload.eventType === 'INSERT'
+          });
+          
+          console.log(`[NotificationContext] ✅ Real-time ${transactionType} notification processed successfully`);
+          
+        } catch (error) {
+          console.error(`[NotificationContext] Error processing real-time notification:`, error);
+          
+          // Even if there's an error, try to show the notification
+          if (payload.eventType === 'INSERT' && transactionType === 'Sale') {
+            console.log('[NotificationContext] Attempting fallback notification display for Sale');
+            try {
+              const fallbackNotification: NotificationData = {
+                id: `fallback-${transactionId}-${Date.now()}`,
+                transaction,
+                suppliers,
+                photos: [],
+                eventType: payload.eventType as 'INSERT',
+                isHandled: false,
+                isDismissed: false,
+                timestamp: new Date().toISOString(),
+                priorityLevel: 'HIGH',
+                requiresAction: true,
+                photosFetched: true,
+                photoRetryCount: 0
+              };
+              
+              setNotificationQueue(prev => {
+                const updated = [...prev, fallbackNotification];
+                console.log(`[NotificationContext] Fallback added: ${prev.length} -> ${updated.length}`);
+                return updated;
+              });
+              
+              if (!isNotificationVisibleRef.current) {
+                setCurrentNotificationIndex(notificationQueueRef.current.length);
+                setIsNotificationVisible(true);
+              }
+            } catch (fallbackError) {
+              console.error('[NotificationContext] Fallback also failed:', fallbackError);
+            }
+          }
+        }
+      }
+    };
+    
+    // Purchase transactions subscription
     const purchaseChannel = supabase
-      .channel('purchase-transactions-channel')
+      .channel(`purchase-transactions-${sessionInfo.sessionId}`)
       .on(
         'postgres_changes',
         {
@@ -1268,72 +1660,22 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
           schema: 'public',
           table: 'transactions'
         },
-        async (payload) => {
-          const transactionData = payload.eventType === 'DELETE' ? payload.old : payload.new;
-          const transactionId = transactionData?.id;
-
-          console.log('[NotificationContext] Purchase transaction change received:', {
-            eventType: payload.eventType,
-            transactionId: transactionId
-          });
-
-          // Check if we already have a notification for this transaction
-          const existingNotification = notificationQueue.find(n => 
-            n.transaction.id === transactionId && 
-            n.eventType === payload.eventType
-          );
-
-          if (existingNotification) {
-            console.log(`[NotificationContext] Duplicate notification prevented for transaction: ${transactionId}`);
-            return;
-          }
-
-          // Check if this notification was recently dismissed
-          const recentlyDismissedKey = Object.keys(localStorage).find(key => 
-            key.startsWith('dismissed_') && 
-            localStorage.getItem(key)?.includes(transactionId)
-          );
-
-          if (recentlyDismissedKey) {
-            console.log(`[NotificationContext] Skipping dismissed notification for transaction: ${transactionId}`);
-            return;
-          }
-          
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
-            if (!isValidPurchaseTransaction(transactionData)) {
-              console.warn('[NotificationContext] Invalid purchase transaction data received:', transactionData);
-              return;
-            }
-            
-            const transaction = convertPurchaseTransaction(transactionData);
-            console.log('[NotificationContext] Processing purchase transaction:', transaction.id);
-            
-            if (payload.eventType === 'INSERT') {
-              console.log('[NotificationContext] Waiting 3 seconds for photos to be uploaded...');
-              await new Promise(resolve => setTimeout(resolve, 3000));
-            }
-            
-            try {
-              await addNotification({
-                transaction,
-                suppliers,
-                eventType: payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE',
-                priorityLevel: payload.eventType === 'INSERT' ? 'HIGH' : 'MEDIUM',
-                requiresAction: payload.eventType === 'INSERT'
-              });
-            } catch (error) {
-              console.error('[NotificationContext] Error adding purchase notification:', error);
-            }
-          }
-        }
+        (payload) => handleTransactionNotification(
+          payload,
+          'Purchase',
+          isValidPurchaseTransaction,
+          convertPurchaseTransaction
+        )
       )
       .subscribe((status) => {
         console.log('[NotificationContext] Purchase subscription status:', status);
       });
+    
+    channels.push(purchaseChannel);
 
-    // Sales transactions subscription with duplicate prevention
+    // Sales transactions subscription
     const salesChannel = supabase
-      .channel('sales-transactions-channel')
+      .channel(`sales-transactions-${sessionInfo.sessionId}`)
       .on(
         'postgres_changes',
         {
@@ -1341,67 +1683,22 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
           schema: 'public',
           table: 'sales_transactions'
         },
-        async (payload) => {
-          const transactionData = payload.eventType === 'DELETE' ? payload.old : payload.new;
-          const transactionId = transactionData?.id;
-
-          console.log('[NotificationContext] Sales transaction change received:', {
-            eventType: payload.eventType,
-            transactionId: transactionId
-          });
-
-          // Check if we already have a notification for this transaction
-          const existingNotification = notificationQueue.find(n => 
-            n.transaction.id === transactionId && 
-            n.eventType === payload.eventType
-          );
-
-          if (existingNotification) {
-            console.log(`[NotificationContext] Duplicate notification prevented for transaction: ${transactionId}`);
-            return;
-          }
-
-          // Check if this notification was recently dismissed
-          const recentlyDismissedKey = Object.keys(localStorage).find(key => 
-            key.startsWith('dismissed_') && 
-            localStorage.getItem(key)?.includes(transactionId)
-          );
-
-          if (recentlyDismissedKey) {
-            console.log(`[NotificationContext] Skipping dismissed notification for transaction: ${transactionId}`);
-            return;
-          }
-          
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
-            if (!isValidSalesTransaction(transactionData)) {
-              console.warn('[NotificationContext] Invalid sales transaction data received:', transactionData);
-              return;
-            }
-            
-            const transaction = convertSalesTransaction(transactionData);
-            console.log('[NotificationContext] Processing sales transaction:', transaction.id);
-            
-            try {
-              await addNotification({
-                transaction,
-                suppliers,
-                eventType: payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE',
-                priorityLevel: payload.eventType === 'INSERT' ? 'HIGH' : 'MEDIUM',
-                requiresAction: payload.eventType === 'INSERT'
-              });
-            } catch (error) {
-              console.error('[NotificationContext] Error adding sales notification:', error);
-            }
-          }
-        }
+        (payload) => handleTransactionNotification(
+          payload,
+          'Sale',
+          isValidSalesTransaction,
+          convertSalesTransaction
+        )
       )
       .subscribe((status) => {
         console.log('[NotificationContext] Sales subscription status:', status);
       });
+    
+    channels.push(salesChannel);
 
-    // Photo uploads subscription
+    // Photo uploads subscription (only for purchases)
     const photoChannel = supabase
-      .channel('photo-uploads-channel')
+      .channel(`photo-uploads-${sessionInfo.sessionId}`)
       .on(
         'postgres_changes',
         {
@@ -1467,8 +1764,10 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       .subscribe((status) => {
         console.log('[NotificationContext] Photo subscription status:', status);
       });
+    
+    channels.push(photoChannel);
 
-    // Notification states subscription
+    // Notification states subscription - ENHANCED for cross-session sync
     const notificationStatesChannel = supabase
       .channel('notification-states-channel')
       .on(
@@ -1480,9 +1779,98 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         },
         (payload) => {
           const updatedState = payload.new;
-          console.log('[NotificationContext] Notification state updated by another session:', updatedState.id);
+          console.log('[NotificationContext] Notification state updated:', {
+            id: updatedState.id,
+            is_handled: updatedState.is_handled,
+            is_dismissed: updatedState.is_dismissed,
+            by_session: updatedState.handled_session,
+            current_session: sessionInfo?.sessionId
+          });
           
-          if (updatedState.handled_session !== sessionInfo?.sessionId) {
+          // Process updates from ALL sessions (including other devices/browsers)
+          if (updatedState.is_handled || updatedState.is_dismissed) {
+            // Check if this was handled by another session
+            const isFromAnotherSession = updatedState.handled_session !== sessionInfo?.sessionId;
+            
+            if (isFromAnotherSession) {
+              console.log(`[NotificationContext] Notification ${updatedState.id} was ${updatedState.is_handled ? 'handled' : 'dismissed'} by another session`);
+              
+              // Add to localStorage to prevent recovery
+              if (updatedState.is_handled) {
+                const handledKey = `handled_${updatedState.id}`;
+                localStorage.setItem(handledKey, JSON.stringify({
+                  notificationId: updatedState.id,
+                  handledAt: updatedState.handled_at || new Date().toISOString(),
+                  sessionId: updatedState.handled_session,
+                  fromAnotherSession: true,
+                  permanent: true
+                }));
+              } else if (updatedState.is_dismissed) {
+                const dismissedKey = `dismissed_${updatedState.id}`;
+                localStorage.setItem(dismissedKey, JSON.stringify({
+                  notificationId: updatedState.id,
+                  dismissedAt: updatedState.handled_at || new Date().toISOString(),
+                  sessionId: updatedState.handled_session,
+                  fromAnotherSession: true
+                }));
+              }
+            }
+            
+            // Remove from notification queue immediately
+            setNotificationQueue(prev => {
+              const filtered = prev.filter(n => n.id !== updatedState.id);
+              console.log(`[NotificationContext] Removed notification from queue: ${prev.length} -> ${filtered.length}`);
+              
+              // If the removed notification was the current one being viewed, handle navigation
+              const currentNotification = prev[currentNotificationIndex];
+              if (currentNotification?.id === updatedState.id) {
+                console.log('[NotificationContext] Current notification was handled by another session, navigating...');
+                
+                // Find next unhandled notification
+                const nextUnhandled = filtered.find((n, index) => !n.isHandled && !n.isDismissed);
+                if (nextUnhandled) {
+                  const newIndex = filtered.findIndex(n => n.id === nextUnhandled.id);
+                  setCurrentNotificationIndex(newIndex);
+                } else {
+                  // No more notifications, close the panel
+                  setIsNotificationVisible(false);
+                  setCurrentNotificationIndex(0);
+                }
+              } else if (currentNotificationIndex >= filtered.length && filtered.length > 0) {
+                // Adjust index if it's now out of bounds
+                setCurrentNotificationIndex(filtered.length - 1);
+              }
+              
+              return filtered;
+            });
+            
+            // Remove from bell notifications
+            setBellNotifications(prev => {
+              const filtered = prev.filter(n => n.id !== updatedState.id);
+              console.log(`[NotificationContext] Removed from bell notifications: ${prev.length} -> ${filtered.length}`);
+              return filtered;
+            });
+            
+            // Remove from read notifications set if it was there
+            setReadBellNotifications(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(updatedState.id);
+              return newSet;
+            });
+            
+            // Force refresh bell notifications to ensure sync
+            loadBellNotifications().catch(error => {
+              console.error('[NotificationContext] Error refreshing bell notifications:', error);
+            });
+            
+            if (isFromAnotherSession) {
+              // Show temporary alert
+              setCrossSessionAlert(`Notification ${updatedState.is_handled ? 'completed' : 'dismissed'} on another device`);
+              setTimeout(() => setCrossSessionAlert(null), 3000);
+              console.log(`[NotificationContext] ✅ Notification handled on another device`);
+            }
+          } else {
+            // Update notification properties if not handled/dismissed
             setNotificationQueue(prev => 
               prev.map(n => n.id === updatedState.id ? {
                 ...n,
@@ -1490,29 +1878,72 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
                 isDismissed: updatedState.is_dismissed,
                 handledAt: updatedState.handled_at || undefined,
                 handledBy: updatedState.handled_by || undefined
-              } : n).filter(n => !n.isDismissed)
+              } : n)
             );
-            
-            if (updatedState.is_handled || updatedState.is_dismissed) {
-              setBellNotifications(prev => 
-                prev.filter(n => n.id !== updatedState.id)
-              );
-            }
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'notification_states'
+        },
+        (payload) => {
+          const deletedState = payload.old;
+          console.log('[NotificationContext] Notification state deleted:', deletedState.id);
+          
+          // Remove from both queues when deleted
+          setNotificationQueue(prev => {
+            const filtered = prev.filter(n => n.id !== deletedState.id);
+            
+            // Handle current notification being deleted
+            const currentNotification = prev[currentNotificationIndex];
+            if (currentNotification?.id === deletedState.id) {
+              console.log('[NotificationContext] Current notification was deleted, navigating...');
+              
+              const nextUnhandled = filtered.find(n => !n.isHandled && !n.isDismissed);
+              if (nextUnhandled) {
+                const newIndex = filtered.findIndex(n => n.id === nextUnhandled.id);
+                setCurrentNotificationIndex(newIndex);
+              } else {
+                setIsNotificationVisible(false);
+                setCurrentNotificationIndex(0);
+              }
+            }
+            
+            return filtered;
+          });
+          
+          setBellNotifications(prev => prev.filter(n => n.id !== deletedState.id));
+          
+          // Add to handled list to prevent recovery
+          const handledKey = `handled_${deletedState.id}`;
+          localStorage.setItem(handledKey, JSON.stringify({
+            notificationId: deletedState.id,
+            handledAt: new Date().toISOString(),
+            deleted: true,
+            permanent: true
+          }));
         }
       )
       .subscribe((status) => {
         console.log('[NotificationContext] Notification states subscription status:', status);
       });
 
+    channels.push(notificationStatesChannel);
+
+    // Store channels reference for cleanup
+    subscriptionRef.current = channels;
+
     return () => {
       console.log('[NotificationContext] Cleaning up subscriptions');
-      supabase.removeChannel(purchaseChannel);
-      supabase.removeChannel(salesChannel);
-      supabase.removeChannel(photoChannel);
-      supabase.removeChannel(notificationStatesChannel);
+      channels.forEach(channel => {
+        supabase.removeChannel(channel);
+      });
     };
-  }, [isInitialized, sessionInfo, suppliers, addNotification, notificationQueue]);
+  }, [isInitialized, sessionInfo, suppliers, addNotification, loadBellNotifications, currentNotificationIndex]);
 
   // Session heartbeat
   useEffect(() => {
@@ -1524,6 +1955,85 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       clearInterval(heartbeatInterval);
     };
   }, [sessionInfo, updateSessionHeartbeat]);
+
+  // Periodic sync check for cross-session updates - NEW
+  useEffect(() => {
+    if (!sessionInfo || !isInitialized) return;
+
+    // Check for handled notifications from other sessions every 10 seconds
+    const syncInterval = setInterval(async () => {
+      try {
+        // Get IDs of current notifications
+        const currentIds = notificationQueue.map(n => n.id);
+        
+        if (currentIds.length === 0) return;
+        
+        // Check their status in the database
+        const { data: dbStates, error } = await supabase
+          .from('notification_states')
+          .select('id, is_handled, is_dismissed, handled_session')
+          .in('id', currentIds);
+        
+        if (error) {
+          console.error('[NotificationContext] Error checking notification states:', error);
+          return;
+        }
+        
+        // Find notifications that were handled/dismissed by other sessions
+        const toRemove: string[] = [];
+        
+        dbStates?.forEach(dbState => {
+          if ((dbState.is_handled || dbState.is_dismissed) && dbState.handled_session !== sessionInfo.sessionId) {
+            toRemove.push(dbState.id);
+            console.log(`[NotificationContext] Sync check: Found notification ${dbState.id} ${dbState.is_handled ? 'handled' : 'dismissed'} by another session`);
+            
+            // Add to localStorage
+            if (dbState.is_handled) {
+              const handledKey = `handled_${dbState.id}`;
+              localStorage.setItem(handledKey, JSON.stringify({
+                notificationId: dbState.id,
+                handledAt: new Date().toISOString(),
+                sessionId: dbState.handled_session,
+                fromSync: true,
+                permanent: true
+              }));
+            }
+          }
+        });
+        
+        // Remove handled/dismissed notifications
+        if (toRemove.length > 0) {
+          setNotificationQueue(prev => {
+            const filtered = prev.filter(n => !toRemove.includes(n.id));
+            console.log(`[NotificationContext] Sync check: Removing ${toRemove.length} notifications handled elsewhere`);
+            
+            // Handle current notification being removed
+            const currentNotification = prev[currentNotificationIndex];
+            if (currentNotification && toRemove.includes(currentNotification.id)) {
+              const nextUnhandled = filtered.find(n => !n.isHandled && !n.isDismissed);
+              if (nextUnhandled) {
+                const newIndex = filtered.findIndex(n => n.id === nextUnhandled.id);
+                setCurrentNotificationIndex(newIndex);
+              } else {
+                setIsNotificationVisible(false);
+                setCurrentNotificationIndex(0);
+              }
+            }
+            
+            return filtered;
+          });
+          
+          setBellNotifications(prev => prev.filter(n => !toRemove.includes(n.id)));
+        }
+      } catch (error) {
+        console.error('[NotificationContext] Error in periodic sync:', error);
+      }
+    }, 10000); // Check every 10 seconds
+    
+    return () => {
+      clearInterval(syncInterval);
+    };
+  }, [sessionInfo, isInitialized, notificationQueue, currentNotificationIndex]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1561,6 +2071,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     isNavigationBlocked,
     attemptedNavigation,
     sessionInfo,
+    crossSessionAlert,
     
     // Bell notifications
     bellNotifications,
