@@ -1,4 +1,4 @@
-
+// src/contexts/NotificationContext.tsx - Fixed real-time modal display with notification sounds
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -254,6 +254,32 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
   const hasUnhandledNotifications = notificationQueue.some(n => !n.isHandled && !n.isDismissed);
   const isNavigationBlocked = hasUnhandledNotifications && isNotificationVisible;
   const unreadBellCount = bellNotifications.filter(n => !readBellNotifications.has(n.id)).length;
+
+  // ===== SOUND PLAYBACK UTILITIES =====
+  
+  // Function to play notification sound based on transaction type
+  const playNotificationSound = useCallback((transactionType: 'Purchase' | 'Sale') => {
+    try {
+      // Use notification-one.mp3 for Purchase, notification-two.mp3 for Sale
+      const soundFile = transactionType === 'Purchase' 
+        ? '/notification-one.mp3' 
+        : '/notification-two.mp3';
+      
+      const audio = new Audio(soundFile);
+      audio.volume = 0.6; // Set volume to 60% to not be too loud
+      
+      // Play the sound
+      audio.play().catch(error => {
+        console.warn(`[NotificationContext] Could not play notification sound:`, error);
+        // Don't throw error if sound fails - notification should still work
+      });
+      
+      console.log(`[NotificationContext] Playing ${transactionType} notification sound: ${soundFile}`);
+    } catch (error) {
+      console.warn('[NotificationContext] Error setting up notification sound:', error);
+      // Fail silently - sound is not critical
+    }
+  }, []);
 
   // ===== UTILITY FUNCTIONS =====
   
@@ -653,7 +679,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       // If we have unhandled notifications, ensure they will be displayed
       if (unhandledStates.length > 0) {
         console.log(`[NotificationContext] Will process ${unhandledStates.length} unhandled notifications for display`);
-      };
+      }
 
       // Transform database rows to NotificationData
       const notifications: NotificationData[] = [];
@@ -738,9 +764,40 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         setCurrentNotificationIndex(firstUnhandledIndex);
         setIsNotificationVisible(true);
         console.log(`[NotificationContext] ✅ Modal forced visible at index ${firstUnhandledIndex}`);
+        
+        // Play sound for the notification
+        const notification = notificationQueue[firstUnhandledIndex];
+        if (notification && notification.transaction) {
+          playNotificationSound(notification.transaction.transaction_type);
+        }
       }
     }
-  }, [notificationQueue, isNotificationVisible]); // React to ANY change in queue or visibility
+  }, [notificationQueue, isNotificationVisible, playNotificationSound]); // React to ANY change in queue or visibility
+
+  // Periodic visibility check for notifications
+  useEffect(() => {
+    if (!isInitialized) return;
+    
+    const visibilityCheck = setInterval(() => {
+      const unhandled = notificationQueue.filter(n => !n.isHandled && !n.isDismissed);
+      if (unhandled.length > 0 && !isNotificationVisible) {
+        console.log(`[NotificationContext] Periodic check: ${unhandled.length} unhandled notifications need display`);
+        const firstUnhandledIndex = notificationQueue.findIndex(n => !n.isHandled && !n.isDismissed);
+        if (firstUnhandledIndex !== -1) {
+          setCurrentNotificationIndex(firstUnhandledIndex);
+          setIsNotificationVisible(true);
+          
+          // Play sound for the notification
+          const notification = notificationQueue[firstUnhandledIndex];
+          if (notification && notification.transaction) {
+            playNotificationSound(notification.transaction.transaction_type);
+          }
+        }
+      }
+    }, 2000); // Check every 2 seconds
+    
+    return () => clearInterval(visibilityCheck);
+  }, [isInitialized, notificationQueue, isNotificationVisible, playNotificationSound]);
 
   // ===== BELL NOTIFICATION FUNCTIONS =====
 
@@ -864,6 +921,11 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         console.log(`[NotificationContext] Force showing modal for ${filteredNotifications.length} unhandled notifications from refresh`);
         setCurrentNotificationIndex(0);
         setIsNotificationVisible(true);
+        
+        // Play sound for first notification
+        if (filteredNotifications[0] && filteredNotifications[0].transaction) {
+          playNotificationSound(filteredNotifications[0].transaction.transaction_type);
+        }
       }
       
       // Reload bell notifications as well
@@ -873,9 +935,9 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     } catch (error) {
       console.error('Error refreshing notifications:', error);
     }
-  }, [loadBellNotifications]);
+  }, [loadBellNotifications, isNotificationVisible, playNotificationSound]);
 
-  // Open notification from bell dropdown - ENHANCED with cross-session check
+  // Open notification from bell dropdown - ENHANCED with cross-session check and sound
   const openNotificationFromBell = useCallback(async (notificationId: string) => {
     console.log('[NotificationContext] Opening notification from bell:', notificationId);
     
@@ -908,6 +970,12 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       setCurrentNotificationIndex(notificationIndex);
       setIsNotificationVisible(true);
       
+      // Play sound for the notification
+      const notification = notificationQueue[notificationIndex];
+      if (notification && notification.transaction) {
+        playNotificationSound(notification.transaction.transaction_type);
+      }
+      
       // Mark as read in bell
       setReadBellNotifications(prev => new Set([...prev, notificationId]));
     } else {
@@ -920,11 +988,17 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         setCurrentNotificationIndex(updatedIndex);
         setIsNotificationVisible(true);
         setReadBellNotifications(prev => new Set([...prev, notificationId]));
+        
+        // Play sound
+        const notification = updatedQueue[updatedIndex];
+        if (notification && notification.transaction) {
+          playNotificationSound(notification.transaction.transaction_type);
+        }
       } else {
         alert('This notification is no longer available. It may have been handled on another device.');
       }
     }
-  }, [notificationQueue, refreshNotifications]);
+  }, [notificationQueue, refreshNotifications, playNotificationSound]);
 
   // Mark notification as handled - ENHANCED with cross-session verification
   const markAsHandledById = async (notificationId: string): Promise<void> => {
@@ -1182,20 +1256,25 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
             return updated;
           });
           
-          // Force show modal
+          // Also refresh bell notifications
+          await loadBellNotifications();
+          
+          // Force show modal immediately for sales
           if (!isNotificationVisibleRef.current) {
-            requestAnimationFrame(() => {
+            console.log(`[NotificationContext] 🚨 FORCING MODAL for existing ${notification.transaction.transaction_type} notification`);
+            setTimeout(() => {
               const currentQueue = notificationQueueRef.current;
               const index = currentQueue.findIndex(n => n.id === existingDb.id);
               if (index !== -1) {
-                console.log(`[NotificationContext] 🚨 SHOWING MODAL for existing notification at index ${index}`);
+                console.log(`[NotificationContext] 🎯 SHOWING MODAL at index ${index}`);
                 setCurrentNotificationIndex(index);
                 setIsNotificationVisible(true);
+                
+                // Play notification sound
+                playNotificationSound(notification.transaction.transaction_type);
               }
-            });
+            }, 100);
           }
-          // Also refresh bell notifications
-          await loadBellNotifications();
         } else {
           console.log(`[NotificationContext] Notification ${existingDb.id} already in queue`);
         }
@@ -1280,6 +1359,9 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
             console.log(`[NotificationContext] 🚨 IMMEDIATE MODAL for Sale at index ${unhandledIndex}`);
             setCurrentNotificationIndex(unhandledIndex);
             setIsNotificationVisible(true);
+            
+            // Play sale notification sound
+            playNotificationSound('Sale');
           }
         } else {
           // Use requestAnimationFrame for purchases
@@ -1294,6 +1376,9 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
               setCurrentNotificationIndex(unhandledIndex);
               setIsNotificationVisible(true);
               
+              // Play purchase notification sound
+              playNotificationSound('Purchase');
+              
               // Double-check after a short delay
               setTimeout(() => {
                 if (!isNotificationVisibleRef.current && notificationQueueRef.current.length > 0) {
@@ -1306,6 +1391,8 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         }
       } else {
         console.log('[NotificationContext] Modal already visible, notification added to queue');
+        // Still play sound for queued notification
+        playNotificationSound(notification.transaction.transaction_type);
       }
       
     } finally {
@@ -1367,6 +1454,11 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       
       if (nextUnhandledIndex !== -1) {
         setCurrentNotificationIndex(nextUnhandledIndex);
+        // Play sound for next notification
+        const nextNotification = notificationQueue[nextUnhandledIndex];
+        if (nextNotification && nextNotification.transaction) {
+          playNotificationSound(nextNotification.transaction.transaction_type);
+        }
       } else {
         // Look for previous unhandled
         const previousUnhandledIndex = notificationQueue.findIndex((n, i) => {
@@ -1379,6 +1471,11 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         
         if (previousUnhandledIndex !== -1) {
           setCurrentNotificationIndex(previousUnhandledIndex);
+          // Play sound for previous notification
+          const prevNotification = notificationQueue[previousUnhandledIndex];
+          if (prevNotification && prevNotification.transaction) {
+            playNotificationSound(prevNotification.transaction.transaction_type);
+          }
         }
       }
     }
@@ -1414,6 +1511,11 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
           if (nextIndex !== -1) {
             setCurrentNotificationIndex(nextIndex);
             setIsNotificationVisible(true); // Keep showing notifications
+            // Play sound for next notification
+            const nextNotification = notificationQueue[nextIndex];
+            if (nextNotification && nextNotification.transaction) {
+              playNotificationSound(nextNotification.transaction.transaction_type);
+            }
           } else {
             // Check for previous notifications
             const prevIndex = notificationQueue.findIndex(
@@ -1423,6 +1525,11 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
             if (prevIndex !== -1) {
               setCurrentNotificationIndex(prevIndex);
               setIsNotificationVisible(true);
+              // Play sound for previous notification
+              const prevNotification = notificationQueue[prevIndex];
+              if (prevNotification && prevNotification.transaction) {
+                playNotificationSound(prevNotification.transaction.transaction_type);
+              }
             } else {
               // No more notifications
               setIsNotificationVisible(false);
@@ -1443,6 +1550,11 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     if (currentNotificationIndex < notificationQueue.length - 1) {
       console.log('[NotificationContext] Navigating to next notification');
       setCurrentNotificationIndex(currentNotificationIndex + 1);
+      // Play sound for next notification
+      const nextNotification = notificationQueue[currentNotificationIndex + 1];
+      if (nextNotification && nextNotification.transaction) {
+        playNotificationSound(nextNotification.transaction.transaction_type);
+      }
     }
   };
 
@@ -1450,6 +1562,11 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     if (currentNotificationIndex > 0) {
       console.log('[NotificationContext] Navigating to previous notification');
       setCurrentNotificationIndex(currentNotificationIndex - 1);
+      // Play sound for previous notification
+      const prevNotification = notificationQueue[currentNotificationIndex - 1];
+      if (prevNotification && prevNotification.transaction) {
+        playNotificationSound(prevNotification.transaction.transaction_type);
+      }
     }
   };
 
@@ -1511,6 +1628,10 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
           console.log(`[NotificationContext] Post-init: Force showing modal for ${unhandled.length} unhandled notifications`);
           setCurrentNotificationIndex(0);
           setIsNotificationVisible(true);
+          // Play sound for first notification
+          if (unhandled[0] && unhandled[0].transaction) {
+            playNotificationSound(unhandled[0].transaction.transaction_type);
+          }
         }
       }, 500);
       
@@ -1519,7 +1640,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     };
 
     initializeProvider();
-  }, [initializeSession, refreshNotifications]);
+  }, [initializeSession, refreshNotifications, playNotificationSound]);
 
   // CRITICAL FIX: Real-time subscriptions with immediate modal trigger and proper sales handling
   useEffect(() => {
@@ -1641,6 +1762,8 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
               if (!isNotificationVisibleRef.current) {
                 setCurrentNotificationIndex(notificationQueueRef.current.length);
                 setIsNotificationVisible(true);
+                // Play sound for fallback notification
+                playNotificationSound('Sale');
               }
             } catch (fallbackError) {
               console.error('[NotificationContext] Fallback also failed:', fallbackError);
@@ -1943,7 +2066,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         supabase.removeChannel(channel);
       });
     };
-  }, [isInitialized, sessionInfo, suppliers, addNotification, loadBellNotifications, currentNotificationIndex]);
+  }, [isInitialized, sessionInfo, suppliers, addNotification, loadBellNotifications, currentNotificationIndex, playNotificationSound]);
 
   // Session heartbeat
   useEffect(() => {
