@@ -1,7 +1,7 @@
-// src/components/suppliers/Suppliers.tsx - Mobile-first with transparent modal
-import React, { useState, useEffect } from 'react';
+// src/components/suppliers/Suppliers.tsx - Enhanced with Real Database Integration
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
-  Search, Plus, Eye, Edit2, MapPin, Phone, Mail, Filter, Loader2, X, Globe, Calendar, Award, AlertCircle
+  Search, Plus, Eye, Edit2, MapPin, Phone, Mail, Filter, Loader2, X, Globe, Calendar, Award, AlertCircle, Activity, RefreshCw
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
@@ -53,39 +53,58 @@ interface SupplierFormData {
   registration_reason: string;
 }
 
-// Real useSuppliers hook - NO MOCK DATA AT ALL
+// Enhanced useSuppliers hook with real-time data and better error handling
 const useSuppliers = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const [lastFetchTime, setLastFetchTime] = useState<Date | null>(null);
 
-  const fetchSuppliers = async () => {
+  const fetchSuppliers = useCallback(async () => {
     setLoading(true);
     setError(null);
     
     try {
-      const { data, error: fetchError } = await supabase
+      console.log('Fetching suppliers from database...');
+      
+      const { data, error: fetchError, count } = await supabase
         .from('suppliers')
-        .select('*')
+        .select('*', { count: 'exact' })
         .order('created_at', { ascending: false });
 
       if (fetchError) {
         throw fetchError;
       }
 
+      console.log(`Fetched ${data?.length || 0} suppliers from database`);
+      
       // Set the actual data from database (could be empty array)
-      setSuppliers(data || []);
+      const suppliersData = data || [];
+      setSuppliers(suppliersData);
+      setLastFetchTime(new Date());
+      
+      // Log some stats
+      if (suppliersData.length > 0) {
+        const activeSuppliers = suppliersData.filter(s => s.status === 'active').length;
+        const totalValue = suppliersData.reduce((sum, s) => sum + (s.total_value || 0), 0);
+        console.log(`Active suppliers: ${activeSuppliers}, Total business value: KES ${totalValue.toLocaleString()}`);
+      }
+
     } catch (err) {
       console.error('Error fetching suppliers:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch suppliers');
-      // Set empty array on error
-      setSuppliers([]);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch suppliers';
+      setError(errorMessage);
+      // Set empty array on error but don't clear existing data if it exists
+      if (suppliers.length === 0) {
+        setSuppliers([]);
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [suppliers.length]);
 
-  const searchSuppliers = async (query: string) => {
+  const searchSuppliers = useCallback(async (query: string) => {
     if (!query.trim()) {
       await fetchSuppliers();
       return;
@@ -95,17 +114,77 @@ const useSuppliers = () => {
     setError(null);
     
     try {
-      const { data, error: searchError } = await supabase
-        .from('suppliers')
-        .select('*')
-        .or(`name.ilike.%${query}%,email.ilike.%${query}%,contact_person.ilike.%${query}%`)
-        .order('created_at', { ascending: false });
+      console.log(`Searching suppliers with query: "${query}"`);
+      
+      // Fetch suppliers matching search and transactions in parallel
+      const [suppliersResult, transactionsResult, salesTransactionsResult] = await Promise.allSettled([
+        supabase
+          .from('suppliers')
+          .select('*')
+          .or(`name.ilike.%${query}%,email.ilike.%${query}%,contact_person.ilike.%${query}%,phone.ilike.%${query}%,address.ilike.%${query}%`)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('transactions')
+          .select('*'),
+        supabase
+          .from('sales_transactions')
+          .select('*')
+      ]);
 
-      if (searchError) {
-        throw searchError;
+      if (suppliersResult.status === 'rejected' || suppliersResult.value.error) {
+        throw suppliersResult.status === 'rejected' 
+          ? suppliersResult.reason 
+          : suppliersResult.value.error;
       }
 
-      setSuppliers(data || []);
+      const rawSuppliers = suppliersResult.value.data || [];
+      const transactions = transactionsResult.status === 'fulfilled' && !transactionsResult.value.error
+        ? transactionsResult.value.data || []
+        : [];
+      const salesTransactions = salesTransactionsResult.status === 'fulfilled' && !salesTransactionsResult.value.error
+        ? salesTransactionsResult.value.data || []
+        : [];
+
+      // Calculate real stats for each supplier (using same logic as dashboard)
+      const suppliersWithRealStats = rawSuppliers.map(supplier => {
+        const supplierTransactions = transactions.filter(t => t.supplier_id === supplier.id);
+        const supplierSalesTransactions = salesTransactions.filter(t => t.supplier_id === supplier.id);
+        
+        const purchaseTransactionCount = supplierTransactions.length;
+        const salesTransactionCount = supplierSalesTransactions.length;
+        const totalTransactions = purchaseTransactionCount + salesTransactionCount;
+        
+        const purchaseValue = supplierTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+        const salesValue = supplierSalesTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+        const totalValue = purchaseValue + salesValue;
+        
+        const purchaseWeight = supplierTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
+        const salesWeight = supplierSalesTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
+        const totalWeight = purchaseWeight + salesWeight;
+
+        const allTransactionDates = [
+          ...supplierTransactions.map(t => t.transaction_date),
+          ...supplierSalesTransactions.map(t => t.transaction_date)
+        ].filter(Boolean);
+        
+        const lastTransactionDate = allTransactionDates.length > 0
+          ? new Date(Math.max(...allTransactionDates.map(d => new Date(d).getTime()))).toISOString()
+          : null;
+        const averageTransactionValue = totalTransactions > 0 ? totalValue / totalTransactions : 0;
+
+        return {
+          ...supplier,
+          total_transactions: totalTransactions,
+          total_value: totalValue,
+          total_weight: totalWeight,
+          last_transaction_date: lastTransactionDate,
+          average_transaction_value: averageTransactionValue
+        };
+      });
+
+      console.log(`Search returned ${suppliersWithRealStats.length} results with calculated stats`);
+      setSuppliers(suppliersWithRealStats);
+      
     } catch (err) {
       console.error('Error searching suppliers:', err);
       setError(err instanceof Error ? err.message : 'Failed to search suppliers');
@@ -113,29 +192,82 @@ const useSuppliers = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchSuppliers]);
 
-  const filterByTier = async (tier: string) => {
+  const filterByTier = useCallback(async (tier: string) => {
     setLoading(true);
     setError(null);
     
     try {
-      let query = supabase
-        .from('suppliers')
-        .select('*');
-
+      console.log(`Filtering suppliers by tier: ${tier}`);
+      
+      // Build suppliers query
+      let suppliersQuery = supabase.from('suppliers').select('*');
       if (tier !== 'all') {
-        query = query.eq('supplier_tier', tier);
+        suppliersQuery = suppliersQuery.eq('supplier_tier', tier);
       }
 
-      const { data, error: filterError } = await query
-        .order('created_at', { ascending: false });
+      // Fetch suppliers and transactions in parallel
+      const [suppliersResult, transactionsResult, salesTransactionsResult] = await Promise.allSettled([
+        suppliersQuery.order('created_at', { ascending: false }),
+        supabase.from('transactions').select('*'),
+        supabase.from('sales_transactions').select('*')
+      ]);
 
-      if (filterError) {
-        throw filterError;
+      if (suppliersResult.status === 'rejected' || suppliersResult.value.error) {
+        throw suppliersResult.status === 'rejected' 
+          ? suppliersResult.reason 
+          : suppliersResult.value.error;
       }
 
-      setSuppliers(data || []);
+      const rawSuppliers = suppliersResult.value.data || [];
+      const transactions = transactionsResult.status === 'fulfilled' && !transactionsResult.value.error
+        ? transactionsResult.value.data || []
+        : [];
+      const salesTransactions = salesTransactionsResult.status === 'fulfilled' && !salesTransactionsResult.value.error
+        ? salesTransactionsResult.value.data || []
+        : [];
+
+      // Calculate real stats for each supplier (using same logic as dashboard)
+      const suppliersWithRealStats = rawSuppliers.map(supplier => {
+        const supplierTransactions = transactions.filter(t => t.supplier_id === supplier.id);
+        const supplierSalesTransactions = salesTransactions.filter(t => t.supplier_id === supplier.id);
+        
+        const purchaseTransactionCount = supplierTransactions.length;
+        const salesTransactionCount = supplierSalesTransactions.length;
+        const totalTransactions = purchaseTransactionCount + salesTransactionCount;
+        
+        const purchaseValue = supplierTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+        const salesValue = supplierSalesTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+        const totalValue = purchaseValue + salesValue;
+        
+        const purchaseWeight = supplierTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
+        const salesWeight = supplierSalesTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
+        const totalWeight = purchaseWeight + salesWeight;
+
+        const allTransactionDates = [
+          ...supplierTransactions.map(t => t.transaction_date),
+          ...supplierSalesTransactions.map(t => t.transaction_date)
+        ].filter(Boolean);
+        
+        const lastTransactionDate = allTransactionDates.length > 0
+          ? new Date(Math.max(...allTransactionDates.map(d => new Date(d).getTime()))).toISOString()
+          : null;
+        const averageTransactionValue = totalTransactions > 0 ? totalValue / totalTransactions : 0;
+
+        return {
+          ...supplier,
+          total_transactions: totalTransactions,
+          total_value: totalValue,
+          total_weight: totalWeight,
+          last_transaction_date: lastTransactionDate,
+          average_transaction_value: averageTransactionValue
+        };
+      });
+
+      console.log(`Filter returned ${suppliersWithRealStats.length} suppliers for tier: ${tier}`);
+      setSuppliers(suppliersWithRealStats);
+      
     } catch (err) {
       console.error('Error filtering suppliers:', err);
       setError(err instanceof Error ? err.message : 'Failed to filter suppliers');
@@ -143,31 +275,119 @@ const useSuppliers = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const addSupplier = async (supplierData: SupplierFormData) => {
+  const filterByStatus = useCallback(async (status: string) => {
+    setLoading(true);
+    setError(null);
+    
     try {
+      console.log(`Filtering suppliers by status: ${status}`);
+      
+      // Build suppliers query
+      let suppliersQuery = supabase.from('suppliers').select('*');
+      if (status !== 'all') {
+        suppliersQuery = suppliersQuery.eq('status', status);
+      }
+
+      // Fetch suppliers and transactions in parallel
+      const [suppliersResult, transactionsResult, salesTransactionsResult] = await Promise.allSettled([
+        suppliersQuery.order('created_at', { ascending: false }),
+        supabase.from('transactions').select('*'),
+        supabase.from('sales_transactions').select('*')
+      ]);
+
+      if (suppliersResult.status === 'rejected' || suppliersResult.value.error) {
+        throw suppliersResult.status === 'rejected' 
+          ? suppliersResult.reason 
+          : suppliersResult.value.error;
+      }
+
+      const rawSuppliers = suppliersResult.value.data || [];
+      const transactions = transactionsResult.status === 'fulfilled' && !transactionsResult.value.error
+        ? transactionsResult.value.data || []
+        : [];
+      const salesTransactions = salesTransactionsResult.status === 'fulfilled' && !salesTransactionsResult.value.error
+        ? salesTransactionsResult.value.data || []
+        : [];
+
+      // Calculate real stats for each supplier (using same logic as dashboard)
+      const suppliersWithRealStats = rawSuppliers.map(supplier => {
+        const supplierTransactions = transactions.filter(t => t.supplier_id === supplier.id);
+        const supplierSalesTransactions = salesTransactions.filter(t => t.supplier_id === supplier.id);
+        
+        const purchaseTransactionCount = supplierTransactions.length;
+        const salesTransactionCount = supplierSalesTransactions.length;
+        const totalTransactions = purchaseTransactionCount + salesTransactionCount;
+        
+        const purchaseValue = supplierTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+        const salesValue = supplierSalesTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+        const totalValue = purchaseValue + salesValue;
+        
+        const purchaseWeight = supplierTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
+        const salesWeight = supplierSalesTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
+        const totalWeight = purchaseWeight + salesWeight;
+
+        const allTransactionDates = [
+          ...supplierTransactions.map(t => t.transaction_date),
+          ...supplierSalesTransactions.map(t => t.transaction_date)
+        ].filter(Boolean);
+        
+        const lastTransactionDate = allTransactionDates.length > 0
+          ? new Date(Math.max(...allTransactionDates.map(d => new Date(d).getTime()))).toISOString()
+          : null;
+        const averageTransactionValue = totalTransactions > 0 ? totalValue / totalTransactions : 0;
+
+        return {
+          ...supplier,
+          total_transactions: totalTransactions,
+          total_value: totalValue,
+          total_weight: totalWeight,
+          last_transaction_date: lastTransactionDate,
+          average_transaction_value: averageTransactionValue
+        };
+      });
+
+      console.log(`Status filter returned ${suppliersWithRealStats.length} suppliers`);
+      setSuppliers(suppliersWithRealStats);
+      
+    } catch (err) {
+      console.error('Error filtering suppliers by status:', err);
+      setError(err instanceof Error ? err.message : 'Failed to filter suppliers');
+      setSuppliers([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const addSupplier = useCallback(async (supplierData: SupplierFormData) => {
+    try {
+      console.log('Adding new supplier:', supplierData.name);
+      
+      const newSupplierData = {
+        name: supplierData.name.trim(),
+        email: supplierData.email.trim().toLowerCase(),
+        phone: supplierData.phone.trim(),
+        address: supplierData.address.trim(),
+        material_types: supplierData.material_types.filter(Boolean),
+        status: supplierData.status,
+        contact_person: supplierData.contact_person.trim() || null,
+        website: supplierData.website.trim() || null,
+        notes: supplierData.notes.trim() || null,
+        supplier_tier: supplierData.supplier_tier || 'occasional',
+        credit_limit: supplierData.credit_limit || 0,
+        preferred_payment_method: supplierData.preferred_payment_method || 'cash',
+        registration_reason: supplierData.registration_reason.trim() || null,
+        total_transactions: 0,
+        total_value: 0,
+        total_weight: 0,
+        registered_date: new Date().toISOString(),
+        registered_by: 'admin' // TODO: Get from auth context
+      };
+
       const { data, error: insertError } = await supabase
         .from('suppliers')
-        .insert({
-          name: supplierData.name,
-          email: supplierData.email,
-          phone: supplierData.phone,
-          address: supplierData.address,
-          material_types: supplierData.material_types,
-          status: supplierData.status,
-          contact_person: supplierData.contact_person || null,
-          website: supplierData.website || null,
-          notes: supplierData.notes || null,
-          supplier_tier: supplierData.supplier_tier || 'occasional',
-          credit_limit: supplierData.credit_limit || 0,
-          preferred_payment_method: supplierData.preferred_payment_method || 'cash',
-          registration_reason: supplierData.registration_reason || null,
-          total_transactions: 0,
-          total_value: 0,
-          registered_date: new Date().toISOString(),
-          registered_by: 'admin'
-        })
+        .insert(newSupplierData)
         .select()
         .single();
 
@@ -175,48 +395,205 @@ const useSuppliers = () => {
         throw insertError;
       }
 
-      // Add the new supplier to the local state
+      console.log('Successfully added supplier:', data.name);
+      
+      // Add the new supplier to the local state at the beginning
       setSuppliers(prev => [data, ...prev]);
       return data;
+      
     } catch (err) {
       console.error('Error adding supplier:', err);
-      throw err;
+      throw err instanceof Error ? err : new Error('Failed to add supplier');
     }
-  };
+  }, []);
+
+  const updateSupplier = useCallback(async (supplierId: string, updateData: Partial<SupplierFormData>) => {
+    try {
+      console.log('Updating supplier:', supplierId);
+      
+      const { data, error: updateError } = await supabase
+        .from('suppliers')
+        .update({
+          ...updateData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', supplierId)
+        .select()
+        .single();
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      console.log('Successfully updated supplier');
+      
+      // Update the supplier in local state
+      setSuppliers(prev => prev.map(supplier => 
+        supplier.id === supplierId ? { ...supplier, ...data } : supplier
+      ));
+      
+      return data;
+      
+    } catch (err) {
+      console.error('Error updating supplier:', err);
+      throw err instanceof Error ? err : new Error('Failed to update supplier');
+    }
+  }, []);
+
+  const deleteSupplier = useCallback(async (supplierId: string) => {
+    try {
+      console.log('Deleting supplier:', supplierId);
+      
+      const { error: deleteError } = await supabase
+        .from('suppliers')
+        .delete()
+        .eq('id', supplierId);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      console.log('Successfully deleted supplier');
+      
+      // Remove the supplier from local state
+      setSuppliers(prev => prev.filter(supplier => supplier.id !== supplierId));
+      
+    } catch (err) {
+      console.error('Error deleting supplier:', err);
+      throw err instanceof Error ? err : new Error('Failed to delete supplier');
+    }
+  }, []);
+
+  // Set up real-time subscription like in dashboard
+  useEffect(() => {
+    console.log('Setting up suppliers realtime subscription...');
+
+    const suppliersChannel = supabase
+      .channel('suppliers-realtime-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'suppliers'
+        },
+        (payload) => {
+          console.log('Supplier realtime update received:', payload);
+          
+          switch (payload.eventType) {
+            case 'INSERT':
+              const newSupplier = payload.new as Supplier;
+              setSuppliers(prev => {
+                // Check if supplier already exists to avoid duplicates
+                if (prev.some(s => s.id === newSupplier.id)) {
+                  return prev;
+                }
+                return [newSupplier, ...prev];
+              });
+              break;
+              
+            case 'UPDATE':
+              const updatedSupplier = payload.new as Supplier;
+              setSuppliers(prev => prev.map(supplier => 
+                supplier.id === updatedSupplier.id ? updatedSupplier : supplier
+              ));
+              break;
+              
+            case 'DELETE':
+              const deletedSupplierId = payload.old?.id;
+              if (deletedSupplierId) {
+                setSuppliers(prev => prev.filter(supplier => supplier.id !== deletedSupplierId));
+              }
+              break;
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Suppliers realtime subscription status:', status);
+        
+        if (status === 'SUBSCRIBED') {
+          setIsRealtimeConnected(true);
+          console.log('Successfully subscribed to suppliers updates');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setIsRealtimeConnected(false);
+          console.error('Suppliers realtime connection error');
+        } else if (status === 'CLOSED') {
+          setIsRealtimeConnected(false);
+        }
+      });
+
+    // Cleanup subscription on unmount
+    return () => {
+      console.log('Cleaning up suppliers realtime subscription...');
+      supabase.removeChannel(suppliersChannel);
+      setIsRealtimeConnected(false);
+    };
+  }, []);
+
+  // Initial data fetch
+  useEffect(() => {
+    fetchSuppliers();
+  }, []);
+
+  // Auto-refresh every 10 minutes (less frequent than dashboard since suppliers change less often)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      console.log('Auto-refreshing suppliers data...');
+      fetchSuppliers();
+    }, 10 * 60 * 1000);
+    
+    return () => clearInterval(interval);
+  }, [fetchSuppliers]);
 
   return {
     suppliers,
     loading,
     error,
+    isRealtimeConnected,
+    lastFetchTime,
     fetchSuppliers,
     searchSuppliers,
     filterByTier,
-    addSupplier
+    filterByStatus,
+    addSupplier,
+    updateSupplier,
+    deleteSupplier
   };
 };
 
-// Empty State Component
-const EmptyState = () => (
+// Enhanced Empty State Component
+const EmptyState: React.FC<{ onAddSupplier: () => void; hasFiltersApplied: boolean }> = ({ onAddSupplier, hasFiltersApplied }) => (
   <div className="flex flex-col items-center justify-center py-16 px-4">
-    <div className="bg-gray-100 rounded-full p-6 mb-4">
-      <AlertCircle className="h-16 w-16 text-gray-400" />
+    <div className="bg-gradient-to-br from-blue-50 to-indigo-100 rounded-full p-6 mb-4">
+      <AlertCircle className="h-16 w-16 text-blue-500" />
     </div>
-    <h3 className="text-xl font-semibold text-gray-900 mb-2">No Suppliers Yet</h3>
+    <h3 className="text-xl font-semibold text-gray-900 mb-2">No Suppliers Found</h3>
     <p className="text-gray-600 text-center max-w-md mb-6">
-      You haven't registered any suppliers yet. Start by adding your first supplier to begin tracking your business relationships.
+      {hasFiltersApplied
+        ? "No suppliers match your current filters. Try adjusting your search or filter criteria."
+        : "You haven't registered any suppliers yet. Start by adding your first supplier to begin tracking your business relationships."
+      }
     </p>
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md">
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md mb-4">
       <h4 className="font-semibold text-blue-900 mb-2">Getting Started</h4>
       <ul className="text-sm text-blue-800 space-y-1">
-        <li>• Click the "Add Supplier" button above</li>
-        <li>• Fill in the supplier details</li>
-        <li>• Start tracking transactions and relationships</li>
+        <li>• Click the "Add Supplier" button to register new suppliers</li>
+        <li>• Fill in supplier details and contact information</li>
+        <li>• Start tracking transactions and building relationships</li>
+        <li>• Monitor supplier performance and manage tiers</li>
       </ul>
     </div>
+    <button
+      onClick={onAddSupplier}
+      className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+    >
+      <Plus size={20} />
+      Add Your First Supplier
+    </button>
   </div>
 );
 
-// Modal Component for Adding Suppliers - Mobile First with Transparent Background
+// Enhanced Modal Component for Adding Suppliers
 const AddSupplierModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -240,42 +617,70 @@ const AddSupplierModal: React.FC<{
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitError, setSubmitError] = useState<string>('');
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: name === 'credit_limit' ? parseFloat(value) || 0 : value
     }));
     
+    // Clear errors when user starts typing
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
         [name]: ''
       }));
     }
+    
+    if (submitError) {
+      setSubmitError('');
+    }
   };
 
   const handleMaterialTypesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const materialTypesString = e.target.value;
-    const materialTypesArray = materialTypesString.split(',').map(type => type.trim()).filter(Boolean);
+    const materialTypesArray = materialTypesString
+      .split(',')
+      .map(type => type.trim())
+      .filter(Boolean);
+    
     setFormData(prev => ({
       ...prev,
       material_types: materialTypesArray
     }));
+    
+    if (errors.material_types) {
+      setErrors(prev => ({ ...prev, material_types: '' }));
+    }
   };
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
     
-    if (!formData.name.trim()) newErrors.name = 'Name is required';
+    // Required fields validation
+    if (!formData.name.trim()) newErrors.name = 'Company name is required';
     if (!formData.email.trim()) newErrors.email = 'Email is required';
-    if (!formData.phone.trim()) newErrors.phone = 'Phone is required';
+    if (!formData.phone.trim()) newErrors.phone = 'Phone number is required';
     if (!formData.address.trim()) newErrors.address = 'Address is required';
     if (formData.material_types.length === 0) newErrors.material_types = 'At least one material type is required';
     
+    // Format validation
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Invalid email format';
+      newErrors.email = 'Please enter a valid email address';
+    }
+    
+    if (formData.phone && !/^[\d+\-\s()]+$/.test(formData.phone)) {
+      newErrors.phone = 'Please enter a valid phone number';
+    }
+    
+    if (formData.website && formData.website.trim() && !/^https?:\/\/.+/.test(formData.website)) {
+      newErrors.website = 'Website URL must start with http:// or https://';
+    }
+    
+    if (formData.credit_limit < 0) {
+      newErrors.credit_limit = 'Credit limit cannot be negative';
     }
     
     setErrors(newErrors);
@@ -284,6 +689,7 @@ const AddSupplierModal: React.FC<{
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError('');
     
     if (!validateForm()) return;
     
@@ -292,7 +698,8 @@ const AddSupplierModal: React.FC<{
       resetForm();
       onClose();
     } catch (error) {
-      console.error('Error submitting form:', error);
+      console.error('Error submitting supplier form:', error);
+      setSubmitError(error instanceof Error ? error.message : 'Failed to add supplier');
     }
   };
 
@@ -313,6 +720,7 @@ const AddSupplierModal: React.FC<{
       registration_reason: ''
     });
     setErrors({});
+    setSubmitError('');
   };
 
   const handleClose = () => {
@@ -324,10 +732,13 @@ const AddSupplierModal: React.FC<{
 
   return (
     <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white/95 backdrop-blur rounded-2xl shadow-2xl w-full max-w-lg h-[65vh] sm:h-[60vh] md:h-[65vh] flex flex-col">
+      <div className="bg-white/95 backdrop-blur rounded-2xl shadow-2xl w-full max-w-lg h-[70vh] sm:h-[65vh] md:h-[70vh] flex flex-col">
         {/* Header - Fixed */}
         <div className="flex items-center justify-between p-4 sm:p-5 border-b border-gray-200/50 bg-white/80 backdrop-blur rounded-t-2xl">
-          <h2 className="text-lg sm:text-xl font-semibold text-gray-800">Add New Supplier</h2>
+          <div>
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-800">Add New Supplier</h2>
+            <p className="text-sm text-gray-600 mt-1">Register a new supplier for your business</p>
+          </div>
           <button onClick={handleClose} className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors">
             <X size={18} className="sm:w-5 sm:h-5" />
           </button>
@@ -335,10 +746,23 @@ const AddSupplierModal: React.FC<{
 
         {/* Form - Scrollable */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-4 sm:px-5 py-4">
+          {/* Show submit error if any */}
+          {submitError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={16} className="text-red-600" />
+                <p className="text-sm text-red-800">{submitError}</p>
+              </div>
+            </div>
+          )}
+          
           <div className="space-y-4">
             {/* Basic Information Section */}
             <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Basic Information</h3>
+              <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                Basic Information
+              </h3>
               <div className="space-y-3">
                 <div>
                   <label htmlFor="name" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
@@ -353,7 +777,7 @@ const AddSupplierModal: React.FC<{
                     className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                       errors.name ? 'border-red-500' : 'border-gray-300'
                     }`}
-                    placeholder="Enter company name"
+                    placeholder="Enter company or supplier name"
                   />
                   {errors.name && <p className="text-red-500 text-xs mt-0.5">{errors.name}</p>}
                 </div>
@@ -370,13 +794,13 @@ const AddSupplierModal: React.FC<{
                       value={formData.contact_person}
                       onChange={handleChange}
                       className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Contact name"
+                      placeholder="Primary contact name"
                     />
                   </div>
 
                   <div>
                     <label htmlFor="phone" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                      Phone *
+                      Phone Number *
                     </label>
                     <input
                       type="tel"
@@ -387,7 +811,7 @@ const AddSupplierModal: React.FC<{
                       className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                         errors.phone ? 'border-red-500' : 'border-gray-300'
                       }`}
-                      placeholder="Phone number"
+                      placeholder="+254 xxx xxx xxx"
                     />
                     {errors.phone && <p className="text-red-500 text-xs mt-0.5">{errors.phone}</p>}
                   </div>
@@ -395,7 +819,7 @@ const AddSupplierModal: React.FC<{
 
                 <div>
                   <label htmlFor="email" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                    Email *
+                    Email Address *
                   </label>
                   <input
                     type="email"
@@ -406,14 +830,14 @@ const AddSupplierModal: React.FC<{
                     className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                       errors.email ? 'border-red-500' : 'border-gray-300'
                     }`}
-                    placeholder="Email address"
+                    placeholder="supplier@example.com"
                   />
                   {errors.email && <p className="text-red-500 text-xs mt-0.5">{errors.email}</p>}
                 </div>
 
                 <div>
                   <label htmlFor="address" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                    Address *
+                    Business Address *
                   </label>
                   <input
                     type="text"
@@ -424,7 +848,7 @@ const AddSupplierModal: React.FC<{
                     className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                       errors.address ? 'border-red-500' : 'border-gray-300'
                     }`}
-                    placeholder="Full address"
+                    placeholder="Full business address"
                   />
                   {errors.address && <p className="text-red-500 text-xs mt-0.5">{errors.address}</p>}
                 </div>
@@ -456,9 +880,12 @@ const AddSupplierModal: React.FC<{
                       name="website"
                       value={formData.website}
                       onChange={handleChange}
-                      className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Website URL"
+                      className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        errors.website ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      placeholder="https://example.com"
                     />
+                    {errors.website && <p className="text-red-500 text-xs mt-0.5">{errors.website}</p>}
                   </div>
                 </div>
               </div>
@@ -466,7 +893,10 @@ const AddSupplierModal: React.FC<{
 
             {/* Business Information Section */}
             <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Business Information</h3>
+              <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                Business Information
+              </h3>
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -516,10 +946,13 @@ const AddSupplierModal: React.FC<{
                       name="credit_limit"
                       value={formData.credit_limit}
                       onChange={handleChange}
-                      className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        errors.credit_limit ? 'border-red-500' : 'border-gray-300'
+                      }`}
                       placeholder="0"
                       min="0"
                     />
+                    {errors.credit_limit && <p className="text-red-500 text-xs mt-0.5">{errors.credit_limit}</p>}
                   </div>
 
                   <div>
@@ -533,7 +966,7 @@ const AddSupplierModal: React.FC<{
                       value={formData.registration_reason}
                       onChange={handleChange}
                       className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Why register?"
+                      placeholder="Why register this supplier?"
                     />
                   </div>
                 </div>
@@ -551,14 +984,15 @@ const AddSupplierModal: React.FC<{
                     className={`w-full px-3 py-1.5 sm:py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                       errors.material_types ? 'border-red-500' : 'border-gray-300'
                     }`}
-                    placeholder="e.g., Steel, Aluminum, Copper"
+                    placeholder="e.g., Steel, Aluminum, Copper, Brass"
                   />
+                  <p className="text-xs text-gray-500 mt-1">Separate multiple materials with commas</p>
                   {errors.material_types && <p className="text-red-500 text-xs mt-0.5">{errors.material_types}</p>}
                 </div>
 
                 <div>
                   <label htmlFor="notes" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                    Notes
+                    Additional Notes
                   </label>
                   <textarea
                     id="notes"
@@ -567,7 +1001,7 @@ const AddSupplierModal: React.FC<{
                     onChange={handleChange}
                     rows={2}
                     className="w-full px-3 py-1.5 sm:py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Additional notes"
+                    placeholder="Any additional information about this supplier..."
                   />
                 </div>
               </div>
@@ -607,22 +1041,82 @@ const AddSupplierModal: React.FC<{
   );
 };
 
-// Main Suppliers Component
+// Enhanced Stats Bar Component
+const SuppliersStatsBar: React.FC<{
+  totalSuppliers: number;
+  activeSuppliers: number;
+  totalValue: number;
+  totalTransactions: number;
+  isLoading: boolean;
+}> = ({ totalSuppliers, activeSuppliers, totalValue, totalTransactions, isLoading }) => {
+  if (isLoading) {
+    return (
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-100 rounded-xl p-4 mb-4">
+        <div className="flex items-center justify-center">
+          <Loader2 className="animate-spin text-blue-600" size={24} />
+          <span className="ml-2 text-blue-700">Loading statistics...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gradient-to-r from-blue-50 to-indigo-100 rounded-xl p-4 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="text-center">
+          <div className="text-2xl font-bold text-blue-600">{totalSuppliers}</div>
+          <div className="text-sm text-blue-700">Total Suppliers</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-green-600">{activeSuppliers}</div>
+          <div className="text-sm text-green-700">Active</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-purple-600">KES {(totalValue / 1000).toFixed(0)}K</div>
+          <div className="text-sm text-purple-700">Total Value</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-orange-600">{totalTransactions}</div>
+          <div className="text-sm text-orange-700">Transactions</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Main Enhanced Suppliers Component
 const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
   const {
     suppliers,
     loading,
     error,
+    isRealtimeConnected,
+    lastFetchTime,
     searchSuppliers,
     filterByTier,
+    filterByStatus,
     fetchSuppliers,
-    addSupplier
+    addSupplier,
+    updateSupplier,
+    deleteSupplier
   } = useSuppliers();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTierValue, setFilterTierValue] = useState<string>('all');
+  const [filterStatusValue, setFilterStatusValue] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const handleSearch = async (term: string) => {
     setSearchTerm(term);
@@ -635,7 +1129,14 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
 
   const handleTierFilter = async (tier: string) => {
     setFilterTierValue(tier);
+    setFilterStatusValue('all'); // Reset status filter
     await filterByTier(tier);
+  };
+
+  const handleStatusFilter = async (status: string) => {
+    setFilterStatusValue(status);
+    setFilterTierValue('all'); // Reset tier filter
+    await filterByStatus(status);
   };
 
   const handleAddSupplier = async (supplierData: SupplierFormData) => {
@@ -643,8 +1144,10 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
     try {
       await addSupplier(supplierData);
       setIsModalOpen(false);
+      console.log('Supplier added successfully');
     } catch (error) {
       console.error('Error adding supplier:', error);
+      throw error; // Re-throw to let modal handle the error display
     } finally {
       setIsSubmitting(false);
     }
@@ -678,16 +1181,21 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
     }
   };
 
-  useEffect(() => {
-    fetchSuppliers();
-  }, []);
+  // Calculate stats
+  const totalSuppliers = suppliers.length;
+  const activeSuppliers = suppliers.filter(s => s.status === 'active').length;
+  const totalValue = suppliers.reduce((sum, s) => sum + (s.total_value || 0), 0);
+  const totalTransactions = suppliers.reduce((sum, s) => sum + (s.total_transactions || 0), 0);
 
   if (loading) {
     return (
       <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="animate-spin text-blue-600" size={32} />
-          <span className="ml-2 text-gray-600">Loading suppliers...</span>
+          <div className="text-center">
+            <Loader2 className="animate-spin text-blue-600 mx-auto mb-4" size={40} />
+            <p className="text-gray-600 text-lg">Loading suppliers from database...</p>
+            <p className="text-gray-500 text-sm mt-2">This may take a moment</p>
+          </div>
         </div>
       </div>
     );
@@ -697,18 +1205,30 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
     return (
       <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
         <div className="text-center py-12">
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 sm:px-6 py-4 rounded-lg max-w-lg mx-auto">
-            <div className="flex items-center justify-center mb-2">
-              <AlertCircle className="w-5 h-5 mr-2" />
-              <p className="font-bold">Error loading suppliers</p>
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 sm:px-6 py-6 rounded-lg max-w-lg mx-auto">
+            <div className="flex items-center justify-center mb-4">
+              <AlertCircle className="w-8 h-8 mr-3" />
+              <div>
+                <p className="font-bold text-lg">Error Loading Suppliers</p>
+                <p className="text-sm mt-1">Failed to connect to database</p>
+              </div>
             </div>
             <p className="text-sm mb-4">{error}</p>
-            <button 
-              onClick={fetchSuppliers}
-              className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors"
-            >
-              Try Again
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button 
+                onClick={fetchSuppliers}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2"
+              >
+                <RefreshCw size={16} />
+                Try Again
+              </button>
+              <button 
+                onClick={() => window.location.reload()}
+                className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition-colors"
+              >
+                Reload Page
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -717,9 +1237,39 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
 
   return (
     <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
-      <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6">Suppliers</h2>
+      {/* Header with connection status */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-4 sm:gap-0">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-800">Suppliers</h2>
+          <p className="text-gray-600 text-sm sm:text-base">Manage your supplier relationships and track business performance</p>
+          {lastFetchTime && (
+            <p className="text-xs text-gray-500 mt-1">
+              Last updated: {lastFetchTime.toLocaleTimeString()}
+            </p>
+          )}
+        </div>
+        
+        {/* Connection Status - Desktop only */}
+        {!isMobile && (
+          <div className="flex items-center gap-2 text-sm">
+            <div className={`w-2 h-2 rounded-full ${isRealtimeConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className={isRealtimeConnected ? 'text-green-600' : 'text-red-600'}>
+              {isRealtimeConnected ? 'Live Updates' : 'Disconnected'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Stats Bar */}
+      <SuppliersStatsBar
+        totalSuppliers={totalSuppliers}
+        activeSuppliers={activeSuppliers}
+        totalValue={totalValue}
+        totalTransactions={totalTransactions}
+        isLoading={loading}
+      />
       
-      {/* Search and Filter Controls - Mobile Optimized */}
+      {/* Search and Filter Controls */}
       <div className="bg-gray-50 rounded-xl p-3 sm:p-4 mb-4 sm:mb-6">
         <div className="flex flex-col gap-3">
           {/* Search Bar */}
@@ -727,11 +1277,19 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
-              placeholder="Search suppliers..."
+              placeholder="Search suppliers by name, email, contact person, or phone..."
               value={searchTerm}
               onChange={(e) => handleSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            {searchTerm && (
+              <button
+                onClick={() => handleSearch('')}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X size={16} />
+              </button>
+            )}
           </div>
           
           {/* Filter and Add Button Row */}
@@ -749,6 +1307,20 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
                 <option value="occasional">Occasional</option>
               </select>
             </div>
+            
+            <div className="relative flex-1">
+              <Activity className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={14} />
+              <select
+                value={filterStatusValue}
+                onChange={(e) => handleStatusFilter(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+            
             <button 
               onClick={() => setIsModalOpen(true)}
               className="flex items-center gap-1.5 px-3 sm:px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
@@ -761,9 +1333,12 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
         </div>
       </div>
 
-      {/* Suppliers Display - Mobile Optimized */}
+      {/* Suppliers Display */}
       {suppliers.length === 0 ? (
-        <EmptyState />
+        <EmptyState 
+          onAddSupplier={() => setIsModalOpen(true)} 
+          hasFiltersApplied={searchTerm.trim() !== '' || filterTierValue !== 'all' || filterStatusValue !== 'all'}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {suppliers.map((supplier) => {
@@ -827,7 +1402,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
                     <p className="text-xs text-gray-500">Transactions</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-lg sm:text-xl font-bold text-blue-600">KES {(supplier.total_value / 1000).toFixed(0)}K</p>
+                    <p className="text-lg sm:text-xl font-bold text-blue-600">KES {((supplier.total_value || 0) / 1000).toFixed(0)}K</p>
                     <p className="text-xs text-gray-500">Total Value</p>
                   </div>
                   <div className="text-center">
