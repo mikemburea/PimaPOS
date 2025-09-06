@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, Mail, Lock, User, Phone, Sparkles, Shield, Zap, ArrowRight, Bluetooth, BarChart3 } from 'lucide-react';
-// Import your App component
-import App from './App';
+import { Eye, EyeOff, Mail, Lock, User, Phone, Sparkles, Shield, Zap, ArrowRight, Bluetooth, BarChart3, AlertCircle } from 'lucide-react';
+import { supabase } from './lib/supabase';
 
 interface FormData {
   email: string;
@@ -11,12 +10,26 @@ interface FormData {
   confirmPassword: string;
 }
 
-const PimaPOSWelcome: React.FC = () => {
+interface AuthError {
+  message: string;
+  field?: string;
+}
+
+interface StandalonePimaPOSWelcomeProps {
+  onAuthSuccess?: () => void;
+  onNavigateToApp?: () => void;
+}
+
+const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({ 
+  onAuthSuccess, 
+  onNavigateToApp 
+}) => {
   const [isLogin, setIsLogin] = useState<boolean>(true);
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<AuthError | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true); // New loading state
   const [formData, setFormData] = useState<FormData>({
     email: '',
     password: '',
@@ -25,35 +38,32 @@ const PimaPOSWelcome: React.FC = () => {
     confirmPassword: ''
   });
 
-  // ⭐ FIX: Check for existing authentication on component mount
+  // Handle successful authentication
+  const handleAuthenticationSuccess = () => {
+    setIsAuthenticated(true);
+    
+    // Call the provided callback
+    if (onAuthSuccess) {
+      onAuthSuccess();
+    }
+    
+    // If no callback provided, navigate to app
+    if (onNavigateToApp) {
+      onNavigateToApp();
+    }
+  };
+
+  // Check for existing authentication on component mount
   useEffect(() => {
-    const checkExistingAuth = () => {
+    const checkExistingAuth = async () => {
       try {
-        // Check if user was previously authenticated
-        const savedAuth = localStorage.getItem('isAuthenticated');
-        const savedUser = localStorage.getItem('userEmail');
-        const authTimestamp = localStorage.getItem('authTimestamp');
-        
-        if (savedAuth === 'true' && savedUser && authTimestamp) {
-          const timestamp = parseInt(authTimestamp);
-          const now = Date.now();
-          const oneDay = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-          
-          // Check if authentication is still valid (within 24 hours)
-          if (now - timestamp < oneDay) {
-            console.log('Found valid authentication, logging user in...');
-            setIsAuthenticated(true);
-            // Optionally restore the user's email
-            setFormData(prev => ({ ...prev, email: savedUser }));
-          } else {
-            // Authentication expired, clean up
-            console.log('Authentication expired, clearing storage...');
-            clearAuthData();
-          }
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setFormData(prev => ({ ...prev, email: user.email || '' }));
+          handleAuthenticationSuccess();
         }
       } catch (error) {
         console.error('Error checking authentication:', error);
-        clearAuthData();
       } finally {
         setIsCheckingAuth(false);
       }
@@ -62,91 +72,145 @@ const PimaPOSWelcome: React.FC = () => {
     checkExistingAuth();
   }, []);
 
-  // Helper function to clear auth data
-  const clearAuthData = () => {
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('authTimestamp');
-  };
-
-  // ⭐ FIX: Save authentication state when user logs in
-  const saveAuthData = (email: string) => {
-    try {
-      localStorage.setItem('isAuthenticated', 'true');
-      localStorage.setItem('userEmail', email);
-      localStorage.setItem('authTimestamp', Date.now().toString());
-      console.log('Authentication data saved');
-    } catch (error) {
-      console.error('Error saving authentication data:', error);
-    }
-  };
-
-  // ⭐ FIX: Add logout function to clear auth data
-  const handleLogout = () => {
-    console.log('Logging out user...');
-    clearAuthData();
-    setIsAuthenticated(false);
-    setFormData({
-      email: '',
-      password: '',
-      fullName: '',
-      phone: '',
-      confirmPassword: ''
+  // Listen for auth state changes
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        handleAuthenticationSuccess();
+      } else if (event === 'SIGNED_OUT') {
+        setIsAuthenticated(false);
+      }
     });
-  };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
+    return () => subscription.unsubscribe();
+  }, []);
 
-  const handleSubmit = async () => {
-    setIsLoading(true);
-    
+  const validateForm = (): AuthError | null => {
     if (!formData.email || !formData.password) {
-      alert('Please fill in all required fields');
-      setIsLoading(false);
-      return;
+      return { message: 'Please fill in all required fields' };
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+      return { message: 'Please enter a valid email address', field: 'email' };
+    }
+
+    if (formData.password.length < 6) {
+      return { message: 'Password must be at least 6 characters long', field: 'password' };
     }
     
     if (!isLogin) {
-      if (!formData.fullName || !formData.phone) {
-        alert('Please fill in all required fields');
-        setIsLoading(false);
-        return;
+      if (!formData.fullName.trim()) {
+        return { message: 'Full name is required', field: 'fullName' };
+      }
+      
+      if (!formData.phone.trim()) {
+        return { message: 'Phone number is required', field: 'phone' };
+      }
+
+      const phoneRegex = /^[\+]?[\d\s\-\(\)]+$/;
+      if (!phoneRegex.test(formData.phone)) {
+        return { message: 'Please enter a valid phone number', field: 'phone' };
       }
       
       if (formData.password !== formData.confirmPassword) {
-        alert('Passwords do not match');
-        setIsLoading(false);
-        return;
+        return { message: 'Passwords do not match', field: 'confirmPassword' };
       }
     }
 
+    return null;
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // Clear field-specific errors when user starts typing
+    if (authError?.field === name) {
+      setAuthError(null);
+    }
+  };
+
+  const handleSubmit = async () => {
+    setAuthError(null);
+    const validationError = validateForm();
+    
+    if (validationError) {
+      setAuthError(validationError);
+      return;
+    }
+
+    setIsLoading(true);
+    
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      console.log('Form submitted:', formData);
-      
       if (isLogin) {
-        // ⭐ FIX: Save authentication data when login succeeds
-        saveAuthData(formData.email);
-        setIsAuthenticated(true);
+        // Real Supabase login
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: formData.email,
+          password: formData.password
+        });
+        
+        if (error) throw error;
+        
+        if (data.user) {
+          handleAuthenticationSuccess();
+        }
+        
       } else {
-        alert('Account created successfully! Please sign in.');
+        // Real Supabase signup
+        const { data, error } = await supabase.auth.signUp({
+          email: formData.email,
+          password: formData.password,
+          options: {
+            data: {
+              full_name: formData.fullName,
+              phone: formData.phone
+            }
+          }
+        });
+        
+        if (error) throw error;
+        
+        // Also insert into profiles table if user is created
+        if (data.user) {
+          try {
+            const { error: profileError } = await supabase
+              .from('profiles')
+              .insert({
+                id: data.user.id,
+                full_name: formData.fullName,
+                phone: formData.phone,
+                email: formData.email
+              });
+            
+            if (profileError) {
+              console.warn('Profile creation error:', profileError);
+              // Don't throw here, as the user account was still created
+            }
+          } catch (profileError) {
+            console.warn('Profile creation failed:', profileError);
+          }
+        }
+        
+        setAuthError({ 
+          message: 'Account created successfully! Please check your email to verify your account, then sign in.' 
+        });
         setIsLogin(true);
         setFormData({
-          email: '',
+          email: formData.email, // Keep email for convenience
           password: '',
           fullName: '',
           phone: '',
           confirmPassword: ''
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Authentication error:', error);
-      alert('Authentication failed. Please try again.');
+      setAuthError({
+        message: error.message || 'Authentication failed. Please try again.'
+      });
     } finally {
       setIsLoading(false);
     }
@@ -154,6 +218,7 @@ const PimaPOSWelcome: React.FC = () => {
 
   const toggleForm = () => {
     setIsLogin(!isLogin);
+    setAuthError(null);
     setFormData({
       email: '',
       password: '',
@@ -163,7 +228,7 @@ const PimaPOSWelcome: React.FC = () => {
     });
   };
 
-  // ⭐ FIX: Show loading screen while checking authentication
+  // Loading screen while checking authentication
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
@@ -183,9 +248,25 @@ const PimaPOSWelcome: React.FC = () => {
     );
   }
 
-  // ⭐ Navigation happens here - now with persistent auth
+  // Don't render login form if already authenticated
   if (isAuthenticated) {
-    return <App onNavigateBack={handleLogout} />;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-2xl shadow-xl flex items-center justify-center relative group mb-6 bg-white overflow-hidden mx-auto">
+            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center relative">
+              <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-inner">
+                <span className="text-blue-600 font-black text-lg">M</span>
+              </div>
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-gradient-to-r from-green-400 to-blue-500 rounded-full animate-pulse"></div>
+            </div>
+          </div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 font-medium">Authentication successful!</p>
+          <p className="text-sm text-gray-500 mt-2">Redirecting to dashboard...</p>
+        </div>
+      </div>
+    );
   }
 
   const features = [
@@ -210,10 +291,10 @@ const PimaPOSWelcome: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex flex-col 2xl:flex-row overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex flex-col lg:flex-row overflow-hidden">
       
-      {/* Mobile & Tablet View (Default) - Enhanced Professional Design */}
-      <div className="2xl:hidden min-h-screen flex flex-col relative overflow-hidden">
+      {/* Mobile & Tablet View (up to lg breakpoint) */}
+      <div className="lg:hidden min-h-screen flex flex-col relative overflow-hidden">
         {/* Enhanced gradient background with subtle patterns */}
         <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100"></div>
         <div className="absolute top-10 right-10 w-32 h-32 bg-blue-200 rounded-full opacity-20 animate-pulse"></div>
@@ -221,24 +302,24 @@ const PimaPOSWelcome: React.FC = () => {
         <div className="absolute top-1/3 left-1/4 w-16 h-16 bg-pink-200 rounded-full opacity-15 animate-pulse delay-500"></div>
         
         <div className="relative z-10 flex flex-col min-h-screen">
-          {/* Enhanced Mobile Header */}
-          <div className="px-4 sm:px-6 pt-8 sm:pt-12 pb-6 sm:pb-8">
+          {/* Mobile/Tablet Header */}
+          <div className="px-4 sm:px-6 md:px-8 pt-8 sm:pt-12 pb-6 sm:pb-8">
             <div className="flex flex-col items-center">
-              {/* Professional Logo Design */}
+              {/* Logo Design */}
               <div className="flex items-center mb-4 sm:mb-6">
-                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl shadow-2xl flex items-center justify-center mr-4 bg-white/95 backdrop-blur-sm overflow-hidden border border-white/20">
-                  <div className="w-11 h-11 sm:w-13 sm:h-13 bg-gradient-to-br from-blue-500 via-purple-500 to-blue-600 rounded-xl flex items-center justify-center relative">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 md:w-18 md:h-18 rounded-2xl shadow-2xl flex items-center justify-center mr-4 bg-white/95 backdrop-blur-sm overflow-hidden border border-white/20">
+                  <div className="w-11 h-11 sm:w-13 sm:h-13 md:w-14 md:h-14 bg-gradient-to-br from-blue-500 via-purple-500 to-blue-600 rounded-xl flex items-center justify-center relative">
                     <div className="absolute inset-0 bg-blue-400 rounded-xl blur opacity-30"></div>
                     <div className="relative">
-                      <div className="w-7 h-7 sm:w-8 sm:h-8 bg-white rounded-lg flex items-center justify-center shadow-inner">
-                        <span className="text-blue-600 font-black text-base sm:text-lg">M</span>
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 md:w-9 md:h-9 bg-white rounded-lg flex items-center justify-center shadow-inner">
+                        <span className="text-blue-600 font-black text-base sm:text-lg md:text-xl">M</span>
                       </div>
                       <div className="absolute -top-1 -right-1 w-3 h-3 bg-gradient-to-r from-green-400 to-blue-500 rounded-full animate-pulse shadow-lg"></div>
                     </div>
                   </div>
                 </div>
                 <div>
-                  <h1 className="text-2xl sm:text-3xl md:text-4xl font-black leading-tight">
+                  <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black leading-tight">
                     <span className="bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 bg-clip-text text-transparent">
                       Meru
                     </span>
@@ -246,7 +327,7 @@ const PimaPOSWelcome: React.FC = () => {
                       Scrap
                     </span>
                   </h1>
-                  <p className="text-xs sm:text-sm font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mt-1">
+                  <p className="text-xs sm:text-sm md:text-base font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mt-1">
                     Smart Scrap Management
                   </p>
                 </div>
@@ -254,38 +335,46 @@ const PimaPOSWelcome: React.FC = () => {
             </div>
           </div>
 
-          {/* Enhanced Professional Form Card */}
-          <div className="flex-1 bg-white/95 backdrop-blur-sm rounded-t-[2rem] sm:rounded-t-[2.5rem] shadow-2xl mx-2 sm:mx-0 border-t border-white/30">
-            {/* Subtle top accent line */}
+          {/* Form Card */}
+          <div className="flex-1 bg-white/95 backdrop-blur-sm rounded-t-[2rem] sm:rounded-t-[2.5rem] shadow-2xl mx-2 sm:mx-4 md:mx-6 border-t border-white/30">
+            {/* Accent line */}
             <div className="h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-t-[2rem] sm:rounded-t-[2.5rem]"></div>
             
-            <div className="px-4 sm:px-6 md:px-8 py-6 sm:py-8 md:py-10">
-              {/* Enhanced Form Header */}
+            <div className="px-4 sm:px-6 md:px-8 lg:px-12 py-6 sm:py-8 md:py-10">
+              {/* Form Header */}
               <div className="text-center mb-6 sm:mb-8">
                 <div className="mb-4">
-                  <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg">
                     {isLogin ? (
-                      <Shield className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
+                      <Shield className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-white" />
                     ) : (
-                      <Sparkles className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
+                      <Sparkles className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-white" />
                     )}
                   </div>
                 </div>
                 <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3">
                   {isLogin ? 'Welcome Back' : 'Get Started'}
                 </h2>
-                <p className="text-gray-600 text-sm sm:text-base font-medium">
+                <p className="text-gray-600 text-sm sm:text-base md:text-lg font-medium">
                   {isLogin ? 'Sign in to access your dashboard' : 'Create your account and join us'}
                 </p>
               </div>
 
-              {/* Enhanced Professional Form */}
-              <div className="space-y-4 sm:space-y-5 max-w-sm sm:max-w-md mx-auto">
+              {/* Error Alert */}
+              {authError && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start space-x-3">
+                  <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-red-700 text-sm font-medium">{authError.message}</p>
+                </div>
+              )}
+
+              {/* Form */}
+              <div className="space-y-4 sm:space-y-5 max-w-sm sm:max-w-md md:max-w-lg mx-auto">
                 {!isLogin && (
                   <>
                     <div className="relative group">
                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                        <User className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                        <User className={`h-5 w-5 transition-colors ${authError?.field === 'fullName' ? 'text-red-400' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
                       </div>
                       <input
                         type="text"
@@ -293,14 +382,14 @@ const PimaPOSWelcome: React.FC = () => {
                         value={formData.fullName}
                         onChange={handleInputChange}
                         placeholder="Full Name"
-                        className="w-full pl-12 pr-4 py-4 bg-gray-50/80 backdrop-blur-sm border border-gray-200/50 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base font-medium shadow-sm hover:shadow-md"
+                        className={`w-full pl-12 pr-4 py-4 md:py-5 bg-gray-50/80 backdrop-blur-sm border rounded-xl focus:ring-2 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base md:text-lg font-medium shadow-sm hover:shadow-md ${authError?.field === 'fullName' ? 'border-red-300 focus:ring-red-500' : 'border-gray-200/50 focus:ring-blue-500'}`}
                         required={!isLogin}
                       />
                     </div>
                     
                     <div className="relative group">
                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                        <Phone className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                        <Phone className={`h-5 w-5 transition-colors ${authError?.field === 'phone' ? 'text-red-400' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
                       </div>
                       <input
                         type="tel"
@@ -308,7 +397,7 @@ const PimaPOSWelcome: React.FC = () => {
                         value={formData.phone}
                         onChange={handleInputChange}
                         placeholder="Phone Number"
-                        className="w-full pl-12 pr-4 py-4 bg-gray-50/80 backdrop-blur-sm border border-gray-200/50 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base font-medium shadow-sm hover:shadow-md"
+                        className={`w-full pl-12 pr-4 py-4 md:py-5 bg-gray-50/80 backdrop-blur-sm border rounded-xl focus:ring-2 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base md:text-lg font-medium shadow-sm hover:shadow-md ${authError?.field === 'phone' ? 'border-red-300 focus:ring-red-500' : 'border-gray-200/50 focus:ring-blue-500'}`}
                         required={!isLogin}
                       />
                     </div>
@@ -317,7 +406,7 @@ const PimaPOSWelcome: React.FC = () => {
 
                 <div className="relative group">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <Mail className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                    <Mail className={`h-5 w-5 transition-colors ${authError?.field === 'email' ? 'text-red-400' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
                   </div>
                   <input
                     type="email"
@@ -325,14 +414,14 @@ const PimaPOSWelcome: React.FC = () => {
                     value={formData.email}
                     onChange={handleInputChange}
                     placeholder="Email Address"
-                    className="w-full pl-12 pr-4 py-4 bg-gray-50/80 backdrop-blur-sm border border-gray-200/50 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base font-medium shadow-sm hover:shadow-md"
+                    className={`w-full pl-12 pr-4 py-4 md:py-5 bg-gray-50/80 backdrop-blur-sm border rounded-xl focus:ring-2 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base md:text-lg font-medium shadow-sm hover:shadow-md ${authError?.field === 'email' ? 'border-red-300 focus:ring-red-500' : 'border-gray-200/50 focus:ring-blue-500'}`}
                     required
                   />
                 </div>
 
                 <div className="relative group">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <Lock className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                    <Lock className={`h-5 w-5 transition-colors ${authError?.field === 'password' ? 'text-red-400' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
                   </div>
                   <input
                     type={showPassword ? "text" : "password"}
@@ -340,7 +429,7 @@ const PimaPOSWelcome: React.FC = () => {
                     value={formData.password}
                     onChange={handleInputChange}
                     placeholder="Password"
-                    className="w-full pl-12 pr-12 py-4 bg-gray-50/80 backdrop-blur-sm border border-gray-200/50 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base font-medium shadow-sm hover:shadow-md"
+                    className={`w-full pl-12 pr-12 py-4 md:py-5 bg-gray-50/80 backdrop-blur-sm border rounded-xl focus:ring-2 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base md:text-lg font-medium shadow-sm hover:shadow-md ${authError?.field === 'password' ? 'border-red-300 focus:ring-red-500' : 'border-gray-200/50 focus:ring-blue-500'}`}
                     required
                   />
                   <button
@@ -359,7 +448,7 @@ const PimaPOSWelcome: React.FC = () => {
                 {!isLogin && (
                   <div className="relative group">
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <Lock className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                      <Lock className={`h-5 w-5 transition-colors ${authError?.field === 'confirmPassword' ? 'text-red-400' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
                     </div>
                     <input
                       type="password"
@@ -367,7 +456,7 @@ const PimaPOSWelcome: React.FC = () => {
                       value={formData.confirmPassword}
                       onChange={handleInputChange}
                       placeholder="Confirm Password"
-                      className="w-full pl-12 pr-4 py-4 bg-gray-50/80 backdrop-blur-sm border border-gray-200/50 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base font-medium shadow-sm hover:shadow-md"
+                      className={`w-full pl-12 pr-4 py-4 md:py-5 bg-gray-50/80 backdrop-blur-sm border rounded-xl focus:ring-2 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base md:text-lg font-medium shadow-sm hover:shadow-md ${authError?.field === 'confirmPassword' ? 'border-red-300 focus:ring-red-500' : 'border-gray-200/50 focus:ring-blue-500'}`}
                       required={!isLogin}
                     />
                   </div>
@@ -380,9 +469,9 @@ const PimaPOSWelcome: React.FC = () => {
                         type="checkbox"
                         className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 transition-all"
                       />
-                      <span className="ml-3 text-sm text-gray-600 group-hover:text-gray-800 transition-colors font-medium">Remember me</span>
+                      <span className="ml-3 text-sm md:text-base text-gray-600 group-hover:text-gray-800 transition-colors font-medium">Remember me</span>
                     </label>
-                    <a href="#" className="text-sm text-blue-600 hover:text-blue-700 font-semibold transition-colors hover:underline">
+                    <a href="#" className="text-sm md:text-base text-blue-600 hover:text-blue-700 font-semibold transition-colors hover:underline">
                       Forgot password?
                     </a>
                   </div>
@@ -391,7 +480,7 @@ const PimaPOSWelcome: React.FC = () => {
                 <button
                   onClick={handleSubmit}
                   disabled={isLoading}
-                  className="w-full bg-gradient-to-r from-blue-600 via-blue-500 to-purple-600 text-white py-4 px-6 rounded-xl font-semibold text-base hover:from-blue-700 hover:via-blue-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:-translate-y-1 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none relative overflow-hidden group"
+                  className="w-full bg-gradient-to-r from-blue-600 via-blue-500 to-purple-600 text-white py-4 md:py-5 px-6 rounded-xl font-semibold text-base md:text-lg hover:from-blue-700 hover:via-blue-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:-translate-y-1 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none relative overflow-hidden group"
                 >
                   <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
                   <div className="relative flex items-center justify-center space-x-3">
@@ -405,21 +494,21 @@ const PimaPOSWelcome: React.FC = () => {
                 </button>
               </div>
 
-              {/* Enhanced Form Toggle */}
+              {/* Form Toggle */}
               <div className="mt-8 sm:mt-10 text-center">
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-gray-300/50"></div>
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="px-4 bg-white/95 text-gray-600 text-base font-medium">
+                    <span className="px-4 bg-white/95 text-gray-600 text-base md:text-lg font-medium">
                       {isLogin ? "New to MeruScrap?" : "Already have an account?"}
                     </span>
                   </div>
                 </div>
                 <button
                   onClick={toggleForm}
-                  className="mt-4 text-blue-600 hover:text-blue-700 font-bold text-base transition-colors hover:underline underline-offset-4 relative group"
+                  className="mt-4 text-blue-600 hover:text-blue-700 font-bold text-base md:text-lg transition-colors hover:underline underline-offset-4 relative group"
                 >
                   <span className="relative z-10">
                     {isLogin ? 'Create your account →' : '← Back to sign in'}
@@ -427,26 +516,26 @@ const PimaPOSWelcome: React.FC = () => {
                 </button>
               </div>
 
-              {/* Enhanced Professional Footer */}
+              {/* Footer */}
               <div className="mt-8 sm:mt-10 pt-6 sm:pt-8 border-t border-gray-200/50 text-center">
                 <div className="flex items-center justify-center space-x-2 mb-2">
                   <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
                   <div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div>
                   <div className="w-1.5 h-1.5 bg-pink-500 rounded-full"></div>
                 </div>
-                <p className="text-xs sm:text-sm text-gray-500 font-medium">
+                <p className="text-xs sm:text-sm md:text-base text-gray-500 font-medium">
                   © 2025 MeruScrap • Powered by <span className="font-bold text-blue-600">Nesis</span>
                 </p>
-                <p className="text-xs text-gray-400 mt-1">Secure • Reliable • Professional</p>
+                <p className="text-xs md:text-sm text-gray-400 mt-1">Secure • Reliable • Professional</p>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Desktop View - Only for Very Large Screens (2xl+) - keeping your original desktop design */}
-      <div className="hidden 2xl:flex w-full">
-        {/* Left Side - Enhanced Branding Section */}
+      {/* Desktop View - Large screens (lg+) */}
+      <div className="hidden lg:flex w-full">
+        {/* Left Side - Branding Section */}
         <div className="flex-1 flex flex-col justify-center items-center px-8 xl:px-16 py-12 relative bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
           {/* Animated background elements */}
           <div className="absolute top-20 left-20 w-20 h-20 bg-blue-300 rounded-full opacity-20 animate-pulse"></div>
@@ -533,8 +622,8 @@ const PimaPOSWelcome: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Side - Desktop Form */}
-        <div className="w-[400px] xl:w-[440px] bg-white shadow-xl flex flex-col justify-center px-8 xl:px-10 py-12 relative">
+        {/* Right Side - Desktop Form (smaller width for better proportions) */}
+        <div className="w-[380px] xl:w-[420px] bg-white shadow-xl flex flex-col justify-center px-8 xl:px-10 py-12 relative">
           <div className="max-w-md mx-auto w-full">
             {/* Form Header */}
             <div className="text-center mb-8">
@@ -553,13 +642,21 @@ const PimaPOSWelcome: React.FC = () => {
               </p>
             </div>
 
+            {/* Error Alert */}
+            {authError && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
+                <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
+                <p className="text-red-700 text-sm font-medium">{authError.message}</p>
+              </div>
+            )}
+
             {/* Desktop Form */}
             <div className="space-y-4">
               {!isLogin && (
                 <>
                   <div className="relative group">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <User className="h-4 w-4 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                      <User className={`h-4 w-4 transition-colors ${authError?.field === 'fullName' ? 'text-red-400' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
                     </div>
                     <input
                       type="text"
@@ -567,14 +664,14 @@ const PimaPOSWelcome: React.FC = () => {
                       value={formData.fullName}
                       onChange={handleInputChange}
                       placeholder="Full Name"
-                      className="w-full pl-10 pr-3 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-sm"
+                      className={`w-full pl-10 pr-3 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-sm ${authError?.field === 'fullName' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
                       required={!isLogin}
                     />
                   </div>
                   
                   <div className="relative group">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Phone className="h-4 w-4 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                      <Phone className={`h-4 w-4 transition-colors ${authError?.field === 'phone' ? 'text-red-400' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
                     </div>
                     <input
                       type="tel"
@@ -582,7 +679,7 @@ const PimaPOSWelcome: React.FC = () => {
                       value={formData.phone}
                       onChange={handleInputChange}
                       placeholder="Phone Number"
-                      className="w-full pl-10 pr-3 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-sm"
+                      className={`w-full pl-10 pr-3 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-sm ${authError?.field === 'phone' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
                       required={!isLogin}
                     />
                   </div>
@@ -591,7 +688,7 @@ const PimaPOSWelcome: React.FC = () => {
 
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-4 w-4 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                  <Mail className={`h-4 w-4 transition-colors ${authError?.field === 'email' ? 'text-red-400' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
                 </div>
                 <input
                   type="email"
@@ -599,14 +696,14 @@ const PimaPOSWelcome: React.FC = () => {
                   value={formData.email}
                   onChange={handleInputChange}
                   placeholder="Email Address"
-                  className="w-full pl-10 pr-3 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-base"
+                  className={`w-full pl-10 pr-3 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-base ${authError?.field === 'email' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
                   required
                 />
               </div>
 
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-4 w-4 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                  <Lock className={`h-4 w-4 transition-colors ${authError?.field === 'password' ? 'text-red-400' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
                 </div>
                 <input
                   type={showPassword ? "text" : "password"}
@@ -614,7 +711,7 @@ const PimaPOSWelcome: React.FC = () => {
                   value={formData.password}
                   onChange={handleInputChange}
                   placeholder="Password"
-                  className="w-full pl-10 pr-12 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-base"
+                  className={`w-full pl-10 pr-12 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-base ${authError?.field === 'password' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
                   required
                 />
                 <button
@@ -633,7 +730,7 @@ const PimaPOSWelcome: React.FC = () => {
               {!isLogin && (
                 <div className="relative group">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Lock className="h-4 w-4 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                    <Lock className={`h-4 w-4 transition-colors ${authError?.field === 'confirmPassword' ? 'text-red-400' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
                   </div>
                   <input
                     type="password"
@@ -641,7 +738,7 @@ const PimaPOSWelcome: React.FC = () => {
                     value={formData.confirmPassword}
                     onChange={handleInputChange}
                     placeholder="Confirm Password"
-                    className="w-full pl-10 pr-3 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-base"
+                    className={`w-full pl-10 pr-3 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-base ${authError?.field === 'confirmPassword' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
                     required={!isLogin}
                   />
                 </div>
@@ -705,4 +802,4 @@ const PimaPOSWelcome: React.FC = () => {
   );
 };
 
-export default PimaPOSWelcome;
+export default StandalonePimaPOSWelcome;

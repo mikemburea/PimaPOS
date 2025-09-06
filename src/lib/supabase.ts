@@ -23,6 +23,33 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export interface Database {
   public: {
     Tables: {
+      profiles: {
+        Row: {
+          id: string
+          full_name: string | null
+          phone: string | null
+          email: string | null
+          avatar_url: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          full_name?: string | null
+          phone?: string | null
+          email?: string | null
+          avatar_url?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          full_name?: string | null
+          phone?: string | null
+          email?: string | null
+          avatar_url?: string | null
+          updated_at?: string
+        }
+      }
       suppliers: {
         Row: {
           id: string
@@ -164,6 +191,30 @@ export interface Database {
 
 // Helper functions for common database operations
 export const dbHelpers = {
+  // Profile operations
+  async getProfile(userId: string) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    
+    if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows returned
+    return data;
+  },
+
+  async updateProfile(userId: string, updates: Database['public']['Tables']['profiles']['Update']) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', userId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
   // Supplier operations
   async getSuppliers() {
     const { data, error } = await supabase

@@ -284,6 +284,17 @@ export class StorageService {
   }
 
   /**
+   * Get public URL for a transaction photo
+   */
+  static getTransactionPhotoUrl(filePath: string): string {
+    const { data } = supabase.storage
+      .from(this.BUCKET_NAME)
+      .getPublicUrl(filePath);
+    
+    return data.publicUrl;
+  }
+
+  /**
    * Repair missing database records for existing storage files
    * UTILITY FUNCTION to fix your current issue
    */

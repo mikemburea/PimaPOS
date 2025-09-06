@@ -49,6 +49,251 @@ interface PhotoPreview {
   error?: string;
 }
 
+// Transaction Photo interface
+interface TransactionPhoto {
+  id: string;
+  transaction_id: string;
+  file_name: string;
+  file_path: string;
+  file_size_bytes: number | null;
+  mime_type: string | null;
+  upload_order: number | null;
+  storage_bucket: string | null;
+  is_primary: boolean | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  uploaded_at: string;
+}
+
+// Photo Viewer Modal Component
+function PhotoViewerModal({ 
+  isOpen, 
+  onClose, 
+  transaction 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  transaction: Transaction | null;
+}) {
+  const [photos, setPhotos] = useState<TransactionPhoto[]>([]);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch photos for the transaction
+  const fetchPhotos = async (transactionId: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const { data: photosData, error: photosError } = await supabase
+        .from('transaction_photos')
+        .select('*')
+        .eq('transaction_id', transactionId)
+        .order('upload_order', { ascending: true });
+
+      if (photosError) {
+        throw photosError;
+      }
+
+      setPhotos(photosData || []);
+      setCurrentPhotoIndex(0);
+      
+    } catch (err) {
+      console.error('Error fetching photos:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load photos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load photos when transaction changes
+  useEffect(() => {
+    if (transaction && isOpen) {
+      fetchPhotos(transaction.id);
+    }
+  }, [transaction, isOpen]);
+
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setPhotos([]);
+      setCurrentPhotoIndex(0);
+      setError(null);
+    }
+  }, [isOpen]);
+
+  // Navigation functions
+  const goToNext = () => {
+    if (currentPhotoIndex < photos.length - 1) {
+      setCurrentPhotoIndex(currentPhotoIndex + 1);
+    }
+  };
+
+  const goToPrevious = () => {
+    if (currentPhotoIndex > 0) {
+      setCurrentPhotoIndex(currentPhotoIndex - 1);
+    }
+  };
+
+  // Get photo URL from storage
+  const getPhotoUrl = (photo: TransactionPhoto) => {
+    if (photo.file_path) {
+      // Use your existing StorageService to get the photo URL
+      return StorageService.getTransactionPhotoUrl(photo.file_path);
+    }
+    return '';
+  };
+
+  if (!isOpen || !transaction) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center">
+      {/* Modal Header */}
+      <div className="absolute top-4 left-4 right-4 z-10">
+        <div className="flex items-center justify-between text-white">
+          <div>
+            <h2 className="text-lg font-semibold">Transaction Photos</h2>
+            <p className="text-sm opacity-75">
+              {transaction.transaction_number || transaction.transaction_id} • {transaction.customer_name}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+          >
+            <X size={24} />
+          </button>
+        </div>
+      </div>
+
+      {/* Photo Counter */}
+      {photos.length > 0 && (
+        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-10">
+          <div className="bg-black/50 text-white px-3 py-1 rounded-full text-sm">
+            {currentPhotoIndex + 1} of {photos.length}
+          </div>
+        </div>
+      )}
+
+      {/* Main Content */}
+      <div className="w-full h-full flex items-center justify-center p-4">
+        {loading ? (
+          <div className="text-center text-white">
+            <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4" />
+            <p>Loading photos...</p>
+          </div>
+        ) : error ? (
+          <div className="text-center text-white">
+            <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-6 max-w-md">
+              <p className="font-semibold mb-2">Error Loading Photos</p>
+              <p className="text-sm opacity-75 mb-4">{error}</p>
+              <button
+                onClick={() => fetchPhotos(transaction.id)}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        ) : photos.length === 0 ? (
+          <div className="text-center text-white">
+            <Camera className="w-16 h-16 opacity-50 mx-auto mb-4" />
+            <p className="text-lg font-semibold mb-2">No Photos Available</p>
+            <p className="opacity-75">This transaction doesn't have any photos yet.</p>
+          </div>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center relative">
+            {/* Current Photo */}
+            <div className="max-w-5xl max-h-full flex items-center justify-center">
+              <img
+                src={getPhotoUrl(photos[currentPhotoIndex])}
+                alt={photos[currentPhotoIndex].file_name}
+                className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.src = '/placeholder-image.png'; // Fallback image
+                }}
+              />
+            </div>
+
+            {/* Navigation Arrows */}
+            {photos.length > 1 && (
+              <>
+                <button
+                  onClick={goToPrevious}
+                  disabled={currentPhotoIndex === 0}
+                  className="absolute left-4 top-1/2 transform -translate-y-1/2 p-3 bg-black/50 hover:bg-black/70 text-white rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                >
+                  <ChevronLeft size={24} />
+                </button>
+
+                <button
+                  onClick={goToNext}
+                  disabled={currentPhotoIndex === photos.length - 1}
+                  className="absolute right-4 top-1/2 transform -translate-y-1/2 p-3 bg-black/50 hover:bg-black/70 text-white rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                >
+                  <ChevronRight size={24} />
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Photo Info Panel */}
+      {photos.length > 0 && !loading && !error && (
+        <div className="absolute bottom-4 left-4 right-4 z-10">
+          <div className="bg-black/50 backdrop-blur-sm text-white rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-medium">{photos[currentPhotoIndex].file_name}</h3>
+              <span className="text-sm opacity-75">
+                {photos[currentPhotoIndex].file_size_bytes 
+                  ? `${Math.round(photos[currentPhotoIndex].file_size_bytes! / 1024)} KB`
+                  : 'Size unknown'
+                }
+              </span>
+            </div>
+            <p className="text-sm opacity-75">
+              Uploaded on {new Date(photos[currentPhotoIndex].uploaded_at).toLocaleDateString()} at{' '}
+              {new Date(photos[currentPhotoIndex].uploaded_at).toLocaleTimeString()}
+            </p>
+            {photos[currentPhotoIndex].notes && (
+              <p className="text-sm mt-1 italic">{photos[currentPhotoIndex].notes}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Thumbnail Gallery */}
+      {photos.length > 1 && !loading && !error && (
+        <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 z-10">
+          <div className="flex gap-2 bg-black/50 backdrop-blur-sm p-2 rounded-lg max-w-md overflow-x-auto">
+            {photos.map((photo, index) => (
+              <button
+                key={photo.id}
+                onClick={() => setCurrentPhotoIndex(index)}
+                className={`flex-shrink-0 w-12 h-12 rounded overflow-hidden border-2 transition-all ${
+                  index === currentPhotoIndex 
+                    ? 'border-white' 
+                    : 'border-transparent opacity-60 hover:opacity-80'
+                }`}
+              >
+                <img
+                  src={getPhotoUrl(photo)}
+                  alt={`Thumbnail ${index + 1}`}
+                  className="w-full h-full object-cover"
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Update the StatusBadge to handle all possible status values
 function StatusBadge({ status }: { status: string }) {
   const classes = {
@@ -935,17 +1180,19 @@ function NewTransactionModal({
   );
 }
 
-// Mobile Transaction Card Component (enhanced with transaction type)
+// Mobile Transaction Card Component (enhanced with transaction type and photo viewer)
 function TransactionCard({ 
   tx, 
   onDelete, 
   onUpdateStatus,
-  onEdit 
+  onEdit,
+  onViewPhotos
 }: { 
   tx: Transaction; 
   onDelete: (id: string) => void;
   onUpdateStatus: (id: string, status: string) => void;
   onEdit: (transaction: Transaction) => void;
+  onViewPhotos: (transaction: Transaction) => void;
 }) {
   return (
     <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-100 w-full max-w-full overflow-hidden">
@@ -1044,6 +1291,13 @@ function TransactionCard({
             <Eye size={16} className="text-gray-600" />
           </button>
           <button 
+            title="View Photos"
+            onClick={() => onViewPhotos(tx)}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <Camera size={16} className="text-gray-600" />
+          </button>
+          <button 
             title="Edit Transaction"
             onClick={() => onEdit(tx)}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -1081,6 +1335,8 @@ export default function Transactions({ onTransactionUpdate }: TransactionsProps)
   const [showNewTransactionModal, setShowNewTransactionModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [showPhotoViewer, setShowPhotoViewer] = useState(false);
+  const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
 
   // Fetch transactions from both tables
   const fetchTransactions = async () => {
@@ -1278,6 +1534,12 @@ export default function Transactions({ onTransactionUpdate }: TransactionsProps)
   const handleEditTransaction = (transaction: Transaction) => {
     setEditingTransaction(transaction);
     setShowEditModal(true);
+  };
+
+  // Handle view photos
+  const handleViewPhotos = (transaction: Transaction) => {
+    setViewingTransaction(transaction);
+    setShowPhotoViewer(true);
   };
 
   // Export transactions
@@ -1605,6 +1867,7 @@ export default function Transactions({ onTransactionUpdate }: TransactionsProps)
                 onDelete={handleDeleteTransaction}
                 onUpdateStatus={handleUpdateStatus}
                 onEdit={handleEditTransaction}
+                onViewPhotos={handleViewPhotos}
               />
             ))}
           </div>
@@ -1702,6 +1965,13 @@ export default function Transactions({ onTransactionUpdate }: TransactionsProps)
                             className="p-2 hover:bg-gray-100 rounded-lg transition-colors group"
                           >
                             <Eye size={16} className="text-gray-600 group-hover:text-teal-600" />
+                          </button>
+                          <button 
+                            title="View Photos"
+                            onClick={() => handleViewPhotos(tx)}
+                            className="p-2 hover:bg-gray-100 rounded-lg transition-colors group"
+                          >
+                            <Camera size={16} className="text-gray-600 group-hover:text-blue-600" />
                           </button>
                           <button 
                             title="Edit Transaction"
@@ -1845,6 +2115,15 @@ export default function Transactions({ onTransactionUpdate }: TransactionsProps)
         }}
         onSuccess={handleTransactionUpdated}
         transaction={editingTransaction}
+      />
+
+      <PhotoViewerModal
+        isOpen={showPhotoViewer}
+        onClose={() => {
+          setShowPhotoViewer(false);
+          setViewingTransaction(null);
+        }}
+        transaction={viewingTransaction}
       />
     </div>
   );

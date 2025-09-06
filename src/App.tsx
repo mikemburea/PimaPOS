@@ -1,4 +1,4 @@
-// App.tsx - UPDATED: Production ready with enhanced bell notification system
+// App.tsx - FIXED: StorageMonitor props and integration
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { Menu, X, AlertTriangle, RefreshCw, Wifi, WifiOff } from 'lucide-react';
@@ -10,7 +10,7 @@ import { NotificationPersistenceService } from './services/notificationPersisten
 
 // Import your actual component files
 import Sidebar from './components/common/Sidebar';
-import Header from './components/common/Header'; // UPDATED: Now supports bell notifications
+import Header from './components/common/Header';
 import Dashboard from './components/dashboard/Dashboard';
 import MaterialsPage from './pages/MaterialsPage';
 import Suppliers from './components/suppliers/Suppliers';
@@ -24,6 +24,327 @@ import WeeklyReport from './components/reports/WeeklyReport';
 import MonthlyReport from './components/reports/MonthlyReport';
 import CustomReport from './components/reports/CustomReport';
 
+// FIXED: Updated StorageMonitor interfaces and component
+interface StorageCleanupResult {
+  freedSpace: number;
+  itemsRemoved: number;
+  timeTaken: number;
+  cleanupType: 'manual' | 'automatic';
+  categories: {
+    notifications: number;
+    cache: number;
+    logs: number;
+    temp: number;
+  };
+}
+
+interface StorageMonitorProps {
+  autoCleanup?: boolean;
+  showUI?: boolean;
+  threshold?: number; // FIXED: Added threshold prop
+  onCleanupComplete?: (result: StorageCleanupResult) => void;
+  className?: string;
+}
+
+// FIXED: Enhanced Storage Monitor Hook with threshold support
+const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8) => {
+  const [storageUsagePercent, setStorageUsagePercent] = useState<number>(0);
+  const [needsCleanup, setNeedsCleanup] = useState<boolean>(false);
+  const [isCleaningUp, setIsCleaningUp] = useState<boolean>(false);
+  const [lastCleanup, setLastCleanup] = useState<Date | null>(null);
+
+  // Calculate storage usage
+  const calculateStorageUsage = (): number => {
+    try {
+      let totalUsed = 0;
+      let totalQuota = 0;
+
+      // Check localStorage
+      if (typeof(Storage) !== "undefined") {
+        let localStorageUsed = 0;
+        for (let key in localStorage) {
+          if (localStorage.hasOwnProperty(key)) {
+            localStorageUsed += localStorage[key].length + key.length;
+          }
+        }
+        totalUsed += localStorageUsed;
+        totalQuota += 5 * 1024 * 1024; // Assume 5MB quota for localStorage
+      }
+
+      // Check sessionStorage
+      if (typeof(Storage) !== "undefined") {
+        let sessionStorageUsed = 0;
+        for (let key in sessionStorage) {
+          if (sessionStorage.hasOwnProperty(key)) {
+            sessionStorageUsed += sessionStorage[key].length + key.length;
+          }
+        }
+        totalUsed += sessionStorageUsed;
+        totalQuota += 5 * 1024 * 1024; // Assume 5MB quota for sessionStorage
+      }
+
+      // Check IndexedDB storage estimate (if available)
+      if ('storage' in navigator && 'estimate' in navigator.storage) {
+        navigator.storage.estimate().then((estimate) => {
+          if (estimate.usage && estimate.quota) {
+            const percentage = (estimate.usage / estimate.quota) * 100;
+            setStorageUsagePercent(Math.min(percentage, 100));
+            setNeedsCleanup(percentage >= threshold * 100);
+          }
+        }).catch((error) => {
+          console.warn('Could not estimate storage:', error);
+        });
+      }
+
+      // Fallback calculation
+      const percentage = totalQuota > 0 ? (totalUsed / totalQuota) * 100 : 0;
+      return Math.min(percentage, 100);
+    } catch (error) {
+      console.error('Error calculating storage usage:', error);
+      return 0;
+    }
+  };
+
+  // Cleanup storage function
+  const cleanupStorage = async (manual: boolean = false): Promise<StorageCleanupResult> => {
+    setIsCleaningUp(true);
+    const startTime = Date.now();
+    let freedSpace = 0;
+    let itemsRemoved = 0;
+    const categories = { notifications: 0, cache: 0, logs: 0, temp: 0 };
+
+    try {
+      // Clean up handled notifications older than 1 hour
+      const handledDeletedCount = await NotificationPersistenceService.permanentlyDeleteHandledNotifications(1);
+      categories.notifications += handledDeletedCount;
+      itemsRemoved += handledDeletedCount;
+
+      // Clean up cache data
+      const cacheKeys = Object.keys(localStorage).filter(key => 
+        key.startsWith('cache_') || 
+        key.startsWith('temp_') ||
+        key.startsWith('session_')
+      );
+      
+      cacheKeys.forEach(key => {
+        try {
+          const data = localStorage.getItem(key);
+          if (data) {
+            freedSpace += data.length + key.length;
+            localStorage.removeItem(key);
+            
+            if (key.startsWith('cache_')) categories.cache++;
+            else if (key.startsWith('temp_')) categories.temp++;
+            else categories.logs++;
+            
+            itemsRemoved++;
+          }
+        } catch (error) {
+          console.warn(`Could not remove cache key ${key}:`, error);
+        }
+      });
+
+      // Clean up old log entries
+      const logKeys = Object.keys(localStorage).filter(key => 
+        key.startsWith('log_') && 
+        key.includes('_') && 
+        Date.now() - parseInt(key.split('_')[1]) > 24 * 60 * 60 * 1000 // 24 hours old
+      );
+
+      logKeys.forEach(key => {
+        try {
+          const data = localStorage.getItem(key);
+          if (data) {
+            freedSpace += data.length + key.length;
+            localStorage.removeItem(key);
+            categories.logs++;
+            itemsRemoved++;
+          }
+        } catch (error) {
+          console.warn(`Could not remove log key ${key}:`, error);
+        }
+      });
+
+      setLastCleanup(new Date());
+      
+      // Recalculate usage after cleanup
+      setTimeout(() => {
+        const newUsage = calculateStorageUsage();
+        setStorageUsagePercent(newUsage);
+        setNeedsCleanup(newUsage >= threshold * 100);
+      }, 100);
+
+      const result: StorageCleanupResult = {
+        freedSpace,
+        itemsRemoved,
+        timeTaken: Date.now() - startTime,
+        cleanupType: manual ? 'manual' : 'automatic',
+        categories
+      };
+
+      console.log('Storage cleanup completed:', result);
+      return result;
+
+    } catch (error) {
+      console.error('Storage cleanup error:', error);
+      throw error;
+    } finally {
+      setIsCleaningUp(false);
+    }
+  };
+
+  // Auto cleanup effect
+  useEffect(() => {
+    if (autoCleanup && needsCleanup && !isCleaningUp) {
+      const shouldCleanup = !lastCleanup || 
+        Date.now() - lastCleanup.getTime() > 30 * 60 * 1000; // 30 minutes since last cleanup
+      
+      if (shouldCleanup) {
+        console.log('Automatic storage cleanup triggered at', storageUsagePercent.toFixed(1), '% usage');
+        cleanupStorage(false).catch(console.error);
+      }
+    }
+  }, [autoCleanup, needsCleanup, isCleaningUp, lastCleanup, storageUsagePercent]);
+
+  // Initialize and periodic check
+  useEffect(() => {
+    const updateUsage = () => {
+      const usage = calculateStorageUsage();
+      setStorageUsagePercent(usage);
+      setNeedsCleanup(usage >= threshold * 100);
+    };
+
+    updateUsage();
+    const interval = setInterval(updateUsage, 60000); // Check every minute
+
+    return () => clearInterval(interval);
+  }, [threshold]);
+
+  return {
+    storageUsagePercent,
+    needsCleanup,
+    isCleaningUp,
+    lastCleanup,
+    cleanupStorage: () => cleanupStorage(true)
+  };
+};
+
+// FIXED: Enhanced StorageMonitor Component with threshold support
+const StorageMonitor: React.FC<StorageMonitorProps> = ({
+  autoCleanup = false,
+  showUI = true,
+  threshold = 0.8,
+  onCleanupComplete,
+  className = ""
+}) => {
+  const {
+    storageUsagePercent,
+    needsCleanup,
+    isCleaningUp,
+    lastCleanup,
+    cleanupStorage
+  } = useStorageMonitor(autoCleanup, threshold);
+
+  const handleManualCleanup = async () => {
+    try {
+      const result = await cleanupStorage();
+      if (onCleanupComplete) {
+        onCleanupComplete(result);
+      }
+    } catch (error) {
+      console.error('Manual cleanup failed:', error);
+    }
+  };
+
+  // Don't render UI if showUI is false
+  if (!showUI) {
+    return null;
+  }
+
+  const getUsageColor = () => {
+    if (storageUsagePercent >= 90) return 'text-red-600 bg-red-50';
+    if (storageUsagePercent >= 70) return 'text-orange-600 bg-orange-50';
+    if (storageUsagePercent >= 50) return 'text-yellow-600 bg-yellow-50';
+    return 'text-green-600 bg-green-50';
+  };
+
+  const getProgressColor = () => {
+    if (storageUsagePercent >= 90) return 'bg-red-500';
+    if (storageUsagePercent >= 70) return 'bg-orange-500';
+    if (storageUsagePercent >= 50) return 'bg-yellow-500';
+    return 'bg-green-500';
+  };
+
+  return (
+    <div className={`bg-white rounded-lg border border-gray-200 p-4 ${className}`}>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-medium text-gray-900">Storage Usage</h3>
+        <div className={`px-2 py-1 rounded-full text-xs font-medium ${getUsageColor()}`}>
+          {Math.round(storageUsagePercent)}% used
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mb-4">
+        <div className="w-full bg-gray-200 rounded-full h-2">
+          <div
+            className={`h-2 rounded-full transition-all duration-300 ${getProgressColor()}`}
+            style={{ width: `${Math.min(storageUsagePercent, 100)}%` }}
+          />
+        </div>
+        <div className="flex justify-between text-xs text-gray-500 mt-1">
+          <span>0%</span>
+          <span className="text-red-500">{Math.round(threshold * 100)}%</span>
+          <span>100%</span>
+        </div>
+      </div>
+
+      {/* Status and actions */}
+      <div className="space-y-2">
+        {needsCleanup && (
+          <div className="flex items-center text-xs text-orange-600 bg-orange-50 p-2 rounded">
+            <AlertTriangle className="w-4 h-4 mr-2 flex-shrink-0" />
+            <span>Storage cleanup recommended</span>
+          </div>
+        )}
+
+        {lastCleanup && (
+          <div className="text-xs text-gray-500">
+            Last cleanup: {lastCleanup.toLocaleTimeString()}
+          </div>
+        )}
+
+        <button
+          onClick={handleManualCleanup}
+          disabled={isCleaningUp}
+          className={`w-full px-3 py-2 text-sm rounded-lg transition-colors ${
+            isCleaningUp
+              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              : needsCleanup
+              ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
+              : 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+          }`}
+        >
+          {isCleaningUp ? (
+            <div className="flex items-center justify-center">
+              <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+              Cleaning up...
+            </div>
+          ) : (
+            'Clean Storage'
+          )}
+        </button>
+      </div>
+
+      {autoCleanup && (
+        <div className="mt-2 text-xs text-green-600 bg-green-50 p-2 rounded">
+          Auto-cleanup enabled (threshold: {Math.round(threshold * 100)}%)
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Enhanced Transaction interface matching your actual database schema
 interface Transaction {
   id: string;
@@ -31,7 +352,7 @@ interface Transaction {
   
   // Common fields
   supplier_id?: string | null;
-  material_type: string; // Unified field for material_type/material_name
+  material_type: string;
   transaction_date: string;
   total_amount: number;
   created_at: string;
@@ -43,10 +364,10 @@ interface Transaction {
   weight_kg?: number | null;
   
   // Unified customer/supplier name field
-  customer_name: string; // Maps to walkin_name for purchases, supplier_name for sales
-  customer_phone?: string | null; // For purchases only
+  customer_name: string;
+  customer_phone?: string | null;
   
-  // Purchase-specific fields (from transactions table)
+  // Purchase-specific fields
   transaction_number?: string | null;
   is_walkin?: boolean;
   walkin_name?: string | null;
@@ -60,10 +381,10 @@ interface Transaction {
   receipt_number?: string | null;
   supplier_name?: string | null;
   
-  // Sales-specific fields (from sales_transactions table)
-  transaction_id?: string; // For sales transactions
+  // Sales-specific fields
+  transaction_id?: string;
   material_id?: number | null;
-  material_name?: string; // For sales transactions
+  material_name?: string;
   price_per_kg?: number | null;
   is_special_price?: boolean;
   original_price?: number | null;
@@ -236,23 +557,32 @@ const RecoveryComponent = ({
   const handleEmergencyRecovery = async () => {
     setIsRecovering(true);
     try {
-      console.log('Starting emergency notification recovery...');
+      console.log('Starting emergency notification recovery (UNHANDLED ONLY)...');
       
-      // Get recovery stats
       const stats = await NotificationPersistenceService.getNotificationStats();
       setRecoveryStats(stats);
       
-      // Perform emergency recovery
       const recoveredNotifications = await NotificationPersistenceService.emergencyRecovery();
       
-      console.log(`Emergency recovery completed: ${recoveredNotifications.length} notifications recovered`);
+      const unhandledOnly = recoveredNotifications.filter(n => {
+        if (n.is_handled === true) {
+          console.error(`CRITICAL: Handled notification ${n.id} in recovery - blocking`);
+          return false;
+        }
+        const handledKey = `handled_${n.id}`;
+        if (localStorage.getItem(handledKey)) {
+          console.log(`Excluding handled notification ${n.id} from recovery (localStorage check)`);
+          return false;
+        }
+        return true;
+      });
       
-      // Trigger refresh in the notification context
+      console.log(`Emergency recovery completed: ${unhandledOnly.length} UNHANDLED notifications recovered (filtered from ${recoveredNotifications.length})`);
+      
       onRecovery();
       
-      // Show success message
       setTimeout(() => {
-        alert(`✅ Recovery Complete!\n\nRecovered ${recoveredNotifications.length} unhandled notifications.\n\nStats:\n- Total: ${stats.total}\n- Pending: ${stats.pending}\n- Handled: ${stats.handled}`);
+        alert(`✅ Recovery Complete!\n\nRecovered ${unhandledOnly.length} unhandled notifications.\n\nStats:\n- Total: ${stats.total}\n- Pending: ${stats.pending}\n- Handled: ${stats.handled} (excluded from recovery)`);
       }, 500);
       
     } catch (error) {
@@ -274,23 +604,23 @@ const RecoveryComponent = ({
           </div>
           <div>
             <h3 className="font-semibold text-gray-900 text-sm">System Recovery</h3>
-            <p className="text-xs text-gray-600">Restore unhandled notifications</p>
+            <p className="text-xs text-gray-600">Restore unhandled notifications only</p>
           </div>
         </div>
         
         {recoveryStats && (
           <div className="text-xs text-gray-600 mb-3 space-y-1 bg-gray-50 rounded p-2">
             <div className="flex justify-between">
-              <span>Pending:</span>
-              <span className="font-medium">{recoveryStats.pending}</span>
+              <span>Pending (Recoverable):</span>
+              <span className="font-medium text-green-600">{recoveryStats.pending}</span>
             </div>
             <div className="flex justify-between">
-              <span>Total:</span>
+              <span>Handled (Excluded):</span>
+              <span className="font-medium text-red-600">{recoveryStats.handled}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Total in System:</span>
               <span className="font-medium">{recoveryStats.total}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Handled:</span>
-              <span className="font-medium">{recoveryStats.handled}</span>
             </div>
           </div>
         )}
@@ -310,12 +640,15 @@ const RecoveryComponent = ({
               Recovering...
             </div>
           ) : (
-            'Recover Notifications'
+            'Recover Unhandled Notifications'
           )}
         </button>
         
         <p className="text-xs text-gray-500 mt-2 text-center">
-          Restores unhandled transactions from the last 48 hours
+          Restores only unhandled transactions from the last 48 hours
+        </p>
+        <p className="text-xs text-red-500 mt-1 text-center font-medium">
+          ⚠️ Handled notifications are permanently excluded
         </p>
       </div>
     </div>
@@ -491,10 +824,12 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     getUnhandledCount,
     refreshNotifications,
     sessionInfo,
-    // FIXED: Get bell notification data for header
     bellNotifications,
     unreadBellCount
   } = useNotifications();
+
+  // FIXED: Initialize storage monitoring with threshold
+  const { storageUsagePercent, needsCleanup } = useStorageMonitor(true, 0.8);
 
   // State management
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -540,10 +875,9 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     const handleOnline = () => {
       setIsOnline(true);
       console.log('App came online, syncing...');
-      // Trigger sync when coming back online
       setTimeout(() => {
         fetchData();
-        refreshNotifications(); // This handles both queue and bell notifications
+        refreshNotifications();
       }, 1000);
     };
     
@@ -581,23 +915,34 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   useEffect(() => {
     console.log('Initializing notification persistence system...');
     
-    // Start periodic cleanup
-    const stopCleanup = NotificationPersistenceService.startPeriodicCleanup(60);
+    const stopCleanup = NotificationPersistenceService.startPeriodicCleanup(30);
     
-    // Check for unhandled notifications on startup
+    const cleanupHandledOnStartup = async () => {
+      try {
+        const deletedCount = await NotificationPersistenceService.permanentlyDeleteHandledNotifications(0.5);
+        if (deletedCount > 0) {
+          console.log(`[App] Cleaned up ${deletedCount} handled notifications on startup`);
+        }
+      } catch (error) {
+        console.error('Error cleaning up handled notifications on startup:', error);
+      }
+    };
+    
+    cleanupHandledOnStartup();
+    
     const checkForUnhandledNotifications = async () => {
       try {
-        const stats = await NotificationPersistenceService.getNotificationStats();
-        console.log('Startup notification stats:', stats);
+        const pendingNotifications = await NotificationPersistenceService.getPendingNotifications();
         
-        if (stats.pending > 0) {
-          console.log(`Found ${stats.pending} pending notifications from previous session`);
+        console.log(`Startup check: ${pendingNotifications.length} pending notifications found`);
+        
+        if (pendingNotifications.length > 0) {
+          console.log(`Found ${pendingNotifications.length} pending notifications from previous session`);
           setShowRecovery(true);
           
-          // Auto-trigger recovery after 5 seconds if user doesn't manually trigger it
           setTimeout(() => {
             if (showRecovery) {
-              console.log('Auto-triggering notification recovery...');
+              console.log('Auto-triggering notification recovery for UNHANDLED notifications...');
               handleRecoveryAction();
             }
           }, 5000);
@@ -607,7 +952,6 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       }
     };
 
-    // Run check after a brief delay to ensure context is ready
     setTimeout(checkForUnhandledNotifications, 2000);
 
     return () => {
@@ -615,11 +959,10 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     };
   }, []);
 
-  // FIXED: Initialize bell notifications on startup
+  // Initialize bell notifications on startup
   useEffect(() => {
-    // Load bell notifications after a brief delay to ensure context is ready
     setTimeout(() => {
-      refreshNotifications(); // This will also load bell notifications internally
+      refreshNotifications();
     }, 1000);
   }, [refreshNotifications]);
 
@@ -874,9 +1217,12 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   const handleRecoveryAction = async () => {
     setShowRecovery(false);
     try {
-      console.log('Triggering notification recovery...');
-      await refreshNotifications(); // This handles both queue and bell notifications
-      console.log('Notifications refreshed from persistent storage');
+      console.log('Triggering notification recovery (UNHANDLED ONLY)...');
+      
+      await NotificationPersistenceService.permanentlyDeleteHandledNotifications(0.5);
+      await refreshNotifications();
+      
+      console.log('Notifications refreshed from persistent storage (handled excluded)');
     } catch (error) {
       console.error('Failed to refresh notifications:', error);
     }
@@ -901,7 +1247,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
-  // FIXED: Enhanced notification click handler - now uses bell notifications
+  // Enhanced notification click handler
   const handleNotificationClick = async () => {
     const totalCount = getUnhandledCount() + unreadBellCount;
     console.log('Notifications clicked - total count:', totalCount, 'unhandled:', getUnhandledCount(), 'bell:', unreadBellCount);
@@ -951,8 +1297,15 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   // Emergency recovery handler
   const handleEmergencyRecovery = async () => {
     try {
-      await NotificationPersistenceService.emergencyRecovery();
-      await refreshNotifications(); // This handles both queue and bell notifications
+      console.log('Emergency recovery triggered - recovering UNHANDLED notifications only');
+      
+      const pendingNotifications = await NotificationPersistenceService.getPendingNotifications();
+      
+      console.log(`Found ${pendingNotifications.length} pending notifications for recovery`);
+      
+      await refreshNotifications();
+      
+      console.log('Emergency recovery completed - handled notifications excluded');
     } catch (error) {
       console.error('Emergency recovery failed:', error);
     }
@@ -1024,7 +1377,24 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       case 'reports-custom':
         return <CustomReport />;
       case 'settings':
-        return <SettingsPage />;
+        return (
+          <div>
+            <SettingsPage />
+            {/* FIXED: Detailed Storage Monitor in Settings with threshold support */}
+            <div className="mt-6 border-t pt-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Storage Management</h3>
+              <StorageMonitor 
+                autoCleanup={false} 
+                showUI={true}
+                threshold={0.7} // Show cleanup at 70% in settings
+                onCleanupComplete={(result) => {
+                  console.log('Manual storage cleanup completed:', result);
+                  alert(`Cleanup completed!\n\nFreed space: ${result.freedSpace}KB\nItems removed: ${result.itemsRemoved}\nTime taken: ${result.timeTaken}ms`);
+                }}
+              />
+            </div>
+          </div>
+        );
       default:
         return (
           <Dashboard 
@@ -1070,7 +1440,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
           />
         )}
 
-        {/* REMOVED: Development session info - only show in development mode */}
+        {/* Development session info - only show in development mode */}
         {process.env.NODE_ENV === 'development' && sessionInfo && (
           <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[60] bg-black text-white text-xs p-2 rounded max-w-xs">
             <div className="flex items-center gap-2">
@@ -1086,6 +1456,21 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
 
         {/* Recovery Component */}
         <RecoveryComponent onRecovery={handleRecoveryAction} isVisible={showRecovery} />
+
+        {/* Critical Storage Warning */}
+        {storageUsagePercent > 90 && (
+          <div className="fixed bottom-4 left-4 z-50 bg-red-600 text-white px-4 py-3 rounded-lg shadow-xl max-w-sm">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              <div>
+                <p className="font-semibold text-sm">Storage Critical</p>
+                <p className="text-xs opacity-90">
+                  {Math.round(storageUsagePercent)}% full - Auto-cleanup active
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Mobile Overlay */}
         {isMobile && sidebarOpen && (
@@ -1114,12 +1499,12 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
         <div className={`flex-1 flex flex-col overflow-hidden min-w-0 ${
           isMobile ? '' : (sidebarOpen ? 'md:ml-0' : 'md:ml-0')
         }`}>
-          {/* FIXED: Enhanced Header with bell notifications */}
+          {/* Enhanced Header with bell notifications */}
           <div className="relative">
             <Header
               activeTab={activeTab}
               userName="Admin User"
-              notificationCount={getUnhandledCount()} // FIXED: Only unhandled notifications for immediate action
+              notificationCount={getUnhandledCount()}
               onNotificationClick={handleNotificationClick}
               onProfileClick={handleProfileClick}
             />
@@ -1142,7 +1527,17 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
         </div>
       </div>
 
-      {/* FIXED: Production-ready Transaction Notification Modal */}
+      {/* FIXED: Silent Storage Monitor with proper threshold support */}
+      <StorageMonitor 
+        autoCleanup={true} 
+        showUI={false} 
+        threshold={0.8} // Start cleanup at 80% storage usage
+        onCleanupComplete={(result) => {
+          console.log('Automatic storage cleanup completed:', result);
+        }}
+      />
+
+      {/* Production-ready Transaction Notification Modal */}
       {currentNotification && (
         <TransactionNotification
           transaction={currentNotification.transaction}
@@ -1164,22 +1559,23 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   );
 };
 
-// Enhanced Main App wrapper with NotificationProvider
+// Enhanced Main App wrapper with NotificationProvider and StorageMonitor
 const App: React.FC<AppProps> = (props) => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [userIdentifier, setUserIdentifier] = useState<string>('');
   const [appReady, setAppReady] = useState(false);
 
+  // FIXED: Initialize storage monitoring with threshold
+  const { storageUsagePercent, needsCleanup } = useStorageMonitor(true, 0.8);
+
   // Initialize app with suppliers and user identifier
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        // Generate or retrieve device identifier
         const deviceId = NotificationPersistenceService.generateDeviceIdentifier();
         setUserIdentifier(deviceId);
         console.log('App initialized with device identifier:', deviceId);
 
-        // Fetch suppliers
         const { data, error } = await supabase
           .from('suppliers')
           .select('*');
@@ -1194,7 +1590,7 @@ const App: React.FC<AppProps> = (props) => {
         setAppReady(true);
       } catch (error) {
         console.error('Error initializing app:', error);
-        setAppReady(true); // Still allow app to load
+        setAppReady(true);
       }
     };
 
@@ -1211,6 +1607,11 @@ const App: React.FC<AppProps> = (props) => {
           <p className="mt-2 text-sm text-gray-500">
             {!userIdentifier ? 'Setting up device profile...' : 'Loading suppliers...'}
           </p>
+          {storageUsagePercent > 70 && (
+            <p className="mt-1 text-xs text-orange-600">
+              Storage: {Math.round(storageUsagePercent)}% used - Optimizing...
+            </p>
+          )}
         </div>
       </div>
     );
