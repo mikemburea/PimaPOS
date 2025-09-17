@@ -33,6 +33,14 @@ interface Transaction {
   updated_at?: string | null;
   is_special_price?: boolean; // For sales transactions
   original_price?: number | null; // For sales transactions
+  user_id?: string | null;
+  user_profile?: {
+    id: string;
+    full_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    avatar_url?: string | null;
+  } | null;
 }
 
 interface TransactionsProps {
@@ -321,6 +329,70 @@ function TransactionTypeBadge({ type }: { type: 'Purchase' | 'Sale' }) {
     <span className={`px-2 py-1 rounded-full text-xs font-medium ${classes[type]}`}>
       {type}
     </span>
+  );
+}
+
+// User Info Component
+function UserInfo({ 
+  userProfile, 
+  createdBy, 
+  size = 'sm',
+  showDetails = true 
+}: { 
+  userProfile?: Transaction['user_profile']; 
+  createdBy?: string | null;
+  size?: 'xs' | 'sm' | 'md';
+  showDetails?: boolean;
+}) {
+  const sizeClasses = {
+    xs: 'w-4 h-4 text-xs',
+    sm: 'w-6 h-6 text-xs',
+    md: 'w-8 h-8 text-sm'
+  };
+
+  const textSizeClasses = {
+    xs: 'text-xs',
+    sm: 'text-xs',
+    md: 'text-sm'
+  };
+
+  // Get display name and initials
+  const displayName = userProfile?.full_name || createdBy || 'Unknown User';
+  const initials = userProfile?.full_name 
+    ? userProfile.full_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+    : createdBy 
+      ? createdBy.substring(0, 2).toUpperCase()
+      : 'UU';
+
+  return (
+    <div className={`flex items-center gap-2 ${size === 'xs' ? 'gap-1' : 'gap-2'}`}>
+      {/* Avatar */}
+      <div className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 text-white font-medium flex items-center justify-center shrink-0`}>
+        {userProfile?.avatar_url ? (
+          <img
+            src={userProfile.avatar_url}
+            alt={displayName}
+            className="w-full h-full rounded-full object-cover"
+          />
+        ) : (
+          <span className={textSizeClasses[size]}>{initials}</span>
+        )}
+      </div>
+      
+      {/* User Details */}
+      {showDetails && (
+        <div className="flex-1 min-w-0">
+          <div className={`font-medium text-gray-900 truncate ${textSizeClasses[size]}`}>
+            {displayName}
+          </div>
+          {userProfile?.email && size !== 'xs' && (
+            <div className="text-xs text-gray-500 truncate">
+              {userProfile.email}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -821,6 +893,13 @@ function NewTransactionModal({
     setLoading(true);
     
     try {
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError) {
+        console.error('Error getting user:', userError);
+      }
+
       // Calculate amounts
       const weight = parseFloat(formData.weight_kg) || 0;
       const unitPrice = parseFloat(formData.unit_price) || 0;
@@ -829,27 +908,30 @@ function NewTransactionModal({
       // Generate transaction number
       const transactionNumber = `TX-${Date.now()}`;
       
-      // Create transaction
+      // Create transaction with user information
+      const transactionData = {
+        transaction_number: transactionNumber,
+        is_walkin: true,
+        walkin_name: formData.walkin_name,
+        walkin_phone: formData.walkin_phone,
+        material_type: formData.material_type,
+        material_category: formData.material_category || formData.material_type,
+        weight_kg: weight,
+        unit_price: unitPrice,
+        total_amount: totalAmount,
+        final_amount: totalAmount,
+        quality_grade: formData.quality_grade,
+        payment_method: formData.payment_method,
+        payment_status: formData.payment_status,
+        notes: formData.notes,
+        transaction_date: new Date().toISOString(),
+        created_by: user?.email || 'mobile_app',
+        user_id: user?.id || null
+      };
+
       const { data: transaction, error: txError } = await supabase
         .from('transactions')
-        .insert({
-          transaction_number: transactionNumber,
-          is_walkin: true,
-          walkin_name: formData.walkin_name,
-          walkin_phone: formData.walkin_phone,
-          material_type: formData.material_type,
-          material_category: formData.material_category || formData.material_type,
-          weight_kg: weight,
-          unit_price: unitPrice,
-          total_amount: totalAmount,
-          final_amount: totalAmount,
-          quality_grade: formData.quality_grade,
-          payment_method: formData.payment_method,
-          payment_status: formData.payment_status,
-          notes: formData.notes,
-          transaction_date: new Date().toISOString(),
-          created_by: 'mobile_app'
-        })
+        .insert(transactionData)
         .select()
         .single();
       
@@ -1312,11 +1394,34 @@ function TransactionCard({
             <Trash2 size={16} className="text-red-600" />
           </button>
         </div>
-        {tx.notes && (
-          <div className="text-xs text-gray-500 italic max-w-[100px] truncate">
-            {tx.notes}
-          </div>
-        )}
+        <div className="flex items-center gap-2 text-right">
+          {tx.notes && (
+            <div className="text-xs text-gray-500 italic max-w-[60px] truncate">
+              {tx.notes}
+            </div>
+          )}
+          <UserInfo 
+            userProfile={tx.user_profile}
+            createdBy={tx.created_by}
+            size="xs"
+            showDetails={false}
+          />
+        </div>
+      </div>
+
+      {/* Created by info */}
+      <div className="pt-2 border-t border-gray-100">
+        <div className="flex items-center justify-between text-xs text-gray-500">
+          <span>Created by:</span>
+          <UserInfo 
+            userProfile={tx.user_profile}
+            createdBy={tx.created_by}
+            size="xs"
+          />
+        </div>
+        <div className="text-right mt-1 text-xs text-gray-400">
+          {new Date(tx.created_at).toLocaleString()}
+        </div>
       </div>
     </div>
   );
@@ -1344,31 +1449,82 @@ export default function Transactions({ onTransactionUpdate }: TransactionsProps)
       setLoading(true);
       setError(null);
       
-      // Fetch purchases from transactions table
-      const { data: purchaseData, error: purchaseError } = await supabase
-        .from('transactions')
-        .select(`
-          *,
-          suppliers:supplier_id (
-            name,
-            phone,
-            email
-          )
-        `)
-        .order('created_at', { ascending: false });
+      // First try to fetch purchases with profile joins
+      let purchaseData;
+      try {
+        const { data, error } = await supabase
+          .from('transactions')
+          .select(`
+            *,
+            suppliers:supplier_id (
+              name,
+              phone,
+              email
+            )
+          `)
+          .order('created_at', { ascending: false });
 
-      if (purchaseError) {
-        throw purchaseError;
+        if (error) throw error;
+        purchaseData = data;
+      } catch (profileError) {
+        console.warn('Failed to fetch transactions with profiles, falling back to basic fetch:', profileError);
+        
+        // Fallback: fetch without profiles
+        const { data, error } = await supabase
+          .from('transactions')
+          .select(`
+            *,
+            suppliers:supplier_id (
+              name,
+              phone,
+              email
+            )
+          `)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        purchaseData = data;
       }
 
-      // Fetch sales from sales_transactions table
-      const { data: salesData, error: salesError } = await supabase
-        .from('sales_transactions')
-        .select('*')
-        .order('created_at', { ascending: false });
+      // Try to fetch sales with profile joins
+      let salesData;
+      try {
+        const { data, error } = await supabase
+          .from('sales_transactions')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      if (salesError) {
-        throw salesError;
+        if (error) throw error;
+        salesData = data;
+      } catch (salesError) {
+        console.warn('Failed to fetch sales transactions:', salesError);
+        salesData = [];
+      }
+
+      // Fetch user profiles separately if user_ids exist
+      const userIds = [
+        ...(purchaseData || []).map(tx => tx.user_id).filter(Boolean),
+        ...(salesData || []).map(tx => tx.user_id).filter(Boolean)
+      ];
+
+      let userProfiles: Record<string, any> = {};
+      if (userIds.length > 0) {
+        try {
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, phone, avatar_url')
+            .in('id', [...new Set(userIds)]);
+
+          if (!profilesError && profilesData) {
+            userProfiles = profilesData.reduce((acc, profile) => {
+              acc[profile.id] = profile;
+              return acc;
+            }, {} as Record<string, any>);
+          }
+        } catch (profileError) {
+          console.warn('Could not fetch user profiles:', profileError);
+          // Continue without profiles
+        }
       }
 
       // Transform and combine the data
@@ -1396,7 +1552,15 @@ export default function Transactions({ onTransactionUpdate }: TransactionsProps)
         receipt_number: tx.receipt_number,
         notes: tx.notes,
         created_by: tx.created_by,
-        updated_at: tx.updated_at
+        updated_at: tx.updated_at,
+        user_id: tx.user_id,
+        user_profile: tx.user_id && userProfiles[tx.user_id] ? {
+          id: userProfiles[tx.user_id].id,
+          full_name: userProfiles[tx.user_id].full_name,
+          email: userProfiles[tx.user_id].email,
+          phone: userProfiles[tx.user_id].phone,
+          avatar_url: userProfiles[tx.user_id].avatar_url
+        } : null
       }));
 
       const sales: Transaction[] = (salesData || []).map(tx => ({
@@ -1419,7 +1583,15 @@ export default function Transactions({ onTransactionUpdate }: TransactionsProps)
         created_by: tx.created_by,
         updated_at: tx.updated_at,
         is_special_price: tx.is_special_price,
-        original_price: tx.original_price
+        original_price: tx.original_price,
+        user_id: tx.user_id,
+        user_profile: tx.user_id && userProfiles[tx.user_id] ? {
+          id: userProfiles[tx.user_id].id,
+          full_name: userProfiles[tx.user_id].full_name,
+          email: userProfiles[tx.user_id].email,
+          phone: userProfiles[tx.user_id].phone,
+          avatar_url: userProfiles[tx.user_id].avatar_url
+        } : null
       }));
 
       // Combine and sort by created_at
@@ -1886,6 +2058,7 @@ export default function Transactions({ onTransactionUpdate }: TransactionsProps)
                     <th className="px-6 py-4 font-semibold">Weight (kg)</th>
                     <th className="px-6 py-4 font-semibold">Amount</th>
                     <th className="px-6 py-4 font-semibold">Status</th>
+                    <th className="px-6 py-4 font-semibold">Created By</th>
                     <th className="px-6 py-4 font-semibold">Actions</th>
                   </tr>
                 </thead>
@@ -1957,6 +2130,22 @@ export default function Transactions({ onTransactionUpdate }: TransactionsProps)
                             via {tx.payment_method}
                           </div>
                         )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col space-y-1">
+                          <UserInfo 
+                            userProfile={tx.user_profile}
+                            createdBy={tx.created_by}
+                            size="sm"
+                          />
+                          <div className="text-xs text-gray-400">
+                            {new Date(tx.created_at).toLocaleDateString()} at{' '}
+                            {new Date(tx.created_at).toLocaleTimeString([], { 
+                              hour: '2-digit', 
+                              minute: '2-digit' 
+                            })}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-1">

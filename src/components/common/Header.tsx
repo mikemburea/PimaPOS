@@ -1,10 +1,9 @@
-// src/components/common/Header.tsx - Enhanced with Complete Bell Notifications System
+// src/components/common/Header.tsx - Clean Header without redundant elements
 import React, { useState, useRef, useEffect } from 'react';
 import { Bell, User, Check, X, Eye, Clock, Package, TrendingUp } from 'lucide-react';
 import { useNotifications } from '../../contexts/NotificationContext';
 
 interface HeaderProps {
-  activeTab?: string;
   title?: string;
   userName?: string;
   showNotifications?: boolean;
@@ -43,9 +42,8 @@ export const glassmorphismStyle = {
 };
 
 const Header: React.FC<HeaderProps> = ({ 
-  activeTab = 'dashboard', 
   title = 'MeruScrap',
-  userName = 'Admin User',
+  userName = 'User',
   showNotifications = true,
   notificationCount = 0,
   onNotificationClick,
@@ -459,13 +457,6 @@ const Header: React.FC<HeaderProps> = ({
           margin-bottom: 0.125rem;
         }
 
-        .popup-user-role {
-          font-size: 0.75rem;
-          color: #64748b;
-          display: block;
-          line-height: 1.2;
-        }
-
         .popup-divider {
           height: 1px;
           background: linear-gradient(90deg, transparent 0%, rgba(59, 130, 246, 0.2) 50%, transparent 100%);
@@ -490,14 +481,6 @@ const Header: React.FC<HeaderProps> = ({
         }
 
         .user-name {
-          display: none;
-        }
-
-        .user-role {
-          display: none;
-        }
-
-        .active-tab {
           display: none;
         }
 
@@ -601,14 +584,6 @@ const Header: React.FC<HeaderProps> = ({
             white-space: nowrap;
           }
 
-          .user-role {
-            display: block;
-            font-size: 0.75rem;
-            color: #64748b;
-            margin-top: -0.125rem;
-            line-height: 1;
-          }
-
           .profile-popup {
             display: none;
           }
@@ -642,20 +617,6 @@ const Header: React.FC<HeaderProps> = ({
 
         /* Desktop styles (lg: 1024px and up) */
         @media (min-width: 1024px) {
-          .active-tab {
-            display: block;
-            padding: 0.5rem 1rem;
-            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.1) 100%);
-            border: 1px solid rgba(59, 130, 246, 0.2);
-            border-radius: 12px;
-            font-weight: 600;
-            color: #1e40af;
-            text-transform: capitalize;
-            backdrop-filter: blur(10px);
-            font-size: 0.875rem;
-            white-space: nowrap;
-          }
-
           .logo-container {
             width: 48px;
             height: 48px;
@@ -714,10 +675,6 @@ const Header: React.FC<HeaderProps> = ({
           .user-name {
             font-size: 0.875rem;
             max-width: none;
-          }
-
-          .user-role {
-            font-size: 0.75rem;
           }
 
           .left-section {
@@ -785,10 +742,6 @@ const Header: React.FC<HeaderProps> = ({
             font-size: 0.8125rem;
           }
 
-          .popup-user-role {
-            font-size: 0.6875rem;
-          }
-
           .bell-dropdown {
             width: 320px;
             right: -10px;
@@ -841,11 +794,6 @@ const Header: React.FC<HeaderProps> = ({
                 Powering the Scrap Business
               </p>
             </div>
-          </div>
-          
-          {/* Active Tab Indicator - Hidden on mobile/tablet, shown on desktop */}
-          <div className="active-tab">
-            {activeTab.replace(/-/g, ' ')}
           </div>
         </div>
         
@@ -990,7 +938,7 @@ const Header: React.FC<HeaderProps> = ({
                                 KES {notification.transaction.total_amount.toLocaleString()} • {notification.transaction.material_type}
                               </div>
                               <div className="text-xs text-blue-600 font-medium mt-1 hover:text-blue-800">
-                                👆 Click here to handle this transaction
+                                Click here to handle this transaction
                               </div>
                             </div>
                             {!notification.isRead && (
@@ -1045,9 +993,6 @@ const Header: React.FC<HeaderProps> = ({
               <span className="user-name">
                 {userName}
               </span>
-              <span className="user-role">
-                Administrator
-              </span>
             </div>
 
             {/* Mobile Profile Popup */}
@@ -1058,7 +1003,6 @@ const Header: React.FC<HeaderProps> = ({
               aria-hidden={!showProfilePopup}
             >
               <div className="popup-user-name">{userName}</div>
-              <div className="popup-user-role">Administrator</div>
               <div className="popup-divider"></div>
               <div className="popup-status">
                 <div className="status-dot"></div>

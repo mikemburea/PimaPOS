@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, Mail, Lock, User, Phone, Sparkles, Shield, Zap, ArrowRight, Bluetooth, BarChart3, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, User, Phone, Sparkles, Shield, Zap, ArrowRight, Bluetooth, BarChart3, AlertCircle, Crown, Users } from 'lucide-react';
 import { supabase } from './lib/supabase';
+import { AuthService } from './hooks/useAuth';
+import { PermissionService } from './hooks/usePermissions';
 
 interface FormData {
   email: string;
@@ -30,6 +32,16 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
   const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
   const [authError, setAuthError] = useState<AuthError | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  
+  // NEW: First user admin states
+  const [isFirstUser, setIsFirstUser] = useState<boolean>(false);
+  const [systemStats, setSystemStats] = useState({
+    totalUsers: 0,
+    adminCount: 0,
+    hasAdmin: false
+  });
+  const [checkingFirstUser, setCheckingFirstUser] = useState<boolean>(false);
+
   const [formData, setFormData] = useState<FormData>({
     email: '',
     password: '',
@@ -38,29 +50,74 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
     confirmPassword: ''
   });
 
+  // Check system status on component mount and when switching to signup
+  useEffect(() => {
+    const checkSystemStatus = async () => {
+      if (!isLogin) { // Only check when in signup mode
+        setCheckingFirstUser(true);
+        try {
+          console.log('🔍 Checking system status for signup...');
+          
+          // Check if this would be the first user
+          const wouldBeFirst = await PermissionService.wouldBeFirstUser();
+          setIsFirstUser(wouldBeFirst);
+          
+          // Get system statistics
+          const stats = await PermissionService.getSystemStats();
+          setSystemStats(stats);
+          
+          console.log('📊 System Status:', {
+            wouldBeFirst,
+            stats
+          });
+          
+          if (wouldBeFirst) {
+            console.log('👑 Next user will be the FIRST USER and will become ADMIN automatically');
+          } else {
+            console.log('👤 Next user will be a regular user');
+          }
+        } catch (error) {
+          console.error('Error checking system status:', error);
+          setIsFirstUser(false);
+        } finally {
+          setCheckingFirstUser(false);
+        }
+      }
+    };
+
+    checkSystemStatus();
+  }, [isLogin]);
+
   // Handle successful authentication
   const handleAuthenticationSuccess = () => {
+    console.log('Authentication successful, navigating to app...');
     setIsAuthenticated(true);
     
-    // Call the provided callback
-    if (onAuthSuccess) {
-      onAuthSuccess();
-    }
-    
-    // If no callback provided, navigate to app
-    if (onNavigateToApp) {
-      onNavigateToApp();
-    }
+    setTimeout(() => {
+      if (onNavigateToApp) {
+        console.log('Calling onNavigateToApp...');
+        onNavigateToApp();
+      } else if (onAuthSuccess) {
+        console.log('Calling onAuthSuccess...');
+        onAuthSuccess();
+      } else {
+        console.log('No navigation callback provided, reloading...');
+        window.location.reload();
+      }
+    }, 1500);
   };
 
   // Check for existing authentication on component mount
   useEffect(() => {
     const checkExistingAuth = async () => {
       try {
+        console.log('Checking existing authentication...');
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
+          console.log('User already authenticated:', user.email);
           setFormData(prev => ({ ...prev, email: user.email || '' }));
           handleAuthenticationSuccess();
+          return;
         }
       } catch (error) {
         console.error('Error checking authentication:', error);
@@ -77,9 +134,13 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state change:', event, session?.user?.email);
+      
       if (event === 'SIGNED_IN' && session?.user) {
+        console.log('User signed in via auth listener');
         handleAuthenticationSuccess();
       } else if (event === 'SIGNED_OUT') {
+        console.log('User signed out');
         setIsAuthenticated(false);
       }
     });
@@ -127,7 +188,6 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     
-    // Clear field-specific errors when user starts typing
     if (authError?.field === name) {
       setAuthError(null);
     }
@@ -146,65 +206,54 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
     
     try {
       if (isLogin) {
-        // Real Supabase login
+        console.log('Attempting login for:', formData.email);
         const { data, error } = await supabase.auth.signInWithPassword({
           email: formData.email,
           password: formData.password
         });
         
-        if (error) throw error;
+        if (error) {
+          console.error('Login error:', error);
+          throw error;
+        }
         
         if (data.user) {
-          handleAuthenticationSuccess();
+          console.log('Login successful for:', data.user.email);
         }
         
       } else {
-        // Real Supabase signup
-        const { data, error } = await supabase.auth.signUp({
+        console.log('Attempting signup for:', formData.email, isFirstUser ? '(FIRST USER - WILL BE ADMIN)' : '(REGULAR USER)');
+        
+        // Use enhanced AuthService signup
+        const result = await AuthService.signUp({
           email: formData.email,
           password: formData.password,
-          options: {
-            data: {
-              full_name: formData.fullName,
-              phone: formData.phone
-            }
-          }
+          fullName: formData.fullName,
+          phone: formData.phone
         });
         
-        if (error) throw error;
-        
-        // Also insert into profiles table if user is created
-        if (data.user) {
-          try {
-            const { error: profileError } = await supabase
-              .from('profiles')
-              .insert({
-                id: data.user.id,
-                full_name: formData.fullName,
-                phone: formData.phone,
-                email: formData.email
-              });
-            
-            if (profileError) {
-              console.warn('Profile creation error:', profileError);
-              // Don't throw here, as the user account was still created
-            }
-          } catch (profileError) {
-            console.warn('Profile creation failed:', profileError);
+        if (result.user) {
+          console.log('Signup successful:', result.user.email, 'Role:', result.role);
+          
+          if (result.isFirstUser && result.role === 'admin') {
+            setAuthError({ 
+              message: '🎉 Congratulations! You are the first user and have been granted Administrator privileges. Please check your email to verify your account, then sign in to access your admin dashboard.' 
+            });
+          } else {
+            setAuthError({ 
+              message: 'Account created successfully! Please check your email to verify your account, then sign in.' 
+            });
           }
+          
+          setIsLogin(true);
+          setFormData({
+            email: formData.email,
+            password: '',
+            fullName: '',
+            phone: '',
+            confirmPassword: ''
+          });
         }
-        
-        setAuthError({ 
-          message: 'Account created successfully! Please check your email to verify your account, then sign in.' 
-        });
-        setIsLogin(true);
-        setFormData({
-          email: formData.email, // Keep email for convenience
-          password: '',
-          fullName: '',
-          phone: '',
-          confirmPassword: ''
-        });
       }
     } catch (error: any) {
       console.error('Authentication error:', error);
@@ -226,6 +275,11 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
       phone: '',
       confirmPassword: ''
     });
+    
+    // Reset first user status when switching to login
+    if (!isLogin) {
+      setIsFirstUser(false);
+    }
   };
 
   // Loading screen while checking authentication
@@ -248,7 +302,7 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
     );
   }
 
-  // Don't render login form if already authenticated
+  // Authentication successful screen
   if (isAuthenticated) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
@@ -347,24 +401,103 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
                   <div className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg">
                     {isLogin ? (
                       <Shield className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-white" />
+                    ) : isFirstUser ? (
+                      <Crown className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-white" />
                     ) : (
                       <Sparkles className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-white" />
                     )}
                   </div>
                 </div>
                 <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3">
-                  {isLogin ? 'Welcome Back' : 'Get Started'}
+                  {isLogin ? 'Welcome Back' : isFirstUser ? 'Setup Admin Account' : 'Get Started'}
                 </h2>
                 <p className="text-gray-600 text-sm sm:text-base md:text-lg font-medium">
-                  {isLogin ? 'Sign in to access your dashboard' : 'Create your account and join us'}
+                  {isLogin ? 'Sign in to access your dashboard' : isFirstUser ? 'Create the first administrator account' : 'Create your account and join us'}
                 </p>
               </div>
 
+              {/* First User Admin Banner */}
+              {!isLogin && isFirstUser && !checkingFirstUser && (
+                <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-xl">
+                  <div className="flex items-start space-x-3">
+                    <div className="flex-shrink-0">
+                      <Crown className="w-6 h-6 text-purple-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-purple-900 font-bold text-lg mb-2">🎉 First Administrator Setup</h3>
+                      <div className="space-y-2 text-sm text-purple-800">
+                        <p className="font-semibold">You're creating the first account for this MeruScrap system!</p>
+                        <div className="bg-white/60 rounded-lg p-3 space-y-1">
+                          <p className="flex items-center">
+                            <span className="w-2 h-2 bg-purple-500 rounded-full mr-2"></span>
+                            <strong>Admin Privileges:</strong> Full system access
+                          </p>
+                          <p className="flex items-center">
+                            <span className="w-2 h-2 bg-purple-500 rounded-full mr-2"></span>
+                            <strong>User Management:</strong> Add and manage other users
+                          </p>
+                          <p className="flex items-center">
+                            <span className="w-2 h-2 bg-purple-500 rounded-full mr-2"></span>
+                            <strong>System Settings:</strong> Configure all features
+                          </p>
+                        </div>
+                        <p className="text-purple-700 font-medium mt-2">
+                          ✨ You'll automatically become the system administrator!
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* System Status Info (for non-first users) */}
+              {!isLogin && !isFirstUser && !checkingFirstUser && systemStats.totalUsers > 0 && (
+                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                  <div className="flex items-center space-x-3">
+                    <Users className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                    <div>
+                      <p className="text-blue-800 font-medium">Joining Existing System</p>
+                      <div className="text-sm text-blue-700 mt-1">
+                        <span>{systemStats.totalUsers} user{systemStats.totalUsers !== 1 ? 's' : ''} already registered</span>
+                        {systemStats.adminCount > 0 && (
+                          <span className="ml-2">• {systemStats.adminCount} admin{systemStats.adminCount !== 1 ? 's' : ''}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-blue-600 mt-1">You'll be created as a regular user with standard permissions.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Loading first user check */}
+              {!isLogin && checkingFirstUser && (
+                <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-xl">
+                  <div className="flex items-center space-x-3">
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-400 border-t-transparent"></div>
+                    <p className="text-gray-600 text-sm">Checking system status...</p>
+                  </div>
+                </div>
+              )}
+
               {/* Error Alert */}
               {authError && (
-                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start space-x-3">
-                  <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
-                  <p className="text-red-700 text-sm font-medium">{authError.message}</p>
+                <div className={`mb-6 p-4 border rounded-xl flex items-start space-x-3 ${
+                  authError.message.includes('🎉') || authError.message.includes('Congratulations') 
+                    ? 'bg-green-50 border-green-200'
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  {authError.message.includes('🎉') || authError.message.includes('Congratulations') ? (
+                    <Crown className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
+                  )}
+                  <p className={`text-sm font-medium ${
+                    authError.message.includes('🎉') || authError.message.includes('Congratulations')
+                      ? 'text-green-700'
+                      : 'text-red-700'
+                  }`}>
+                    {authError.message}
+                  </p>
                 </div>
               )}
 
@@ -381,7 +514,7 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
                         name="fullName"
                         value={formData.fullName}
                         onChange={handleInputChange}
-                        placeholder="Full Name"
+                        placeholder={isFirstUser ? "Administrator Name" : "Full Name"}
                         className={`w-full pl-12 pr-4 py-4 md:py-5 bg-gray-50/80 backdrop-blur-sm border rounded-xl focus:ring-2 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base md:text-lg font-medium shadow-sm hover:shadow-md ${authError?.field === 'fullName' ? 'border-red-300 focus:ring-red-500' : 'border-gray-200/50 focus:ring-blue-500'}`}
                         required={!isLogin}
                       />
@@ -413,7 +546,7 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
                     name="email"
                     value={formData.email}
                     onChange={handleInputChange}
-                    placeholder="Email Address"
+                    placeholder={!isLogin && isFirstUser ? "Administrator Email" : "Email Address"}
                     className={`w-full pl-12 pr-4 py-4 md:py-5 bg-gray-50/80 backdrop-blur-sm border rounded-xl focus:ring-2 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base md:text-lg font-medium shadow-sm hover:shadow-md ${authError?.field === 'email' ? 'border-red-300 focus:ring-red-500' : 'border-gray-200/50 focus:ring-blue-500'}`}
                     required
                   />
@@ -428,7 +561,7 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
                     name="password"
                     value={formData.password}
                     onChange={handleInputChange}
-                    placeholder="Password"
+                    placeholder={!isLogin && isFirstUser ? "Admin Password" : "Password"}
                     className={`w-full pl-12 pr-12 py-4 md:py-5 bg-gray-50/80 backdrop-blur-sm border rounded-xl focus:ring-2 focus:border-blue-500 focus:bg-white/90 outline-none transition-all duration-300 text-gray-900 placeholder-gray-500 text-base md:text-lg font-medium shadow-sm hover:shadow-md ${authError?.field === 'password' ? 'border-red-300 focus:ring-red-500' : 'border-gray-200/50 focus:ring-blue-500'}`}
                     required
                   />
@@ -479,12 +612,22 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
 
                 <button
                   onClick={handleSubmit}
-                  disabled={isLoading}
-                  className="w-full bg-gradient-to-r from-blue-600 via-blue-500 to-purple-600 text-white py-4 md:py-5 px-6 rounded-xl font-semibold text-base md:text-lg hover:from-blue-700 hover:via-blue-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:-translate-y-1 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none relative overflow-hidden group"
+                  disabled={isLoading || (!isLogin && checkingFirstUser)}
+                  className={`w-full py-4 md:py-5 px-6 rounded-xl font-semibold text-base md:text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:-translate-y-1 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none relative overflow-hidden group ${
+                    !isLogin && isFirstUser 
+                      ? 'bg-gradient-to-r from-purple-600 via-purple-500 to-blue-600 text-white hover:from-purple-700 hover:via-purple-600 hover:to-blue-700'
+                      : 'bg-gradient-to-r from-blue-600 via-blue-500 to-purple-600 text-white hover:from-blue-700 hover:via-blue-600 hover:to-purple-700'
+                  }`}
                 >
                   <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
                   <div className="relative flex items-center justify-center space-x-3">
-                    <span>{isLogin ? 'Sign In to Dashboard' : 'Create Your Account'}</span>
+                    {!isLogin && isFirstUser && <Crown className="w-5 h-5" />}
+                    <span>
+                      {isLoading 
+                        ? (isLogin ? 'Signing In...' : isFirstUser ? 'Creating Admin Account...' : 'Creating Account...')
+                        : (isLogin ? 'Sign In to Dashboard' : isFirstUser ? 'Create Admin Account' : 'Create Your Account')
+                      }
+                    </span>
                     {isLoading ? (
                       <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     ) : (
@@ -508,7 +651,8 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
                 </div>
                 <button
                   onClick={toggleForm}
-                  className="mt-4 text-blue-600 hover:text-blue-700 font-bold text-base md:text-lg transition-colors hover:underline underline-offset-4 relative group"
+                  disabled={isLoading || checkingFirstUser}
+                  className="mt-4 text-blue-600 hover:text-blue-700 font-bold text-base md:text-lg transition-colors hover:underline underline-offset-4 relative group disabled:opacity-50"
                 >
                   <span className="relative z-10">
                     {isLogin ? 'Create your account →' : '← Back to sign in'}
@@ -533,17 +677,16 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
         </div>
       </div>
 
-      {/* Desktop View - Large screens (lg+) */}
+      {/* Desktop View - Large screens (lg+) - Similar structure but condensed */}
       <div className="hidden lg:flex w-full">
         {/* Left Side - Branding Section */}
         <div className="flex-1 flex flex-col justify-center items-center px-8 xl:px-16 py-12 relative bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-          {/* Animated background elements */}
+          {/* ... Branding content (keeping same as original) ... */}
           <div className="absolute top-20 left-20 w-20 h-20 bg-blue-300 rounded-full opacity-20 animate-pulse"></div>
           <div className="absolute bottom-20 right-20 w-16 h-16 bg-purple-300 rounded-full opacity-20 animate-pulse delay-700"></div>
           <div className="absolute top-1/2 left-10 w-12 h-12 bg-green-300 rounded-full opacity-20 animate-pulse delay-1000"></div>
 
           <div className="text-center max-w-4xl w-full">
-            {/* Logo Section */}
             <div className="mb-10">
               <div className="flex items-center justify-center mb-8">
                 <div className="w-20 h-20 rounded-2xl shadow-xl flex items-center justify-center relative group mr-6 bg-white overflow-hidden transform hover:scale-105 transition-transform">
@@ -570,7 +713,6 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
               </div>
             </div>
 
-            {/* Hero Section */}
             <div className="mb-12">
               <h2 className="text-4xl xl:text-5xl font-bold text-gray-900 mb-6 leading-tight">
                 Streamline Your
@@ -599,7 +741,6 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
               </div>
             </div>
 
-            {/* Features Grid */}
             <div className="grid grid-cols-3 gap-6 mb-8">
               {features.map((feature, index) => (
                 <div key={index} className="group p-6 bg-white/95 backdrop-blur-sm rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
@@ -612,7 +753,6 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
               ))}
             </div>
 
-            {/* Footer */}
             <div className="bg-white/95 backdrop-blur-sm rounded-xl p-6 shadow-lg max-w-xl mx-auto">
               <div className="text-center text-sm text-gray-600 space-y-1">
                 <p>© 2025 MeruScrap. All rights reserved.</p>
@@ -622,7 +762,7 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
           </div>
         </div>
 
-        {/* Right Side - Desktop Form (smaller width for better proportions) */}
+        {/* Right Side - Desktop Form (maintaining original desktop form with enhancements) */}
         <div className="w-[380px] xl:w-[420px] bg-white shadow-xl flex flex-col justify-center px-8 xl:px-10 py-12 relative">
           <div className="max-w-md mx-auto w-full">
             {/* Form Header */}
@@ -630,27 +770,67 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
               <div className="flex items-center justify-center space-x-2 mb-3">
                 {isLogin ? (
                   <Shield className="w-6 h-6 text-blue-500" />
+                ) : isFirstUser ? (
+                  <Crown className="w-6 h-6 text-purple-500" />
                 ) : (
                   <Sparkles className="w-6 h-6 text-green-500" />
                 )}
               </div>
               <h2 className="text-3xl font-bold text-gray-900 mb-2">
-                {isLogin ? 'Welcome Back' : 'Get Started'}
+                {isLogin ? 'Welcome Back' : isFirstUser ? 'Setup Admin' : 'Get Started'}
               </h2>
               <p className="text-gray-600 text-base">
-                {isLogin ? 'Sign in to access your dashboard' : 'Create your account'}
+                {isLogin ? 'Sign in to access your dashboard' : isFirstUser ? 'Create administrator account' : 'Create your account'}
               </p>
             </div>
 
-            {/* Error Alert */}
-            {authError && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
-                <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
-                <p className="text-red-700 text-sm font-medium">{authError.message}</p>
+            {/* First User Admin Banner - Desktop */}
+            {!isLogin && isFirstUser && !checkingFirstUser && (
+              <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg">
+                <div className="flex items-center space-x-2 mb-2">
+                  <Crown className="w-4 h-4 text-purple-600" />
+                  <span className="text-purple-900 font-semibold text-sm">First User - Admin Setup</span>
+                </div>
+                <p className="text-xs text-purple-800">You'll automatically receive administrator privileges.</p>
               </div>
             )}
 
-            {/* Desktop Form */}
+            {/* System Status - Desktop */}
+            {!isLogin && !isFirstUser && !checkingFirstUser && systemStats.totalUsers > 0 && (
+              <div className="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <Users className="w-4 h-4 text-blue-500" />
+                  <div className="text-xs">
+                    <span className="text-blue-800 font-medium">{systemStats.totalUsers} users registered</span>
+                    <p className="text-blue-600">Joining as regular user</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Error Alert */}
+            {authError && (
+              <div className={`mb-6 p-4 border rounded-lg flex items-start space-x-3 ${
+                authError.message.includes('🎉') || authError.message.includes('Congratulations') 
+                  ? 'bg-green-50 border-green-200'
+                  : 'bg-red-50 border-red-200'
+              }`}>
+                {authError.message.includes('🎉') || authError.message.includes('Congratulations') ? (
+                  <Crown className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
+                )}
+                <p className={`text-sm font-medium ${
+                  authError.message.includes('🎉') || authError.message.includes('Congratulations')
+                    ? 'text-green-700'
+                    : 'text-red-700'
+                }`}>
+                  {authError.message}
+                </p>
+              </div>
+            )}
+
+            {/* Desktop Form - keeping same structure as original but with first user enhancements */}
             <div className="space-y-4">
               {!isLogin && (
                 <>
@@ -663,7 +843,7 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
                       name="fullName"
                       value={formData.fullName}
                       onChange={handleInputChange}
-                      placeholder="Full Name"
+                      placeholder={isFirstUser ? "Administrator Name" : "Full Name"}
                       className={`w-full pl-10 pr-3 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-sm ${authError?.field === 'fullName' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
                       required={!isLogin}
                     />
@@ -695,7 +875,7 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  placeholder="Email Address"
+                  placeholder={!isLogin && isFirstUser ? "Admin Email" : "Email Address"}
                   className={`w-full pl-10 pr-3 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-base ${authError?.field === 'email' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
                   required
                 />
@@ -710,7 +890,7 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
                   name="password"
                   value={formData.password}
                   onChange={handleInputChange}
-                  placeholder="Password"
+                  placeholder={!isLogin && isFirstUser ? "Admin Password" : "Password"}
                   className={`w-full pl-10 pr-12 py-3 bg-gray-50 border-0 rounded-lg focus:ring-2 focus:bg-white outline-none transition-all duration-200 text-gray-900 placeholder-gray-500 text-base ${authError?.field === 'password' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
                   required
                 />
@@ -761,11 +941,21 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
 
               <button
                 onClick={handleSubmit}
-                disabled={isLoading}
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transform hover:scale-[1.02] transition-all duration-200 shadow-lg hover:shadow-xl relative overflow-hidden group disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none text-base mt-2"
+                disabled={isLoading || (!isLogin && checkingFirstUser)}
+                className={`w-full py-3 px-4 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transform hover:scale-[1.02] transition-all duration-200 shadow-lg hover:shadow-xl relative overflow-hidden group disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none text-base mt-2 ${
+                  !isLogin && isFirstUser 
+                    ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white'
+                    : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+                }`}
               >
                 <div className="relative flex items-center justify-center space-x-2">
-                  <span>{isLogin ? 'Sign In' : 'Create Account'}</span>
+                  {!isLogin && isFirstUser && <Crown className="w-4 h-4" />}
+                  <span>
+                    {isLoading 
+                      ? (isLogin ? 'Signing In...' : isFirstUser ? 'Creating Admin...' : 'Creating Account...')
+                      : (isLogin ? 'Sign In' : isFirstUser ? 'Create Admin' : 'Create Account')
+                    }
+                  </span>
                   {isLoading ? (
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                   ) : (
@@ -790,7 +980,8 @@ const StandalonePimaPOSWelcome: React.FC<StandalonePimaPOSWelcomeProps> = ({
               <button
                 type="button"
                 onClick={toggleForm}
-                className="mt-3 text-blue-600 hover:text-blue-700 font-bold transition-colors text-base hover:underline underline-offset-4"
+                disabled={isLoading || checkingFirstUser}
+                className="mt-3 text-blue-600 hover:text-blue-700 font-bold transition-colors text-base hover:underline underline-offset-4 disabled:opacity-50"
               >
                 {isLogin ? 'Create your account →' : '← Back to sign in'}
               </button>

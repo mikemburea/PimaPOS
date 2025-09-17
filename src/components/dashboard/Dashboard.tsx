@@ -1,8 +1,9 @@
-// src/components/dashboard/Dashboard.tsx - Updated with Sales Transactions and Enhanced Navigation
+// src/components/dashboard/Dashboard.tsx - Updated with Role-Based Permissions
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   DollarSign, FileText, Package, Users, Plus, Download, TrendingUp, Activity, Award, 
-  Sparkles, AlertCircle, Loader2, ShoppingCart, UserPlus
+  Sparkles, AlertCircle, Loader2, ShoppingCart, UserPlus, Settings, BarChart3, 
+  Shield, Eye, EyeOff
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Cell, Pie, AreaChart, Area} from 'recharts';
 import { supabase } from '../../lib/supabase';
@@ -22,6 +23,7 @@ interface QuickActionButtonProps {
   variant?: 'filled' | 'outline' | 'ghost';
   icon?: React.ComponentType<{ size?: number }>;
   onClick?: () => void;
+  disabled?: boolean;
 }
 
 interface PerformanceMetricProps {
@@ -58,7 +60,22 @@ interface SupplierRankingProps {
   };
 }
 
-// Database interfaces matching Supabase structure
+// NEW: User permissions interface
+interface UserPermissions {
+  canViewTransactions: boolean;
+  canViewSuppliers: boolean;
+  canViewMaterials: boolean;
+  canViewAnalytics: boolean;
+  canViewReports: boolean;
+  isAdmin: boolean;
+  isFirstUser?: boolean;
+  userStats?: {
+    totalUsers: number;
+    adminCount: number;
+  };
+}
+
+// Database interfaces matching Supabase structure (maintaining existing structure)
 interface DatabaseTransaction {
   id: string;
   supplier_id?: string | null;
@@ -187,14 +204,17 @@ interface DashboardData {
   };
 }
 
+// UPDATED: Dashboard Props with new props
 interface DashboardProps {
   onRefresh?: () => void;
   onNavigateToTransactions?: () => void;
   onNavigateToSuppliers?: () => void;
   onNavigateToAddSupplier?: () => void;
+  onNavigateToMaterials?: () => void;      // NEW: Added missing prop
+  userPermissions?: UserPermissions;       // NEW: Added missing prop
 }
 
-// CSS styles object - Updated for mobile-first
+// CSS styles object - Updated for mobile-first (maintaining existing styles)
 const styles = {
   gradient: {
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
@@ -212,7 +232,7 @@ const styles = {
   }
 };
 
-// Helper functions
+// Helper functions (maintaining existing functions)
 const safeString = (value: string | null | undefined): string => {
   return value || '';
 };
@@ -244,7 +264,7 @@ const getSupplierName = (transaction: DatabaseTransaction, suppliers: DatabaseSu
   return supplier?.name || 'Unknown Supplier';
 };
 
-// Mobile-responsive Stat Card Component
+// Mobile-responsive Stat Card Component (maintaining existing component)
 const StatCard: React.FC<StatCardProps> = ({ title, value, change, icon: Icon, gradient, isLoading = false }) => (
   <div style={{
     ...styles.glassmorphism,
@@ -320,47 +340,56 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, change, icon: Icon, g
   </div>
 );
 
-// Mobile-responsive Quick Action Button Component
-const QuickActionButton: React.FC<QuickActionButtonProps> = ({ children, variant = 'outline', icon: Icon, onClick }) => {
+// UPDATED: Mobile-responsive Quick Action Button Component with disabled state
+const QuickActionButton: React.FC<QuickActionButtonProps> = ({ 
+  children, 
+  variant = 'outline', 
+  icon: Icon, 
+  onClick, 
+  disabled = false 
+}) => {
   const variants = {
     filled: {
-      background: 'linear-gradient(135deg, #00bcd4 0%, #3f51b5 100%)',
+      background: disabled ? '#94a3b8' : 'linear-gradient(135deg, #00bcd4 0%, #3f51b5 100%)',
       color: 'white',
       border: 'none',
-      boxShadow: '0 2px 8px rgba(0, 188, 212, 0.3)'
+      boxShadow: disabled ? 'none' : '0 2px 8px rgba(0, 188, 212, 0.3)'
     },
     outline: {
       background: 'transparent',
-      color: '#00bcd4',
-      border: '2px solid #00bcd4',
+      color: disabled ? '#94a3b8' : '#00bcd4',
+      border: `2px solid ${disabled ? '#94a3b8' : '#00bcd4'}`,
       boxShadow: 'none'
     },
     ghost: {
       background: 'transparent',
-      color: '#64748b',
-      border: '2px solid #e2e8f0',
+      color: disabled ? '#94a3b8' : '#64748b',
+      border: `2px solid ${disabled ? '#94a3b8' : '#e2e8f0'}`,
       boxShadow: 'none'
     }
   };
+
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       style={{
         ...variants[variant],
         padding: '0.75rem 1rem',
         borderRadius: '12px',
         fontWeight: '600',
         fontSize: '0.8rem',
-        cursor: 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
         transition: 'all 0.3s ease',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         gap: '0.5rem',
-        width: '100%'
+        width: '100%',
+        opacity: disabled ? 0.6 : 1
       }}
       onMouseEnter={(e) => {
-        if (window.innerWidth >= 768) {
+        if (!disabled && window.innerWidth >= 768) {
           e.currentTarget.style.transform = 'scale(1.02)';
           if (variant === 'filled') {
             e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 188, 212, 0.4)';
@@ -368,19 +397,21 @@ const QuickActionButton: React.FC<QuickActionButtonProps> = ({ children, variant
         }
       }}
       onMouseLeave={(e) => {
-        if (window.innerWidth >= 768) {
+        if (!disabled && window.innerWidth >= 768) {
           e.currentTarget.style.transform = 'scale(1)';
           e.currentTarget.style.boxShadow = variants[variant].boxShadow || 'none';
         }
       }}
     >
       {Icon && <Icon size={16} />}
+      {disabled && variant === 'ghost' && <EyeOff size={14} />}
+      {!disabled && variant === 'ghost' && <Eye size={14} />}
       {children}
     </button>
   );
 };
 
-// Mobile-responsive Performance Metric Component
+// Mobile-responsive Performance Metric Component (maintaining existing component)
 const PerformanceMetric: React.FC<PerformanceMetricProps> = ({ label, value, progress, target, icon: Icon }) => (
   <div style={{
     padding: '1rem',
@@ -426,7 +457,7 @@ const PerformanceMetric: React.FC<PerformanceMetricProps> = ({ label, value, pro
   </div>
 );
 
-// Mobile-responsive Transaction Item Component
+// Mobile-responsive Transaction Item Component (maintaining existing component)
 const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
   const statusColors: Record<'Completed' | 'Pending', string> = {
     Completed: '#10b981',
@@ -535,7 +566,7 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
   );
 };
 
-// Enhanced Supplier Ranking Component with sales data
+// Enhanced Supplier Ranking Component with sales data (maintaining existing component)
 const SupplierRanking: React.FC<SupplierRankingProps> = ({ supplier }) => {
   const getTierColor = (tier: string) => {
     switch (tier) {
@@ -624,7 +655,7 @@ const SupplierRanking: React.FC<SupplierRankingProps> = ({ supplier }) => {
   );
 };
 
-// Custom tooltip for charts
+// Custom tooltip for charts (maintaining existing component)
 const CustomTooltip: React.FC<any> = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
     return (
@@ -651,12 +682,33 @@ const CustomTooltip: React.FC<any> = ({ active, payload, label }) => {
   return null;
 };
 
-// Main Dashboard Component with Sales Transactions and Enhanced Navigation
+// NEW: Role Badge Component
+const RoleBadge: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => (
+  <div style={{
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    background: isAdmin ? 'rgba(147, 51, 234, 0.1)' : 'rgba(59, 130, 246, 0.1)',
+    color: isAdmin ? '#7c3aed' : '#3b82f6',
+    padding: '0.25rem 0.75rem',
+    borderRadius: '8px',
+    fontSize: '0.75rem',
+    fontWeight: '600',
+    border: `1px solid ${isAdmin ? 'rgba(147, 51, 234, 0.2)' : 'rgba(59, 130, 246, 0.2)'}`
+  }}>
+    <Shield size={12} />
+    <span>{isAdmin ? 'Admin Access' : 'User Access'}</span>
+  </div>
+);
+
+// UPDATED: Main Dashboard Component with Role-Based Permissions
 const Dashboard: React.FC<DashboardProps> = ({ 
   onRefresh, 
   onNavigateToTransactions,
   onNavigateToSuppliers,
-  onNavigateToAddSupplier 
+  onNavigateToAddSupplier,
+  onNavigateToMaterials,      // NEW: Handle materials navigation
+  userPermissions             // NEW: Handle user permissions
 }) => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -665,7 +717,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [suppliers, setSuppliers] = useState<DatabaseSupplier[]>([]);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
-  // Handle window resize
+  // Handle window resize (maintaining existing functionality)
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
@@ -675,7 +727,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Enhanced fetch data from Supabase including sales transactions
+  // Enhanced fetch data from Supabase including sales transactions (maintaining existing functionality)
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
@@ -721,7 +773,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
   }, []);
 
-  // Enhanced calculate dashboard data including sales transactions
+  // Enhanced calculate dashboard data including sales transactions (maintaining existing functionality)
   const calculateDashboardData = (
     transactions: DatabaseTransaction[], 
     salesTransactions: DatabaseSalesTransaction[],
@@ -910,7 +962,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     };
   };
 
-  // Transform transactions for display
+  // Transform transactions for display (maintaining existing functionality)
   const transformTransactionForDisplay = (transaction: DatabaseTransaction, suppliers: DatabaseSupplier[]) => {
     const supplierName = getSupplierName(transaction, suppliers);
     const initials = getInitials(supplierName);
@@ -932,7 +984,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     };
   };
 
-  // Transform sales transactions for display
+  // Transform sales transactions for display (maintaining existing functionality)
   const transformSalesTransactionForDisplay = (salesTransaction: DatabaseSalesTransaction) => {
     const supplierName = salesTransaction.supplier_name || 'Direct Sale';
     const initials = getInitials(supplierName);
@@ -954,7 +1006,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     };
   };
 
-  // Transform supplier for ranking display with enhanced data
+  // Transform supplier for ranking display with enhanced data (maintaining existing functionality)
   const transformSupplierForRanking = (supplier: any) => {
     return {
       id: supplier.id,
@@ -968,7 +1020,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     };
   };
 
-  // Enhanced realtime subscription for both tables
+  // Enhanced realtime subscription for both tables (maintaining existing functionality)
   useEffect(() => {
     console.log('Setting up dashboard realtime subscription...');
 
@@ -1020,48 +1072,82 @@ const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [fetchDashboardData]);
 
-  // Load data on component mount
+  // Load data on component mount (maintaining existing functionality)
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  // Auto-refresh every 5 minutes
+  // Auto-refresh every 5 minutes (maintaining existing functionality)
   useEffect(() => {
     const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
 
-  // Enhanced quick action handlers
+  // UPDATED: Enhanced quick action handlers with permission checks
   const handleNewTransaction = () => {
-    console.log('Navigate to new transaction');
-    // Add navigation logic here if provided
+    if (userPermissions?.canViewTransactions && onNavigateToTransactions) {
+      console.log('Navigate to new transaction');
+      onNavigateToTransactions();
+    } else {
+      console.log('Access denied: Cannot create transactions');
+    }
   };
 
   const handleAddSupplier = () => {
-    console.log('Navigate to add supplier');
-    if (onNavigateToAddSupplier) {
+    if (userPermissions?.canViewSuppliers && onNavigateToAddSupplier) {
+      console.log('Navigate to add supplier');
       onNavigateToAddSupplier();
+    } else {
+      console.log('Access denied: Cannot add suppliers');
     }
   };
 
   const handleViewAllTransactions = () => {
-    console.log('Navigate to all transactions');
-    if (onNavigateToTransactions) {
+    if (userPermissions?.canViewTransactions && onNavigateToTransactions) {
+      console.log('Navigate to all transactions');
       onNavigateToTransactions();
+    } else {
+      console.log('Access denied: Cannot view transactions');
+    }
+  };
+
+  const handleViewMaterials = () => {
+    if (userPermissions?.canViewMaterials && onNavigateToMaterials) {
+      console.log('Navigate to materials');
+      onNavigateToMaterials();
+    } else {
+      console.log('Access denied: Cannot view materials');
+    }
+  };
+
+  const handleViewAnalytics = () => {
+    if (userPermissions?.canViewAnalytics) {
+      console.log('Navigate to analytics');
+      // Add analytics navigation logic here
+    } else {
+      console.log('Access denied: Cannot view analytics');
     }
   };
 
   const handleExport = () => {
-    console.log('Export data');
-    // Add export logic here
+    if (userPermissions?.isAdmin) {
+      console.log('Export data');
+      // Add export logic here
+    } else {
+      console.log('Access denied: Export requires admin privileges');
+    }
   };
 
   const handlePricing = () => {
-    console.log('Navigate to pricing');
-    // Add navigation logic here
+    if (userPermissions?.canViewMaterials) {
+      console.log('Navigate to pricing');
+      handleViewMaterials();
+    } else {
+      console.log('Access denied: Cannot view pricing');
+    }
   };
 
-  // Loading state
+  // Loading state (maintaining existing functionality)
   if (loading) {
     return (
       <div style={{
@@ -1080,7 +1166,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     );
   }
 
-  // Error state
+  // Error state (maintaining existing functionality)
   if (error) {
     return (
       <div style={{
@@ -1124,7 +1210,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     );
   }
 
-  // No data state
+  // No data state (maintaining existing functionality)
   if (!dashboardData) {
     return (
       <div style={{
@@ -1172,7 +1258,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
       position: 'relative'
     }}>
-      {/* Animated background elements - Hidden on mobile for performance */}
+      {/* Animated background elements - Hidden on mobile for performance (maintaining existing functionality) */}
       {!isMobile && (
         <>
           <div style={{
@@ -1212,7 +1298,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         }
       `}</style>
 
-      {/* Simple Status Bar - Only Connection Status */}
+      {/* Simple Status Bar - Only Connection Status (maintaining existing functionality) */}
       <div style={{
         position: 'fixed',
         top: '0.5rem',
@@ -1256,7 +1342,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         padding: isMobile ? '1rem 0.75rem 4rem' : '2rem',
         paddingTop: isMobile ? '3rem' : '2rem'
       }}>
-        {/* Header with Refresh Button - Mobile Responsive */}
+        {/* UPDATED: Header with Refresh Button and Role Badge - Mobile Responsive */}
         <div style={{ 
           display: 'flex', 
           flexDirection: isMobile ? 'column' : 'row',
@@ -1266,21 +1352,32 @@ const Dashboard: React.FC<DashboardProps> = ({
           gap: isMobile ? '1rem' : '0'
         }}>
           <div>
-            <h1 style={{ 
-              fontSize: isMobile ? '1.75rem' : '2.5rem', 
-              fontWeight: 'bold', 
-              color: '#0f172a',
-              marginBottom: '0.5rem',
-              lineHeight: '1.2'
-            }}>
-              Dashboard
-            </h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+              <h1 style={{ 
+                fontSize: isMobile ? '1.75rem' : '2.5rem', 
+                fontWeight: 'bold', 
+                color: '#0f172a',
+                lineHeight: '1.2',
+                margin: 0
+              }}>
+                Dashboard
+              </h1>
+              {userPermissions && (
+                <RoleBadge isAdmin={userPermissions.isAdmin} />
+              )}
+            </div>
             <p style={{ 
               color: '#64748b', 
               fontSize: isMobile ? '0.9rem' : '1.125rem',
-              lineHeight: '1.4'
+              lineHeight: '1.4',
+              margin: 0
             }}>
               Real-time overview of your scrap metal business
+              {userPermissions && !userPermissions.isAdmin && (
+                <span style={{ display: 'block', fontSize: '0.8rem', color: '#f59e0b', marginTop: '0.25rem' }}>
+                  Limited access - contact administrator for full features
+                </span>
+              )}
             </p>
           </div>
           <button
@@ -1318,7 +1415,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           </button>
         </div>
 
-        {/* Enhanced Stats Cards with Sales - Mobile Responsive Grid */}
+        {/* Enhanced Stats Cards with Sales - Mobile Responsive Grid (maintaining existing functionality) */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -1368,14 +1465,14 @@ const Dashboard: React.FC<DashboardProps> = ({
           />
         </div>
 
-        {/* Enhanced Charts and Transactions Row - Mobile Responsive */}
+        {/* Enhanced Charts and Transactions Row - Mobile Responsive (maintaining existing functionality with permission checks) */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr',
           gap: isMobile ? '1rem' : '2rem',
           marginBottom: isMobile ? '1.5rem' : '2rem'
         }}>
-          {/* Enhanced Revenue Chart with Sales */}
+          {/* Enhanced Revenue Chart with Sales (maintaining existing functionality) */}
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
@@ -1385,6 +1482,11 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: isMobile ? '1rem' : '1.25rem', fontWeight: 'bold', color: '#0f172a' }}>
                 Revenue & Sales Trend (Last 7 Days)
+                {userPermissions && !userPermissions.canViewTransactions && (
+                  <span style={{ fontSize: '0.75rem', color: '#f59e0b', display: 'block', fontWeight: 'normal' }}>
+                    Limited view - full data requires transactions access
+                  </span>
+                )}
               </h3>
               {!isMobile && (
                 <div style={{ display: 'flex', gap: '1rem', fontSize: '0.875rem' }}>
@@ -1461,7 +1563,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             </ResponsiveContainer>
           </div>
 
-          {/* Enhanced Recent Transactions with Sales */}
+          {/* Enhanced Recent Transactions with Sales (maintaining existing functionality with permission checks) */}
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
@@ -1473,20 +1575,38 @@ const Dashboard: React.FC<DashboardProps> = ({
               <Activity size={isMobile ? 18 : 20} color="#00bcd4" style={{ animation: 'pulse 2s infinite' }} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {/* Mix recent transactions and sales transactions */}
-              {[
-                ...recentTransactions.map((transaction) => transformTransactionForDisplay(transaction, suppliers)),
-                ...recentSalesTransactions.map((salesTransaction) => transformSalesTransactionForDisplay(salesTransaction))
-              ]
-                .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-                .slice(0, 5)
-                .map((transaction) => (
-                  <TransactionItem 
-                    key={transaction.id} 
-                    transaction={transaction} 
-                  />
-                ))}
-              {recentTransactions.length === 0 && recentSalesTransactions.length === 0 && (
+              {userPermissions?.canViewTransactions ? (
+                /* Mix recent transactions and sales transactions */
+                [
+                  ...recentTransactions.map((transaction) => transformTransactionForDisplay(transaction, suppliers)),
+                  ...recentSalesTransactions.map((salesTransaction) => transformSalesTransactionForDisplay(salesTransaction))
+                ]
+                  .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+                  .slice(0, 5)
+                  .map((transaction) => (
+                    <TransactionItem 
+                      key={transaction.id} 
+                      transaction={transaction} 
+                    />
+                  ))
+              ) : (
+                <div style={{ 
+                  textAlign: 'center', 
+                  color: '#f59e0b', 
+                  padding: '2rem',
+                  fontSize: isMobile ? '0.8rem' : '0.875rem',
+                  background: 'rgba(251, 146, 60, 0.1)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(251, 146, 60, 0.2)'
+                }}>
+                  <Shield size={24} style={{ marginBottom: '0.5rem' }} />
+                  <div>Transaction details require appropriate permissions</div>
+                  <div style={{ fontSize: '0.75rem', marginTop: '0.25rem', color: '#92400e' }}>
+                    Contact administrator for access
+                  </div>
+                </div>
+              )}
+              {userPermissions?.canViewTransactions && recentTransactions.length === 0 && recentSalesTransactions.length === 0 && (
                 <div style={{ 
                   textAlign: 'center', 
                   color: '#64748b', 
@@ -1499,39 +1619,45 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <button 
               onClick={handleViewAllTransactions}
+              disabled={!userPermissions?.canViewTransactions}
               style={{
                 width: '100%',
                 marginTop: '1rem',
-                color: '#00bcd4',
+                color: userPermissions?.canViewTransactions ? '#00bcd4' : '#94a3b8',
                 fontWeight: '600',
                 fontSize: isMobile ? '0.8rem' : '0.875rem',
                 background: 'transparent',
                 border: 'none',
                 padding: '0.5rem',
                 borderRadius: '12px',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
+                cursor: userPermissions?.canViewTransactions ? 'pointer' : 'not-allowed',
+                transition: 'all 0.2s',
+                opacity: userPermissions?.canViewTransactions ? 1 : 0.6
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(0, 188, 212, 0.05)';
+                if (userPermissions?.canViewTransactions) {
+                  e.currentTarget.style.background = 'rgba(0, 188, 212, 0.05)';
+                }
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
+                if (userPermissions?.canViewTransactions) {
+                  e.currentTarget.style.background = 'transparent';
+                }
               }}
             >
-              View All Transactions →
+              {userPermissions?.canViewTransactions ? 'View All Transactions →' : 'Access Restricted'}
             </button>
           </div>
         </div>
 
-        {/* Material Distribution and Actions Row - Mobile Stack */}
+        {/* Material Distribution and Actions Row - Mobile Stack (maintaining existing functionality) */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(300px, 1fr))',
           gap: isMobile ? '1rem' : '2rem',
           marginBottom: isMobile ? '1.5rem' : '2rem'
         }}>
-          {/* Material Distribution */}
+          {/* Material Distribution (maintaining existing functionality) */}
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
@@ -1609,7 +1735,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             )}
           </div>
 
-          {/* Enhanced Quick Actions with Navigation */}
+          {/* UPDATED: Enhanced Quick Actions with Permission-Based Restrictions */}
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
@@ -1618,26 +1744,76 @@ const Dashboard: React.FC<DashboardProps> = ({
           }}>
             <h3 style={{ fontSize: isMobile ? '1rem' : '1.25rem', fontWeight: 'bold', color: '#0f172a', marginBottom: '1rem' }}>
               Quick Actions
+              {userPermissions && (
+                <div style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 'normal', marginTop: '0.25rem' }}>
+                  Available actions for {userPermissions.isAdmin ? 'Admin' : 'User'} role
+                </div>
+              )}
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <QuickActionButton variant="filled" icon={Plus} onClick={handleNewTransaction}>
-                New Transaction
+              <QuickActionButton 
+                variant="filled" 
+                icon={Plus} 
+                onClick={handleNewTransaction}
+                disabled={!userPermissions?.canViewTransactions}
+              >
+                {userPermissions?.canViewTransactions ? 'New Transaction' : 'Transactions (Restricted)'}
               </QuickActionButton>
-              <QuickActionButton variant="outline" icon={UserPlus} onClick={handleAddSupplier}>
-                Add Supplier
+              <QuickActionButton 
+                variant="outline" 
+                icon={UserPlus} 
+                onClick={handleAddSupplier}
+                disabled={!userPermissions?.canViewSuppliers}
+              >
+                {userPermissions?.canViewSuppliers ? 'Add Supplier' : 'Suppliers (Restricted)'}
               </QuickActionButton>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <QuickActionButton variant="ghost" icon={Download} onClick={handleExport}>
-                  Export
+                <QuickActionButton 
+                  variant="ghost" 
+                  icon={Package} 
+                  onClick={handleViewMaterials}
+                  disabled={!userPermissions?.canViewMaterials}
+                >
+                  {userPermissions?.canViewMaterials ? 'Materials' : 'Materials'}
                 </QuickActionButton>
-                <QuickActionButton variant="ghost" icon={DollarSign} onClick={handlePricing}>
-                  Pricing
+                <QuickActionButton 
+                  variant="ghost" 
+                  icon={BarChart3} 
+                  onClick={handleViewAnalytics}
+                  disabled={!userPermissions?.canViewAnalytics}
+                >
+                  {userPermissions?.canViewAnalytics ? 'Analytics' : 'Analytics'}
                 </QuickActionButton>
               </div>
+              {userPermissions?.isAdmin && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <QuickActionButton variant="ghost" icon={Download} onClick={handleExport}>
+                    Export
+                  </QuickActionButton>
+                  <QuickActionButton variant="ghost" icon={Settings} onClick={() => console.log('Settings')}>
+                    Settings
+                  </QuickActionButton>
+                </div>
+              )}
             </div>
+            {userPermissions && !userPermissions.isAdmin && (
+              <div style={{
+                marginTop: '1rem',
+                padding: '0.75rem',
+                background: 'rgba(59, 130, 246, 0.1)',
+                borderRadius: '8px',
+                border: '1px solid rgba(59, 130, 246, 0.2)',
+                fontSize: '0.75rem',
+                color: '#3b82f6',
+                textAlign: 'center'
+              }}>
+                <Shield size={14} style={{ marginBottom: '0.25rem' }} />
+                <div>Some features require admin privileges</div>
+              </div>
+            )}
           </div>
 
-          {/* Enhanced Top Suppliers with Real Database Data */}
+          {/* Enhanced Top Suppliers with Real Database Data (maintaining existing functionality) */}
           <div style={{
             ...styles.glassmorphism,
             ...styles.cardShadow,
@@ -1651,23 +1827,38 @@ const Dashboard: React.FC<DashboardProps> = ({
               <Award size={isMobile ? 18 : 20} color="#ffd700" />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {topSuppliers.length > 0 ? (
-                topSuppliers.map((supplier) => (
-                  <SupplierRanking 
-                    key={supplier.id} 
-                    supplier={transformSupplierForRanking(supplier)} 
-                  />
-                ))
+              {userPermissions?.canViewSuppliers ? (
+                topSuppliers.length > 0 ? (
+                  topSuppliers.map((supplier) => (
+                    <SupplierRanking 
+                      key={supplier.id} 
+                      supplier={transformSupplierForRanking(supplier)} 
+                    />
+                  ))
+                ) : (
+                  <div style={{ textAlign: 'center', color: '#64748b', padding: '2rem', fontSize: isMobile ? '0.8rem' : '0.9rem' }}>
+                    No supplier data available
+                  </div>
+                )
               ) : (
-                <div style={{ textAlign: 'center', color: '#64748b', padding: '2rem', fontSize: isMobile ? '0.8rem' : '0.9rem' }}>
-                  No supplier data available
+                <div style={{ 
+                  textAlign: 'center', 
+                  color: '#f59e0b', 
+                  padding: '2rem',
+                  fontSize: isMobile ? '0.8rem' : '0.875rem',
+                  background: 'rgba(251, 146, 60, 0.1)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(251, 146, 60, 0.2)'
+                }}>
+                  <Shield size={24} style={{ marginBottom: '0.5rem' }} />
+                  <div>Supplier rankings require appropriate permissions</div>
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* Enhanced Performance Metrics with Sales - Mobile Responsive */}
+        {/* Enhanced Performance Metrics with Sales - Mobile Responsive (maintaining existing functionality) */}
         <div style={{
           ...styles.glassmorphism,
           ...styles.cardShadow,

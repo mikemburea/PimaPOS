@@ -1,11 +1,10 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import PimaPOSWelcome from './PimaPOSWelcome'
-import App from './App'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import AppRouter from './AppRouter';  // NOT PimaPOSWelcome!
+import './index.css';
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <PimaPOSWelcome/>
-  </StrictMode>
-)
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <AppRouter />  {/* This should be AppRouter, not PimaPOSWelcome */}
+  </React.StrictMode>
+);

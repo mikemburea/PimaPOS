@@ -1,33 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import App from './App';
-import PimaPOSWelcome from './PimaPOSWelcome';
-
-// Define the props interface for PimaPOSWelcome
-interface PimaPOSWelcomeProps {
-  onNavigateToApp: () => void;
-}
+import StandalonePimaPOSWelcome from './PimaPOSWelcome'; // Updated import
 
 const AppRouter: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<'welcome' | 'app'>('welcome');
   const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
   const [user, setUser] = useState<any>(null);
-  
+
   // Check authentication status on app start
   useEffect(() => {
     const checkAuthStatus = async () => {
       try {
+        console.log('AppRouter: Checking auth status...');
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          console.log('User already authenticated:', user.email);
+          console.log('AppRouter: User already authenticated:', user.email);
           setUser(user);
           setCurrentPage('app');
         } else {
-          console.log('No authenticated user found');
+          console.log('AppRouter: No authenticated user found');
           setCurrentPage('welcome');
         }
       } catch (error) {
-        console.error('Error checking auth status:', error);
+        console.error('AppRouter: Error checking auth status:', error);
         setCurrentPage('welcome');
       } finally {
         setIsCheckingAuth(false);
@@ -40,14 +36,14 @@ const AppRouter: React.FC = () => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state change:', event);
+      console.log('AppRouter: Auth state change:', event, session?.user?.email);
       
       if (event === 'SIGNED_IN' && session?.user) {
-        console.log('User signed in:', session.user.email);
+        console.log('AppRouter: User signed in, navigating to app');
         setUser(session.user);
         setCurrentPage('app');
       } else if (event === 'SIGNED_OUT') {
-        console.log('User signed out');
+        console.log('AppRouter: User signed out, navigating to welcome');
         setUser(null);
         setCurrentPage('welcome');
       }
@@ -55,35 +51,31 @@ const AppRouter: React.FC = () => {
 
     return () => subscription.unsubscribe();
   }, []);
-  
-  const navigateToApp = async () => {
-    try {
-      // Double-check authentication before navigating
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        console.log('Navigating to app for user:', user.email);
-        setUser(user);
-        setCurrentPage('app');
-      } else {
-        console.error('Navigation to app failed: no authenticated user');
-      }
-    } catch (error) {
-      console.error('Error during navigation to app:', error);
-    }
+
+  // Enhanced navigation functions
+  const navigateToApp = () => {
+    console.log('AppRouter: navigateToApp called');
+    setCurrentPage('app');
   };
-  
+
   const navigateToWelcome = async () => {
     try {
-      console.log('Logging out and navigating to welcome...');
+      console.log('AppRouter: Logging out and navigating to welcome...');
       await supabase.auth.signOut();
       setUser(null);
       setCurrentPage('welcome');
     } catch (error) {
-      console.error('Error during logout:', error);
+      console.error('AppRouter: Error during logout:', error);
       // Force navigation even if logout fails
       setUser(null);
       setCurrentPage('welcome');
     }
+  };
+
+  // Handle auth success from welcome component
+  const handleAuthSuccess = () => {
+    console.log('AppRouter: handleAuthSuccess called');
+    navigateToApp();
   };
 
   // Show loading screen while checking authentication
@@ -106,16 +98,21 @@ const AppRouter: React.FC = () => {
       </div>
     );
   }
-  
-  if (currentPage === 'app' && user) {
-    // Pass the proper navigation function to App component
+
+  console.log('AppRouter: Current page:', currentPage, 'User:', user?.email);
+
+  // Render the appropriate component
+  if (currentPage === 'app') {
     return <App onNavigateBack={navigateToWelcome} />;
   }
-  
-  // Cast PimaPOSWelcome to accept the prop
-  const PimaPOSWelcomeComponent = PimaPOSWelcome as React.ComponentType<PimaPOSWelcomeProps>;
-  
-  return <PimaPOSWelcomeComponent onNavigateToApp={navigateToApp} />;
+
+  // Pass both navigation callbacks to the welcome component
+  return (
+    <StandalonePimaPOSWelcome 
+      onAuthSuccess={handleAuthSuccess}
+      onNavigateToApp={navigateToApp}
+    />
+  );
 };
 
 export default AppRouter;

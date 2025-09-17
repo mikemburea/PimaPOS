@@ -1,12 +1,16 @@
-// App.tsx - FIXED: StorageMonitor props and integration
+// App.tsx - Fixed Header props and added visibility handling
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
-import { Menu, X, AlertTriangle, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { Menu, X, AlertTriangle, RefreshCw, Wifi, WifiOff, Shield, ShieldCheck, Crown, Users } from 'lucide-react';
 
 // Import enhanced notification system
 import { NotificationProvider, useNotifications } from './contexts/NotificationContext';
 import TransactionNotification from './components/dashboard/TransactionNotification';
 import { NotificationPersistenceService } from './services/notificationPersistenceService';
+
+// Import updated auth system with first user admin support
+import { usePermissions } from './hooks/usePermissions';
+import { PermissionService } from './hooks/usePermissions';
 
 // Import your actual component files
 import Sidebar from './components/common/Sidebar';
@@ -24,7 +28,7 @@ import WeeklyReport from './components/reports/WeeklyReport';
 import MonthlyReport from './components/reports/MonthlyReport';
 import CustomReport from './components/reports/CustomReport';
 
-// FIXED: Updated StorageMonitor interfaces and component
+// Storage Monitor interfaces and component (maintaining existing functionality)
 interface StorageCleanupResult {
   freedSpace: number;
   itemsRemoved: number;
@@ -41,12 +45,12 @@ interface StorageCleanupResult {
 interface StorageMonitorProps {
   autoCleanup?: boolean;
   showUI?: boolean;
-  threshold?: number; // FIXED: Added threshold prop
+  threshold?: number;
   onCleanupComplete?: (result: StorageCleanupResult) => void;
   className?: string;
 }
 
-// FIXED: Enhanced Storage Monitor Hook with threshold support
+// Enhanced Storage Monitor Hook with threshold support (maintaining existing functionality)
 const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8) => {
   const [storageUsagePercent, setStorageUsagePercent] = useState<number>(0);
   const [needsCleanup, setNeedsCleanup] = useState<boolean>(false);
@@ -229,7 +233,7 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
   };
 };
 
-// FIXED: Enhanced StorageMonitor Component with threshold support
+// Enhanced StorageMonitor Component with threshold support (maintaining existing functionality)
 const StorageMonitor: React.FC<StorageMonitorProps> = ({
   autoCleanup = false,
   showUI = true,
@@ -345,7 +349,7 @@ const StorageMonitor: React.FC<StorageMonitorProps> = ({
   );
 };
 
-// Enhanced Transaction interface matching your actual database schema
+// Enhanced Transaction interface matching your actual database schema (maintaining existing structure)
 interface Transaction {
   id: string;
   transaction_type: 'Purchase' | 'Sale';
@@ -431,7 +435,7 @@ interface Material {
   updated_at: string;
 }
 
-// Analytics component compatible types
+// Analytics component compatible types (maintaining existing structure)
 interface AnalyticsSupplier {
   id: string;
   name: string;
@@ -531,7 +535,7 @@ interface AppProps {
   onNavigateBack?: () => void;
 }
 
-// Enhanced Connection Status Component
+// Enhanced Connection Status Component (maintaining existing functionality)
 const ConnectionStatus = ({ isOnline }: { isOnline: boolean }) => (
   <div className={`fixed top-4 right-4 z-[60] transition-all duration-300 ${
     isOnline ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -543,7 +547,7 @@ const ConnectionStatus = ({ isOnline }: { isOnline: boolean }) => (
   </div>
 );
 
-// Enhanced Recovery Component
+// Enhanced Recovery Component (maintaining existing functionality)
 const RecoveryComponent = ({ 
   onRecovery, 
   isVisible 
@@ -655,7 +659,7 @@ const RecoveryComponent = ({
   );
 };
 
-// Enhanced Navigation Blocked Warning
+// Enhanced Navigation Blocked Warning (maintaining existing functionality)
 const NavigationBlockedWarning = ({ 
   unhandledCount, 
   onEmergencyRecovery 
@@ -686,7 +690,7 @@ const NavigationBlockedWarning = ({
   </div>
 );
 
-// Loading and Error components
+// Loading and Error components (maintaining existing functionality)
 const LoadingSpinner = () => (
   <div className="flex items-center justify-center min-h-screen px-4">
     <div className="text-center">
@@ -761,7 +765,89 @@ const MobileMenuButton = ({ isOpen, onClick }: { isOpen: boolean; onClick: () =>
   );
 };
 
-// Transform functions for Analytics compatibility
+// Permission-denied component with first user admin info
+const PermissionDenied = ({ 
+  requiredRole, 
+  userRole, 
+  onReturnToDashboard,
+  isFirstUser,
+  systemStats 
+}: { 
+  requiredRole?: string;
+  userRole: string;
+  onReturnToDashboard: () => void;
+  isFirstUser?: boolean;
+  systemStats?: any;
+}) => (
+  <div className="flex items-center justify-center min-h-screen px-4">
+    <div className="text-center bg-white rounded-lg shadow-xl p-8 max-w-md mx-4">
+      <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+        <Shield className="w-8 h-8 text-red-600" />
+      </div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
+      <p className="text-gray-600 mb-4">
+        You don't have permission to access this feature.
+      </p>
+      
+      <div className="bg-gray-50 rounded-lg p-4 mb-6">
+        <p className="text-sm text-gray-700 mb-2">
+          <strong>Your Role:</strong> {userRole === 'admin' ? 'Administrator' : 'User'}
+        </p>
+        <p className="text-sm text-gray-600 mb-2">
+          <strong>Available Features:</strong>
+        </p>
+        <div className="text-sm text-gray-600">
+          {userRole === 'admin' ? (
+            <span>All features available</span>
+          ) : (
+            <ul className="text-left space-y-1">
+              <li>• Dashboard</li>
+              <li>• Add/View Suppliers</li>
+              <li>• Add/View Materials</li>
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* First User Admin Info */}
+      {isFirstUser && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
+          <div className="flex items-center justify-center mb-2">
+            <Crown className="w-5 h-5 text-purple-600 mr-2" />
+            <span className="text-purple-900 font-medium">First User Admin</span>
+          </div>
+          <p className="text-sm text-purple-700">
+            The first person to register becomes the administrator automatically.
+          </p>
+        </div>
+      )}
+
+      {/* System Stats Info */}
+      {systemStats && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+          <div className="flex items-center justify-center mb-2">
+            <Users className="w-5 h-5 text-blue-600 mr-2" />
+            <span className="text-blue-900 font-medium">System Status</span>
+          </div>
+          <div className="text-sm text-blue-700 space-y-1">
+            <p>Total Users: {systemStats.totalUsers}</p>
+            <p>Administrators: {systemStats.adminCount}</p>
+            <p>Status: {systemStats.hasAdmin ? 'Admin Present' : 'No Admin'}</p>
+          </div>
+        </div>
+      )}
+      
+      <button 
+        onClick={onReturnToDashboard}
+        className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+      >
+        Go to Dashboard
+      </button>
+    </div>
+  </div>
+);
+
+// Transform functions for Analytics compatibility (maintaining existing functionality)
 const transformSuppliersForAnalytics = (suppliers: Supplier[]): AnalyticsSupplier[] => {
   return suppliers.map(supplier => ({
     ...supplier,
@@ -807,9 +893,37 @@ const transformSalesTransactionsForAnalytics = (transactions: Transaction[]): An
   }));
 };
 
-// Main App Component with Enhanced Persistent Notification Handling
+// Helper function to convert activeTab to proper title for Header
+const getPageTitle = (activeTab: string): string => {
+  switch (activeTab) {
+    case 'dashboard':
+      return 'MeruScrap Dashboard';
+    case 'transactions':
+      return 'Transactions';
+    case 'suppliers':
+      return 'Suppliers';
+    case 'materials':
+      return 'Materials';
+    case 'analytics':
+      return 'Analytics';
+    case 'settings':
+      return 'Settings';
+    case 'reports-daily':
+      return 'Daily Reports';
+    case 'reports-weekly':
+      return 'Weekly Reports';
+    case 'reports-monthly':
+      return 'Monthly Reports';
+    case 'reports-custom':
+      return 'Custom Reports';
+    default:
+      return 'MeruScrap';
+  }
+};
+
+// Main App Component with Enhanced First User Admin Role-Based Access Control
 const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
-  // Get enhanced notification context
+  // Get enhanced notification context (maintaining existing functionality)
   const {
     notificationQueue,
     currentNotificationIndex,
@@ -828,10 +942,25 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     unreadBellCount
   } = useNotifications();
 
-  // FIXED: Initialize storage monitoring with threshold
+  // NEW: Get user permissions using the updated auth system with first user admin support
+  const {
+    user,
+    loading: authLoading,
+    profile,
+    role: userRole,
+    isAdmin,
+    hasPermission,
+    canNavigateTo,
+    permissions,
+    isFirstUser,
+    userStats,
+    refreshPermissions
+  } = usePermissions();
+
+  // Initialize storage monitoring with threshold (maintaining existing functionality)
   const { storageUsagePercent, needsCleanup } = useStorageMonitor(true, 0.8);
 
-  // State management
+  // State management (maintaining existing structure)
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
@@ -839,7 +968,12 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
   
-  // Data state
+  // NEW: Visibility and focus state for handling app resume issues
+  const [isPageVisible, setIsPageVisible] = useState(!document.hidden);
+  const [isWindowFocused, setIsWindowFocused] = useState(document.hasFocus());
+  const [resumeLoading, setResumeLoading] = useState(false);
+  
+  // Data state (maintaining existing structure)
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -866,11 +1000,87 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   const [error, setError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
-  // Get Supabase configuration
+  // Get Supabase configuration (maintaining existing functionality)
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-  // Monitor online status
+  // NEW: Handle page visibility and focus changes to prevent stuck loading states
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const wasVisible = isPageVisible;
+      const nowVisible = !document.hidden;
+      setIsPageVisible(nowVisible);
+      
+      console.log('Page visibility changed:', { wasVisible, nowVisible });
+      
+      // If page becomes visible after being hidden, refresh data
+      if (!wasVisible && nowVisible) {
+        console.log('Page became visible, refreshing data...');
+        handleAppResume();
+      }
+    };
+
+    const handleWindowFocus = () => {
+      const wasFocused = isWindowFocused;
+      const nowFocused = true;
+      setIsWindowFocused(nowFocused);
+      
+      console.log('Window focused:', { wasFocused, nowFocused });
+      
+      // If window becomes focused after being unfocused, refresh data
+      if (!wasFocused && nowFocused) {
+        console.log('Window focused, refreshing data...');
+        handleAppResume();
+      }
+    };
+
+    const handleWindowBlur = () => {
+      setIsWindowFocused(false);
+      console.log('Window blurred');
+    };
+
+    // Add event listeners
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [isPageVisible, isWindowFocused]);
+
+  // NEW: Handle app resume with proper loading states
+  const handleAppResume = async () => {
+    if (resumeLoading) {
+      console.log('Resume already in progress, skipping...');
+      return;
+    }
+
+    try {
+      setResumeLoading(true);
+      setError(null);
+      
+      console.log('App resumed, refreshing data and notifications...');
+      
+      // Refresh data and notifications in parallel
+      await Promise.all([
+        fetchData(),
+        refreshNotifications(),
+        refreshPermissions()
+      ]);
+      
+      console.log('App resume refresh completed');
+    } catch (error) {
+      console.error('Error during app resume:', error);
+      setError('Failed to refresh data after app resume');
+    } finally {
+      setResumeLoading(false);
+    }
+  };
+
+  // Monitor online status (maintaining existing functionality)
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -878,6 +1088,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       setTimeout(() => {
         fetchData();
         refreshNotifications();
+        refreshPermissions(); // Refresh permissions when coming online
       }, 1000);
     };
     
@@ -893,9 +1104,9 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [refreshNotifications]);
+  }, [refreshNotifications, refreshPermissions]);
 
-  // Initialize mobile detection
+  // Initialize mobile detection (maintaining existing functionality)
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
@@ -911,7 +1122,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Initialize notification persistence system
+  // Initialize notification persistence system (maintaining existing functionality)
   useEffect(() => {
     console.log('Initializing notification persistence system...');
     
@@ -959,16 +1170,63 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     };
   }, []);
 
-  // Initialize bell notifications on startup
+  // Initialize bell notifications on startup (maintaining existing functionality)
   useEffect(() => {
     setTimeout(() => {
       refreshNotifications();
     }, 1000);
   }, [refreshNotifications]);
 
-  // Enhanced tab change handler with navigation blocking
+  // Enhanced tab change handler with role-based navigation blocking and first user admin logic
   const handleTabChange = (tab: string) => {
+    // First check notification blocking (existing functionality)
     if (!attemptNavigation(tab)) {
+      return;
+    }
+
+    // NEW: Then check user permissions with first user admin support
+    if (!canNavigateTo(tab)) {
+      console.warn(`Access denied to ${tab} for user role: ${userRole}`);
+      
+      // Enhanced permission message with first user admin info
+      let permissionMessage = `You don't have permission to access this feature.`;
+      
+      if (isFirstUser) {
+        permissionMessage = `This feature requires administrator privileges. As the first user, you'll automatically become an admin when you sign up!`;
+      } else if (isAdmin) {
+        permissionMessage = 'This feature is temporarily unavailable.';
+      } else {
+        permissionMessage = `Your current role (${userRole}) allows access to: ${permissions.join(', ')}. Contact your administrator for additional access.`;
+      }
+      
+      // Create enhanced notification with first user admin info
+      const notificationDiv = document.createElement('div');
+      notificationDiv.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 z-[70] bg-red-600 text-white px-4 py-3 rounded-lg shadow-xl max-w-md';
+      notificationDiv.innerHTML = `
+        <div class="flex items-start gap-3">
+          <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-sm font-medium">Access Denied</span>
+              ${isFirstUser ? '<span class="text-xs bg-purple-500 px-2 py-1 rounded">First User</span>' : ''}
+            </div>
+            <p class="text-xs">${permissionMessage}</p>
+            ${isFirstUser ? '<p class="text-xs mt-1 opacity-90">Sign up to become the first administrator!</p>' : ''}
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(notificationDiv);
+      
+      // Remove notification after 5 seconds
+      setTimeout(() => {
+        if (document.body.contains(notificationDiv)) {
+          document.body.removeChild(notificationDiv);
+        }
+      }, 5000);
+      
       return;
     }
     
@@ -979,9 +1237,16 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
-  // Enhanced navigation handlers for Dashboard
+  // Enhanced navigation handlers for Dashboard with permission checks and first user admin awareness
   const handleNavigateToTransactions = () => {
     console.log('Navigating to transactions from dashboard');
+    if (!hasPermission('transactions')) {
+      const message = isFirstUser 
+        ? 'Transactions require admin access. Sign up as the first user to become an administrator!'
+        : 'You don\'t have permission to view transactions. Contact your administrator if you need access.';
+      alert(message);
+      return;
+    }
     if (attemptNavigation('transactions')) {
       setActiveTab('transactions');
       if (isMobile) {
@@ -993,6 +1258,13 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
 
   const handleNavigateToSuppliers = () => {
     console.log('Navigating to suppliers from dashboard');
+    if (!hasPermission('suppliers')) {
+      const message = isFirstUser
+        ? 'Sign up as the first user to get full access to supplier management!'
+        : 'You don\'t have permission to view suppliers.';
+      alert(message);
+      return;
+    }
     if (attemptNavigation('suppliers')) {
       setActiveTab('suppliers');
       if (isMobile) {
@@ -1004,6 +1276,13 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
 
   const handleNavigateToAddSupplier = () => {
     console.log('Navigating to add supplier from dashboard');
+    if (!hasPermission('suppliers')) {
+      const message = isFirstUser
+        ? 'Sign up as the first user to start adding suppliers!'
+        : 'You don\'t have permission to add suppliers.';
+      alert(message);
+      return;
+    }
     if (attemptNavigation('suppliers')) {
       setActiveTab('suppliers');
       if (isMobile) {
@@ -1013,7 +1292,25 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
-  // Enhanced data fetching with proper transaction mapping
+  const handleNavigateToMaterials = () => {
+    console.log('Navigating to materials');
+    if (!hasPermission('materials')) {
+      const message = isFirstUser
+        ? 'Sign up as the first user to manage materials!'
+        : 'You don\'t have permission to view materials.';
+      alert(message);
+      return;
+    }
+    if (attemptNavigation('materials')) {
+      setActiveTab('materials');
+      if (isMobile) {
+        setSidebarOpen(false);
+        setReportsOpen(false);
+      }
+    }
+  };
+
+  // Enhanced data fetching with proper transaction mapping (maintaining existing functionality)
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -1044,7 +1341,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
         }
       }
 
-      // Transform and combine transactions
+      // Transform and combine transactions (maintaining existing logic)
       const purchaseData = transactionsResult.status === 'fulfilled' && !transactionsResult.value.error 
         ? transactionsResult.value.data || [] 
         : [];
@@ -1157,7 +1454,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
-  // Enhanced calculate dashboard stats
+  // Enhanced calculate dashboard stats (maintaining existing functionality)
   const calculateStats = (allTransactions: Transaction[], suppliersData: Supplier[]) => {
     const completedTransactions = allTransactions.filter(tx => tx.payment_status === 'completed');
     const purchaseTransactions = allTransactions.filter(tx => tx.transaction_type === 'Purchase');
@@ -1213,7 +1510,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     setStats(newStats);
   };
 
-  // Handle recovery action
+  // Handle recovery action (maintaining existing functionality)
   const handleRecoveryAction = async () => {
     setShowRecovery(false);
     try {
@@ -1228,12 +1525,12 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
-  // Initial data fetch
+  // Initial data fetch (maintaining existing functionality)
   useEffect(() => {
     fetchData();
   }, []);
 
-  // Enhanced logout with navigation check
+  // Enhanced logout with navigation check (maintaining existing functionality)
   const handleLogout = () => {
     if (!attemptNavigation('logout')) {
       return;
@@ -1247,7 +1544,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
-  // Enhanced notification click handler
+  // Enhanced notification click handler (maintaining existing functionality)
   const handleNotificationClick = async () => {
     const totalCount = getUnhandledCount() + unreadBellCount;
     console.log('Notifications clicked - total count:', totalCount, 'unhandled:', getUnhandledCount(), 'bell:', unreadBellCount);
@@ -1294,7 +1591,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     dismissCurrentNotification();
   };
 
-  // Emergency recovery handler
+  // Emergency recovery handler (maintaining existing functionality)
   const handleEmergencyRecovery = async () => {
     try {
       console.log('Emergency recovery triggered - recovering UNHANDLED notifications only');
@@ -1311,7 +1608,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
-  // Transform transactions for reports
+  // Transform transactions for reports (maintaining existing functionality)
   const transformTransactionsForReports = (transactions: Transaction[], suppliers: Supplier[]): ReportTransaction[] => {
     return transactions.map(tx => {
       const supplierName = tx.customer_name || 'Unknown Customer';
@@ -1332,14 +1629,28 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     });
   };
 
-  // Render content based on active tab
+  // Enhanced content renderer with comprehensive role checking and first user admin support
   const renderContent = () => {
-    if (loading) {
+    // NEW: Show loading spinner if resume is in progress
+    if (resumeLoading || loading || authLoading) {
       return <LoadingSpinner />;
     }
     
     if (error) {
       return <ErrorDisplay error={error} onRetry={fetchData} />;
+    }
+
+    // NEW: Check if user has permission for the current tab with first user admin support
+    if (!canNavigateTo(activeTab)) {
+      return (
+        <PermissionDenied 
+          requiredRole={activeTab}
+          userRole={userRole}
+          onReturnToDashboard={() => setActiveTab('dashboard')}
+          isFirstUser={isFirstUser}
+          systemStats={userStats}
+        />
+      );
     }
     
     switch (activeTab) {
@@ -1350,50 +1661,180 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
             onNavigateToTransactions={handleNavigateToTransactions}
             onNavigateToSuppliers={handleNavigateToSuppliers}
             onNavigateToAddSupplier={handleNavigateToAddSupplier}
+            onNavigateToMaterials={handleNavigateToMaterials}
+            userPermissions={{
+              canViewTransactions: hasPermission('transactions'),
+              canViewSuppliers: hasPermission('suppliers'),
+              canViewMaterials: hasPermission('materials'),
+              canViewAnalytics: hasPermission('analytics'),
+              canViewReports: hasPermission('reports'),
+              isAdmin,
+              isFirstUser,
+              userStats
+            }}
           />
         );
       case 'transactions':
-        return <Transactions onTransactionUpdate={handleTransactionUpdate} transactions={transactions} />;
+        return hasPermission('transactions') ? (
+          <Transactions onTransactionUpdate={handleTransactionUpdate} transactions={transactions} />
+        ) : (
+          <PermissionDenied 
+            userRole={userRole} 
+            onReturnToDashboard={() => setActiveTab('dashboard')} 
+            isFirstUser={isFirstUser}
+            systemStats={userStats}
+          />
+        );
       case 'suppliers':
-        return <Suppliers onSupplierUpdate={handleSupplierUpdate} />;
+        return hasPermission('suppliers') ? (
+          <Suppliers onSupplierUpdate={handleSupplierUpdate} />
+        ) : (
+          <PermissionDenied 
+            userRole={userRole} 
+            onReturnToDashboard={() => setActiveTab('dashboard')}
+            isFirstUser={isFirstUser}
+            systemStats={userStats}
+          />
+        );
       case 'materials':
-        return <MaterialsPage />;
+        return hasPermission('materials') ? (
+          <MaterialsPage />
+        ) : (
+          <PermissionDenied 
+            userRole={userRole} 
+            onReturnToDashboard={() => setActiveTab('dashboard')}
+            isFirstUser={isFirstUser}
+            systemStats={userStats}
+          />
+        );
       case 'analytics':
-        const analyticsSuppliers = transformSuppliersForAnalytics(suppliers);
-        const analyticsMaterials = transformMaterialsForAnalytics(materials);
-        const analyticsSalesTransactions = transformSalesTransactionsForAnalytics(transactions);
-        
-        return <Analytics 
-          suppliers={analyticsSuppliers}
-          materials={analyticsMaterials}
-          salesTransactions={analyticsSalesTransactions}
-        />;
+        return hasPermission('analytics') ? (
+          <Analytics 
+            suppliers={transformSuppliersForAnalytics(suppliers)}
+            materials={transformMaterialsForAnalytics(materials)}
+            salesTransactions={transformSalesTransactionsForAnalytics(transactions)}
+          />
+        ) : (
+          <PermissionDenied 
+            userRole={userRole} 
+            onReturnToDashboard={() => setActiveTab('dashboard')}
+            isFirstUser={isFirstUser}
+            systemStats={userStats}
+          />
+        );
       case 'reports-daily':
-        return <DailyReport currentDate={new Date()} />;
+        return hasPermission('reports') ? (
+          <DailyReport currentDate={new Date()} />
+        ) : (
+          <PermissionDenied 
+            userRole={userRole} 
+            onReturnToDashboard={() => setActiveTab('dashboard')}
+            isFirstUser={isFirstUser}
+            systemStats={userStats}
+          />
+        );
       case 'reports-weekly':
-        return <WeeklyReport weekStartDate={new Date()} />;
+        return hasPermission('reports') ? (
+          <WeeklyReport weekStartDate={new Date()} />
+        ) : (
+          <PermissionDenied 
+            userRole={userRole} 
+            onReturnToDashboard={() => setActiveTab('dashboard')}
+            isFirstUser={isFirstUser}
+            systemStats={userStats}
+          />
+        );
       case 'reports-monthly':
-        return <MonthlyReport month={new Date()} />;
+        return hasPermission('reports') ? (
+          <MonthlyReport month={new Date()} />
+        ) : (
+          <PermissionDenied 
+            userRole={userRole} 
+            onReturnToDashboard={() => setActiveTab('dashboard')}
+            isFirstUser={isFirstUser}
+            systemStats={userStats}
+          />
+        );
       case 'reports-custom':
-        return <CustomReport />;
+        return hasPermission('reports') ? (
+          <CustomReport />
+        ) : (
+          <PermissionDenied 
+            userRole={userRole} 
+            onReturnToDashboard={() => setActiveTab('dashboard')}
+            isFirstUser={isFirstUser}
+            systemStats={userStats}
+          />
+        );
       case 'settings':
-        return (
+        return hasPermission('settings') ? (
           <div>
             <SettingsPage />
-            {/* FIXED: Detailed Storage Monitor in Settings with threshold support */}
+            {/* Storage Monitor in Settings with role-aware features */}
             <div className="mt-6 border-t pt-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Storage Management</h3>
               <StorageMonitor 
                 autoCleanup={false} 
                 showUI={true}
-                threshold={0.7} // Show cleanup at 70% in settings
+                threshold={0.7}
                 onCleanupComplete={(result) => {
                   console.log('Manual storage cleanup completed:', result);
                   alert(`Cleanup completed!\n\nFreed space: ${result.freedSpace}KB\nItems removed: ${result.itemsRemoved}\nTime taken: ${result.timeTaken}ms`);
                 }}
               />
             </div>
+            
+            {/* System Status for Admins */}
+            {isAdmin && (
+              <div className="mt-6 border-t pt-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">System Status</h3>
+                <div className="bg-white rounded-lg border border-gray-200 p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <div className="flex items-center justify-center">
+                        <Users className="w-5 h-5 text-blue-600 mr-2" />
+                        <span className="text-2xl font-bold text-gray-900">{userStats.totalUsers}</span>
+                      </div>
+                      <p className="text-sm text-gray-600">Total Users</p>
+                    </div>
+                    <div className="text-center">
+                      <div className="flex items-center justify-center">
+                        <Crown className="w-5 h-5 text-purple-600 mr-2" />
+                        <span className="text-2xl font-bold text-gray-900">{userStats.adminCount}</span>
+                      </div>
+                      <p className="text-sm text-gray-600">Administrators</p>
+                    </div>
+                    <div className="text-center">
+                      <div className="flex items-center justify-center">
+                        <Shield className="w-5 h-5 text-green-600 mr-2" />
+                        <span className="text-sm font-medium text-gray-900">
+                          {userStats.adminCount > 0 ? 'Secured' : 'Unsecured'}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-600">System Status</p>
+                    </div>
+                  </div>
+                  {isFirstUser && (
+                    <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                      <div className="flex items-center">
+                        <Crown className="w-4 h-4 text-purple-600 mr-2" />
+                        <span className="text-sm font-medium text-purple-900">
+                          First User Admin System Active
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
+        ) : (
+          <PermissionDenied 
+            userRole={userRole} 
+            onReturnToDashboard={() => setActiveTab('dashboard')}
+            isFirstUser={isFirstUser}
+            systemStats={userStats}
+          />
         );
       default:
         return (
@@ -1402,6 +1843,17 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
             onNavigateToTransactions={handleNavigateToTransactions}
             onNavigateToSuppliers={handleNavigateToSuppliers}
             onNavigateToAddSupplier={handleNavigateToAddSupplier}
+            onNavigateToMaterials={handleNavigateToMaterials}
+            userPermissions={{
+              canViewTransactions: hasPermission('transactions'),
+              canViewSuppliers: hasPermission('suppliers'),
+              canViewMaterials: hasPermission('materials'),
+              canViewAnalytics: hasPermission('analytics'),
+              canViewReports: hasPermission('reports'),
+              isAdmin,
+              isFirstUser,
+              userStats
+            }}
           />
         );
     }
@@ -1429,10 +1881,10 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       `}</style>
       
       <div className="flex h-screen bg-gray-50 relative">
-        {/* Connection Status */}
+        {/* Connection Status (maintaining existing functionality) */}
         <ConnectionStatus isOnline={isOnline} />
 
-        {/* Enhanced Navigation Blocked Warning with Recovery */}
+        {/* Enhanced Navigation Blocked Warning with Recovery (maintaining existing functionality) */}
         {isNavigationBlocked && (
           <NavigationBlockedWarning 
             unhandledCount={getUnhandledCount()} 
@@ -1440,7 +1892,45 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
           />
         )}
 
-        {/* Development session info - only show in development mode */}
+        {/* NEW: Resume Loading Indicator */}
+        {resumeLoading && (
+          <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[60] bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Refreshing data...</span>
+            </div>
+          </div>
+        )}
+
+        {/* NEW: Enhanced role indicator for development with first user admin info */}
+        {process.env.NODE_ENV === 'development' && !authLoading && (
+          <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-[60] bg-black text-white text-xs p-2 rounded max-w-xs">
+            <div className="flex items-center gap-2">
+              {isAdmin ? <ShieldCheck className="w-3 h-3" /> : isFirstUser ? <Crown className="w-3 h-3" /> : <Shield className="w-3 h-3" />}
+              <span>Role: {userRole}</span>
+              <span>•</span>
+              <span>Admin: {isAdmin ? 'Yes' : 'No'}</span>
+              {isFirstUser && (
+                <>
+                  <span>•</span>
+                  <span className="text-purple-300">First User</span>
+                </>
+              )}
+              <span>•</span>
+              <span>Perms: {permissions.length}</span>
+            </div>
+            {(isFirstUser || userStats.totalUsers === 0) && (
+              <div className="text-purple-300 text-xs mt-1">
+                Users: {userStats.totalUsers} | Admins: {userStats.adminCount}
+              </div>
+            )}
+            <div className="text-yellow-300 text-xs mt-1">
+              Visible: {isPageVisible ? 'Yes' : 'No'} | Focused: {isWindowFocused ? 'Yes' : 'No'}
+            </div>
+          </div>
+        )}
+
+        {/* Development session info with first user admin details - only show in development mode */}
         {process.env.NODE_ENV === 'development' && sessionInfo && (
           <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[60] bg-black text-white text-xs p-2 rounded max-w-xs">
             <div className="flex items-center gap-2">
@@ -1454,10 +1944,10 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
           </div>
         )}
 
-        {/* Recovery Component */}
+        {/* Recovery Component (maintaining existing functionality) */}
         <RecoveryComponent onRecovery={handleRecoveryAction} isVisible={showRecovery} />
 
-        {/* Critical Storage Warning */}
+        {/* Critical Storage Warning (maintaining existing functionality) */}
         {storageUsagePercent > 90 && (
           <div className="fixed bottom-4 left-4 z-50 bg-red-600 text-white px-4 py-3 rounded-lg shadow-xl max-w-sm">
             <div className="flex items-center gap-2">
@@ -1472,7 +1962,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
           </div>
         )}
 
-        {/* Mobile Overlay */}
+        {/* Mobile Overlay (maintaining existing functionality) */}
         {isMobile && sidebarOpen && (
           <div 
             className={`
@@ -1484,7 +1974,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
           />
         )}
 
-        {/* Sidebar Component */}
+        {/* Enhanced Sidebar Component with role-based navigation and first user admin support */}
         <Sidebar
           activeTab={activeTab}
           setActiveTab={handleTabChange}
@@ -1499,21 +1989,22 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
         <div className={`flex-1 flex flex-col overflow-hidden min-w-0 ${
           isMobile ? '' : (sidebarOpen ? 'md:ml-0' : 'md:ml-0')
         }`}>
-          {/* Enhanced Header with bell notifications */}
+          {/* FIXED: Enhanced Header with proper props matching interface */}
           <div className="relative">
             <Header
-              activeTab={activeTab}
-              userName="Admin User"
+              title={getPageTitle(activeTab)}
+              userName={`${profile?.full_name || 'User'} ${isAdmin ? '(Admin)' : isFirstUser ? '(First User)' : '(User)'}`}
+              showNotifications={true}
               notificationCount={getUnhandledCount()}
               onNotificationClick={handleNotificationClick}
               onProfileClick={handleProfileClick}
             />
             
-            {/* Mobile Menu Button */}
+            {/* Mobile Menu Button (maintaining existing functionality) */}
             <MobileMenuButton isOpen={sidebarOpen} onClick={toggleSidebar} />
           </div>
 
-          {/* Content */}
+          {/* Content with enhanced role-based access control and first user admin support */}
           <main className={`
             flex-1 overflow-y-auto p-4 md:p-6 
             transition-all duration-300 ease-in-out
@@ -1527,7 +2018,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
         </div>
       </div>
 
-      {/* FIXED: Silent Storage Monitor with proper threshold support */}
+      {/* Silent Storage Monitor with proper threshold support (maintaining existing functionality) */}
       <StorageMonitor 
         autoCleanup={true} 
         showUI={false} 
@@ -1537,7 +2028,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
         }}
       />
 
-      {/* Production-ready Transaction Notification Modal */}
+      {/* Production-ready Transaction Notification Modal (maintaining existing functionality) */}
       {currentNotification && (
         <TransactionNotification
           transaction={currentNotification.transaction}
@@ -1559,35 +2050,64 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   );
 };
 
-// Enhanced Main App wrapper with NotificationProvider and StorageMonitor
+// Enhanced Main App wrapper with NotificationProvider and first user admin initialization
 const App: React.FC<AppProps> = (props) => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [userIdentifier, setUserIdentifier] = useState<string>('');
   const [appReady, setAppReady] = useState(false);
+  const [systemStats, setSystemStats] = useState({
+    totalUsers: 0,
+    adminCount: 0,
+    hasAdmin: false
+  });
 
-  // FIXED: Initialize storage monitoring with threshold
+  // Initialize storage monitoring with threshold (maintaining existing functionality)
   const { storageUsagePercent, needsCleanup } = useStorageMonitor(true, 0.8);
 
-  // Initialize app with suppliers and user identifier
+  // Initialize app with suppliers, user identifier, and first user admin status
   useEffect(() => {
     const initializeApp = async () => {
       try {
+        console.log('🚀 Initializing MeruScrap with First User Admin support...');
+        
         const deviceId = NotificationPersistenceService.generateDeviceIdentifier();
         setUserIdentifier(deviceId);
-        console.log('App initialized with device identifier:', deviceId);
+        console.log('📱 App initialized with device identifier:', deviceId);
 
+        // Get system statistics for first user admin detection
+        try {
+          const stats = await PermissionService.getSystemStats();
+          setSystemStats(stats);
+          console.log('📊 System statistics loaded:', {
+            totalUsers: stats.totalUsers,
+            adminCount: stats.adminCount,
+            hasAdmin: stats.hasAdmin,
+            firstAdmin: stats.firstAdminEmail
+          });
+          
+          if (!stats.hasAdmin && stats.totalUsers === 0) {
+            console.log('🎯 System ready for first user admin setup');
+          } else if (stats.adminCount > 0) {
+            console.log('👑 Admin users present:', stats.adminCount);
+          }
+        } catch (error) {
+          console.error('Error loading system stats:', error);
+        }
+
+        // Load suppliers
         const { data, error } = await supabase
           .from('suppliers')
           .select('*');
         
         if (!error && data) {
           setSuppliers(data);
-          console.log('Suppliers loaded:', data.length);
+          console.log('📋 Suppliers loaded:', data.length);
         } else if (error) {
           console.error('Error loading suppliers:', error);
         }
 
         setAppReady(true);
+        console.log('✅ MeruScrap initialization complete');
       } catch (error) {
         console.error('Error initializing app:', error);
         setAppReady(true);
@@ -1597,21 +2117,46 @@ const App: React.FC<AppProps> = (props) => {
     initializeApp();
   }, []);
 
-  // Loading screen while app initializes
+  // Enhanced loading screen while app initializes with first user admin info
   if (!appReady || !userIdentifier) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600 font-medium">Initializing MeruScrap...</p>
-          <p className="mt-2 text-sm text-gray-500">
-            {!userIdentifier ? 'Setting up device profile...' : 'Loading suppliers...'}
-          </p>
+          <div className="mt-2 text-sm text-gray-500 space-y-1">
+            {!userIdentifier && <p>Setting up device profile...</p>}
+            {!appReady && <p>Loading suppliers...</p>}
+            {systemStats.totalUsers === 0 && (
+              <p className="text-purple-600 font-medium">Preparing first user admin setup...</p>
+            )}
+          </div>
           {storageUsagePercent > 70 && (
             <p className="mt-1 text-xs text-orange-600">
               Storage: {Math.round(storageUsagePercent)}% used - Optimizing...
             </p>
           )}
+          
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-center gap-2">
+              <Shield className="w-4 h-4 text-gray-400" />
+              <span className="text-xs text-gray-500">Loading role-based access control...</span>
+            </div>
+            
+            {systemStats.totalUsers === 0 && (
+              <div className="flex items-center justify-center gap-2">
+                <Crown className="w-4 h-4 text-purple-400" />
+                <span className="text-xs text-purple-500">First User Admin system ready</span>
+              </div>
+            )}
+            
+            {systemStats.adminCount > 0 && (
+              <div className="flex items-center justify-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-green-400" />
+                <span className="text-xs text-green-500">{systemStats.adminCount} admin{systemStats.adminCount > 1 ? 's' : ''} active</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );

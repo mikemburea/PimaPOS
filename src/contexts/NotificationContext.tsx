@@ -1,4 +1,4 @@
-// src/contexts/NotificationContext.tsx - FIXED: Only recover from notification_states unhandled entries
+// src/contexts/NotificationContext.tsx - FIXED: Never recover handled notifications from audit log
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -236,6 +236,9 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
   const activeTransactionsRef = useRef<Map<string, string>>(new Map()); // Map transaction key to notification ID
   const subscriptionRef = useRef<any>(null);
   const isNotificationVisibleRef = useRef<boolean>(false);
+  
+  // NEW: Track handled transaction IDs to prevent recovery
+  const handledTransactionsRef = useRef<Set<string>>(new Set());
 
   // Keep refs in sync with state
   useEffect(() => {
@@ -272,17 +275,74 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     }
   }, []);
 
+  // ===== CRITICAL FIX: Check if transaction was ever handled =====
+  const wasTransactionEverHandled = useCallback(async (transactionId: string, transactionTable: string, eventType: string): Promise<boolean> => {
+    try {
+      // CRITICAL: Check notification_audit_log to see if this transaction was EVER handled
+      const { data: auditLogs, error: auditError } = await supabase
+        .from('notification_audit_log')
+        .select('*')
+        .eq('action', 'HANDLED')
+        .limit(1000); // Get recent audit logs
+
+      if (!auditError && auditLogs && auditLogs.length > 0) {
+        // Check if any audit log shows this transaction was handled
+        for (const log of auditLogs) {
+          if (log.new_state && 
+              log.new_state.transaction_id === transactionId &&
+              log.new_state.transaction_table === transactionTable &&
+              log.new_state.event_type === eventType &&
+              log.new_state.is_handled === true) {
+            console.log(`[NotificationContext] 🚫 Transaction ${transactionId} was previously handled according to audit log`);
+            handledTransactionsRef.current.add(createTransactionKey(transactionId, eventType));
+            return true;
+          }
+        }
+      }
+
+      // Also check current notification_states for handled notifications
+      const { data: existingState, error: stateError } = await supabase
+        .from('notification_states')
+        .select('is_handled, is_dismissed')
+        .eq('transaction_id', transactionId)
+        .eq('transaction_table', transactionTable)
+        .eq('event_type', eventType)
+        .single();
+
+      if (!stateError && existingState) {
+        if (existingState.is_handled || existingState.is_dismissed) {
+          console.log(`[NotificationContext] 🚫 Transaction ${transactionId} is already handled/dismissed in notification_states`);
+          handledTransactionsRef.current.add(createTransactionKey(transactionId, eventType));
+          return true;
+        }
+      }
+
+      // Check localStorage as well
+      const transactionKey = createTransactionKey(transactionId, eventType);
+      if (handledTransactionsRef.current.has(transactionKey)) {
+        console.log(`[NotificationContext] 🚫 Transaction ${transactionId} is in handled cache`);
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('[NotificationContext] Error checking if transaction was handled:', error);
+      // Err on the side of caution - if we can't check, assume it might have been handled
+      return true;
+    }
+  }, []);
+
   // ===== CRITICAL FIX: STRICT UNHANDLED-ONLY RECOVERY SYSTEM =====
   
   /**
-   * FIXED: Only create notifications for NEW transactions - DO NOT recover from audit log
-   * This ensures we ONLY use notification_states table for notifications
+   * FIXED: Only create notifications for NEW transactions that were NEVER handled
+   * NEVER recover from audit log - only create for truly new transactions
    */
   const createMissingNotifications = useCallback(async (): Promise<number> => {
     const CREATION_TIMEOUT = 15000; // 15 second timeout
     
     try {
-      console.log('[NotificationContext] 🔍 Checking for NEW transactions without notifications...');
+      console.log('[NotificationContext] 🔍 Checking for NEW transactions without notifications (NEVER recovering handled)...');
       
       // Create timeout promise
       const timeoutPromise = new Promise<number>((_, reject) => {
@@ -291,10 +351,33 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       
       // Create checking promise
       const checkingPromise = (async (): Promise<number> => {
-        // STEP 1: Get existing notifications from notification_states ONLY
+        // STEP 1: Get ALL handled transactions from audit log first
+        console.log('[NotificationContext] STEP 1: Loading handled transactions from audit log to prevent recovery...');
+        const { data: auditLogs, error: auditError } = await supabase
+          .from('notification_audit_log')
+          .select('new_state')
+          .eq('action', 'HANDLED')
+          .limit(5000); // Get more audit logs to ensure we don't miss any
+
+        const handledTransactionKeys = new Set<string>();
+        if (!auditError && auditLogs) {
+          auditLogs.forEach(log => {
+            if (log.new_state && 
+                log.new_state.transaction_id && 
+                log.new_state.event_type &&
+                log.new_state.is_handled === true) {
+              const key = createTransactionKey(log.new_state.transaction_id, log.new_state.event_type);
+              handledTransactionKeys.add(key);
+              handledTransactionsRef.current.add(key);
+            }
+          });
+          console.log(`[NotificationContext] Found ${handledTransactionKeys.size} handled transactions in audit log`);
+        }
+
+        // STEP 2: Get existing notifications from notification_states ONLY
         const { data: existingNotifications, error: existingError } = await supabase
           .from('notification_states')
-          .select('transaction_id, transaction_table, event_type, created_at')
+          .select('transaction_id, transaction_table, event_type, is_handled, is_dismissed, created_at')
           .limit(1000); // Prevent overwhelming queries
 
         if (existingError) {
@@ -303,14 +386,21 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         }
 
         const existingNotificationKeys = new Set(
-          (existingNotifications || []).map(n => 
-            `${n.transaction_table}-${n.transaction_id}-${n.event_type}`
-          )
+          (existingNotifications || []).map(n => {
+            const key = `${n.transaction_table}-${n.transaction_id}-${n.event_type}`;
+            // Also track handled ones
+            if (n.is_handled || n.is_dismissed) {
+              const transactionKey = createTransactionKey(n.transaction_id, n.event_type);
+              handledTransactionKeys.add(transactionKey);
+              handledTransactionsRef.current.add(transactionKey);
+            }
+            return key;
+          })
         );
 
         console.log(`[NotificationContext] Found ${existingNotificationKeys.size} existing notifications in notification_states`);
 
-        // STEP 2: Only check RECENT transactions (last 2 hours) to avoid creating old notifications
+        // STEP 3: Only check RECENT transactions (last 2 hours) to avoid creating old notifications
         const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
 
         // Get NEW purchase transactions ONLY
@@ -354,12 +444,26 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         let missingCount = 0;
         const notificationsToCreate: any[] = [];
 
-        // STEP 3: Check ONLY for missing INSERT notifications for recent transactions
+        // STEP 4: Check ONLY for missing INSERT notifications for recent transactions that were NEVER handled
         for (const tx of purchaseTransactions || []) {
           const notificationKey = `transactions-${tx.id}-INSERT`;
+          const transactionKey = createTransactionKey(tx.id, 'INSERT');
+          
+          // CRITICAL: Skip if this transaction was EVER handled
+          if (handledTransactionKeys.has(transactionKey)) {
+            console.log(`[NotificationContext] ⛔ Skipping transaction ${tx.id} - was previously handled`);
+            continue;
+          }
+
+          // CRITICAL: Double-check against audit log
+          const wasHandled = await wasTransactionEverHandled(tx.id, 'transactions', 'INSERT');
+          if (wasHandled) {
+            console.log(`[NotificationContext] ⛔ Skipping transaction ${tx.id} - audit log confirms it was handled`);
+            continue;
+          }
           
           if (!existingNotificationKeys.has(notificationKey)) {
-            console.log(`[NotificationContext] 🔍 Found NEW purchase transaction without notification: ${tx.id}`);
+            console.log(`[NotificationContext] 🔍 Found NEW purchase transaction without notification (never handled): ${tx.id}`);
             
             // Transform to unified Transaction interface
             const unifiedTransaction: Transaction = {
@@ -411,9 +515,23 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         // Check sales transactions for missing notifications
         for (const tx of salesTransactions || []) {
           const notificationKey = `sales_transactions-${tx.id}-INSERT`;
+          const transactionKey = createTransactionKey(tx.id, 'INSERT');
+          
+          // CRITICAL: Skip if this transaction was EVER handled
+          if (handledTransactionKeys.has(transactionKey)) {
+            console.log(`[NotificationContext] ⛔ Skipping sales transaction ${tx.id} - was previously handled`);
+            continue;
+          }
+
+          // CRITICAL: Double-check against audit log
+          const wasHandled = await wasTransactionEverHandled(tx.id, 'sales_transactions', 'INSERT');
+          if (wasHandled) {
+            console.log(`[NotificationContext] ⛔ Skipping sales transaction ${tx.id} - audit log confirms it was handled`);
+            continue;
+          }
           
           if (!existingNotificationKeys.has(notificationKey)) {
-            console.log(`[NotificationContext] 🔍 Found NEW sales transaction without notification: ${tx.id}`);
+            console.log(`[NotificationContext] 🔍 Found NEW sales transaction without notification (never handled): ${tx.id}`);
             
             const unifiedTransaction: Transaction = {
               id: tx.id,
@@ -462,9 +580,9 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
           }
         }
 
-        // STEP 4: Create notifications for NEW transactions only
+        // STEP 5: Create notifications for NEW transactions only (that were NEVER handled)
         if (notificationsToCreate.length > 0) {
-          console.log(`[NotificationContext] 🚀 Creating ${notificationsToCreate.length} notifications for NEW transactions...`);
+          console.log(`[NotificationContext] 🚀 Creating ${notificationsToCreate.length} notifications for NEW transactions (never handled)...`);
           
           const { data: createdNotifications, error: createError } = await supabase
             .from('notification_states')
@@ -477,11 +595,11 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
           }
 
           const createdCount = createdNotifications?.length || 0;
-          console.log(`[NotificationContext] ✅ Successfully created ${createdCount} notifications for NEW transactions`);
+          console.log(`[NotificationContext] ✅ Successfully created ${createdCount} notifications for NEW transactions (never handled)`);
           return createdCount;
         }
 
-        console.log(`[NotificationContext] 🔍 No NEW transactions requiring notifications found`);
+        console.log(`[NotificationContext] 🔍 No NEW unhandled transactions requiring notifications found`);
         return 0;
       })();
       
@@ -496,7 +614,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       console.error('[NotificationContext] Error checking for new transactions:', error);
       return 0;
     }
-  }, []);
+  }, [wasTransactionEverHandled]);
 
   // CRITICAL: Memoize bell notifications loading with timeout protection - STRICT unhandled only
   const loadBellNotificationsMemo = useCallback(async () => {
@@ -542,8 +660,14 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
             return false;
           }
           
-          // Deduplication check
+          // Check against handled transactions cache
           const transactionKey = createTransactionKey(state.transaction_id, state.event_type);
+          if (handledTransactionsRef.current.has(transactionKey)) {
+            console.log(`[NotificationContext] Excluding previously handled transaction ${transactionKey} from bell`);
+            return false;
+          }
+          
+          // Deduplication check
           if (processedStates.has(transactionKey)) {
             console.log(`[NotificationContext] Bell: Skipping duplicate transaction key: ${transactionKey}`);
             return false;
@@ -607,7 +731,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     const REFRESH_TIMEOUT = 20000; // 20 second timeout for comprehensive refresh
     
     try {
-      console.log('[NotificationContext] 🔄 Starting STRICT notification_states-only refresh...');
+      console.log('[NotificationContext] 🔄 Starting STRICT notification_states-only refresh (NO handled recovery)...');
       
       // Create timeout promise
       const timeoutPromise = new Promise<void>((_, reject) => {
@@ -616,12 +740,12 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       
       // Create refresh promise
       const refreshPromise = (async () => {
-        // STEP 1: Check for NEW transactions first (not recovery from audit log)
-        console.log('[NotificationContext] STEP 1: Checking for NEW transactions without notifications...');
+        // STEP 1: Check for NEW transactions first (NOT recovery from audit log)
+        console.log('[NotificationContext] STEP 1: Checking for NEW transactions without notifications (never handled)...');
         const newTransactionCount = await createMissingNotifications();
         
         if (newTransactionCount > 0) {
-          console.log(`[NotificationContext] ✅ Created ${newTransactionCount} notifications for NEW transactions`);
+          console.log(`[NotificationContext] ✅ Created ${newTransactionCount} notifications for NEW unhandled transactions`);
         }
         
         // STEP 2: Load STRICTLY unhandled notifications from notification_states ONLY
@@ -639,6 +763,13 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
           // LocalStorage check
           if (isNotificationReallyHandled(n.id)) {
             console.log(`[NotificationContext] Excluding locally handled notification ${n.id} from refresh`);
+            return false;
+          }
+          
+          // Check against handled transactions cache
+          const transactionKey = createTransactionKey(n.transaction.id, n.eventType);
+          if (handledTransactionsRef.current.has(transactionKey)) {
+            console.log(`[NotificationContext] Excluding previously handled transaction ${transactionKey} from refresh`);
             return false;
           }
           
@@ -1038,6 +1169,13 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       // Determine correct table name based on transaction type
       const transactionTable = notification.transaction.transaction_type === 'Purchase' ? 'transactions' : 'sales_transactions';
       
+      // CRITICAL: Check if this transaction was ever handled before saving
+      const transactionKey = createTransactionKey(notification.transaction.id, notification.eventType);
+      if (handledTransactionsRef.current.has(transactionKey)) {
+        console.log(`[NotificationContext] ⛔ NOT saving notification - transaction ${notification.transaction.id} was previously handled`);
+        return null;
+      }
+      
       // CRITICAL: Save to notification_states ONLY, never to notification_audit_log
       const { data, error } = await supabase
         .from('notification_states') // ONLY notification_states table
@@ -1125,12 +1263,24 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         // Check database flags
         if (state.is_handled === true || state.is_dismissed === true) {
           console.warn(`[NotificationContext] 🚨 CRITICAL: Filtering out handled/dismissed notification ${state.id} from notification_states query`);
+          // Track as handled to prevent future recovery
+          const transactionKey = createTransactionKey(state.transaction_id, state.event_type);
+          handledTransactionsRef.current.add(transactionKey);
           return false;
         }
         
         // Check localStorage (belt and suspenders)
         if (isNotificationReallyHandled(state.id)) {
           console.log(`[NotificationContext] Filtering out locally handled/dismissed notification: ${state.id}`);
+          const transactionKey = createTransactionKey(state.transaction_id, state.event_type);
+          handledTransactionsRef.current.add(transactionKey);
+          return false;
+        }
+        
+        // Check against handled transactions cache
+        const transactionKey = createTransactionKey(state.transaction_id, state.event_type);
+        if (handledTransactionsRef.current.has(transactionKey)) {
+          console.log(`[NotificationContext] Filtering out previously handled transaction: ${transactionKey}`);
           return false;
         }
         
@@ -1361,7 +1511,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     }
   }, [notificationQueue, refreshNotificationsMemo, playNotificationSoundMemo]);
 
-  // Mark notification as handled - ENHANCED with cross-session verification
+  // FIXED: Mark notification as handled - properly updates database and removes from queue
   const markAsHandledById = async (notificationId: string): Promise<void> => {
     if (!sessionInfo) {
       console.warn('[NotificationContext] No session info available for marking notification as handled');
@@ -1375,6 +1525,9 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       const notification = notificationQueue.find(n => n.id === notificationId);
       if (notification) {
         const transactionKey = createTransactionKey(notification.transaction.id, notification.eventType);
+        
+        // Add to handled transactions cache
+        handledTransactionsRef.current.add(transactionKey);
         
         // Remove from processing and active tracking
         processingTransactionsRef.current.delete(transactionKey);
@@ -1434,7 +1587,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         throw new Error('Verification failed');
       }
 
-      console.log(`[NotificationContext] Successfully marked notification ${notificationId} as HANDLED in notification_states (verified)`);
+      console.log(`[NotificationContext] ✅ Successfully marked notification ${notificationId} as HANDLED in notification_states (verified)`);
 
       // Remove from local state immediately
       setNotificationQueue(prev => 
@@ -1465,7 +1618,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     }
   };
 
-  // Enhanced dismissById function
+  // FIXED: Enhanced dismissById function - properly updates database
   const dismissById = async (notificationId: string): Promise<void> => {
     if (!sessionInfo) {
       console.warn('No session info available for dismissing notification');
@@ -1503,7 +1656,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         throw error;
       }
 
-      console.log('[NotificationContext] Successfully dismissed notification in notification_states:', notificationId);
+      console.log('[NotificationContext] ✅ Successfully dismissed notification in notification_states:', notificationId);
 
       // Then update local state - remove from both queues
       setNotificationQueue(prev => {
@@ -1537,6 +1690,12 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
   const addNotification = async (notification: Omit<NotificationData, 'id' | 'timestamp' | 'isHandled' | 'isDismissed' | 'photos' | 'photosFetched' | 'photoRetryCount'>) => {
     const transactionKey = createTransactionKey(notification.transaction.id, notification.eventType);
     console.log('[NotificationContext] 🚨 addNotification called for:', transactionKey, 'Type:', notification.transaction.transaction_type);
+    
+    // CRITICAL: Check if this transaction was ever handled
+    if (handledTransactionsRef.current.has(transactionKey)) {
+      console.log(`[NotificationContext] ⛔ NOT adding notification - transaction was previously handled: ${transactionKey}`);
+      return;
+    }
     
     // CRITICAL: Check if we're already processing this exact transaction + event
     if (processingTransactionsRef.current.has(transactionKey)) {
@@ -1583,11 +1742,13 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         // Now check if the DB notification is handled using its ID
         if (isNotificationReallyHandled(existingDb.id)) {
           console.log(`[NotificationContext] Notification ${existingDb.id} is locally marked as handled/dismissed`);
+          handledTransactionsRef.current.add(transactionKey);
           return;
         }
         
         if (existingDb.is_handled || existingDb.is_dismissed) {
           console.log(`[NotificationContext] Notification already ${existingDb.is_handled ? 'handled' : 'dismissed'} in notification_states: ${transactionKey}`);
+          handledTransactionsRef.current.add(transactionKey);
           return;
         }
         
@@ -1794,7 +1955,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
 
   // ===== NAVIGATION AND CONTROL FUNCTIONS =====
 
-  // Enhanced mark current as handled - FIXED to ensure permanent handling
+  // FIXED: Enhanced mark current as handled - properly navigates after handling
   const markCurrentAsHandled = async () => {
     const currentNotification = notificationQueue[currentNotificationIndex];
     if (!currentNotification) return;
@@ -1804,74 +1965,42 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     // Use the enhanced markAsHandledById which now permanently handles notifications in notification_states
     await markAsHandledById(currentNotification.id);
     
-    // Get remaining unhandled notifications
-    const remainingUnhandled = notificationQueue.filter((n, i) => {
-      if (i === currentNotificationIndex) return false; // Exclude current
-      if (n.isHandled) return false; // Exclude already handled
-      if (n.isDismissed) return false; // Exclude dismissed
-      // Check localStorage for handled status
-      const handledKey = `handled_${n.id}`;
-      if (localStorage.getItem(handledKey)) return false; // Exclude if marked as handled in localStorage
-      return true;
-    });
+    // After marking as handled, navigate to next unhandled notification
+    // Note: The notification has already been removed from the queue by markAsHandledById
+    const updatedQueue = notificationQueueRef.current; // Get the updated queue
+    const remainingUnhandled = updatedQueue.filter(n => !n.isHandled && !n.isDismissed);
     
     if (remainingUnhandled.length === 0) {
       console.log('[NotificationContext] All notifications handled, closing panel');
       setIsNotificationVisible(false);
+      setCurrentNotificationIndex(0);
       
-      setTimeout(() => {
-        // Clean up the queue, removing handled notifications
-        setNotificationQueue(prev => prev.filter(n => {
-          if (n.isHandled || n.isDismissed) return false;
-          const handledKey = `handled_${n.id}`;
-          if (localStorage.getItem(handledKey)) return false;
-          return true;
-        }));
-        setCurrentNotificationIndex(0);
-        // Clear tracking refs
-        activeTransactionsRef.current.clear();
-        processingTransactionsRef.current.clear();
-      }, 300);
+      // Clear tracking refs
+      activeTransactionsRef.current.clear();
+      processingTransactionsRef.current.clear();
     } else {
-      // Find next unhandled notification
-      const nextUnhandledIndex = notificationQueue.findIndex((n, i) => {
-        if (i <= currentNotificationIndex) return false; // Skip current and previous
-        if (n.isHandled || n.isDismissed) return false;
-        const handledKey = `handled_${n.id}`;
-        if (localStorage.getItem(handledKey)) return false;
-        return true;
-      });
+      // Find the first unhandled notification
+      const firstUnhandledIndex = updatedQueue.findIndex(n => !n.isHandled && !n.isDismissed);
       
-      if (nextUnhandledIndex !== -1) {
-        setCurrentNotificationIndex(nextUnhandledIndex);
+      if (firstUnhandledIndex !== -1) {
+        console.log(`[NotificationContext] Moving to next unhandled notification at index ${firstUnhandledIndex}`);
+        setCurrentNotificationIndex(firstUnhandledIndex);
+        
         // Play sound for next notification
-        const nextNotification = notificationQueue[nextUnhandledIndex];
+        const nextNotification = updatedQueue[firstUnhandledIndex];
         if (nextNotification && nextNotification.transaction) {
           playNotificationSoundMemo(nextNotification.transaction.transaction_type);
         }
       } else {
-        // Look for previous unhandled
-        const previousUnhandledIndex = notificationQueue.findIndex((n, i) => {
-          if (i >= currentNotificationIndex) return false;
-          if (n.isHandled || n.isDismissed) return false;
-          const handledKey = `handled_${n.id}`;
-          if (localStorage.getItem(handledKey)) return false;
-          return true;
-        });
-        
-        if (previousUnhandledIndex !== -1) {
-          setCurrentNotificationIndex(previousUnhandledIndex);
-          // Play sound for previous notification
-          const prevNotification = notificationQueue[previousUnhandledIndex];
-          if (prevNotification && prevNotification.transaction) {
-            playNotificationSoundMemo(prevNotification.transaction.transaction_type);
-          }
-        }
+        // Shouldn't reach here, but handle it anyway
+        console.log('[NotificationContext] No more unhandled notifications, closing panel');
+        setIsNotificationVisible(false);
+        setCurrentNotificationIndex(0);
       }
     }
   };
 
-  // Enhanced dismiss current notification
+  // FIXED: Enhanced dismiss current notification - properly navigates after dismissing
   const dismissCurrentNotification = () => {
     const currentNotification = notificationQueue[currentNotificationIndex];
     if (!currentNotification) return;
@@ -1880,61 +2009,45 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     
     // Dismiss in notification_states first, then update UI
     dismissById(currentNotification.id).then(() => {
-      setIsNotificationVisible(false);
+      // After dismissing, navigate to next unhandled notification
+      const updatedQueue = notificationQueueRef.current; // Get the updated queue
+      const remainingUnhandled = updatedQueue.filter(n => !n.isHandled && !n.isDismissed);
       
-      // Wait for animation, then clean up local state
-      setTimeout(() => {
-        const remainingUnhandled = notificationQueue.filter(
-          (n, i) => i !== currentNotificationIndex && !n.isHandled && !n.isDismissed && n.id !== currentNotification.id
-        );
+      if (remainingUnhandled.length === 0) {
+        console.log('[NotificationContext] No remaining notifications after dismiss');
+        setIsNotificationVisible(false);
+        setNotificationQueue([]);
+        setCurrentNotificationIndex(0);
         
-        if (remainingUnhandled.length === 0) {
-          console.log('[NotificationContext] No remaining notifications after dismiss');
+        // Clear tracking refs
+        activeTransactionsRef.current.clear();
+        processingTransactionsRef.current.clear();
+      } else {
+        // Find the first unhandled notification
+        const firstUnhandledIndex = updatedQueue.findIndex(n => !n.isHandled && !n.isDismissed);
+        
+        if (firstUnhandledIndex !== -1) {
+          console.log(`[NotificationContext] Moving to next unhandled notification at index ${firstUnhandledIndex}`);
+          setCurrentNotificationIndex(firstUnhandledIndex);
+          
+          // Keep modal visible
+          if (!isNotificationVisible) {
+            setIsNotificationVisible(true);
+          }
+          
+          // Play sound for next notification
+          const nextNotification = updatedQueue[firstUnhandledIndex];
+          if (nextNotification && nextNotification.transaction) {
+            playNotificationSoundMemo(nextNotification.transaction.transaction_type);
+          }
+        } else {
+          // Shouldn't reach here, but handle it anyway
+          console.log('[NotificationContext] No more unhandled notifications, closing panel');
+          setIsNotificationVisible(false);
           setNotificationQueue([]);
           setCurrentNotificationIndex(0);
-          // Clear tracking refs
-          activeTransactionsRef.current.clear();
-          processingTransactionsRef.current.clear();
-        } else {
-          // Navigate to next available notification
-          const nextIndex = notificationQueue.findIndex(
-            (n, i) => i > currentNotificationIndex && !n.isHandled && !n.isDismissed && n.id !== currentNotification.id
-          );
-          
-          if (nextIndex !== -1) {
-            setCurrentNotificationIndex(nextIndex);
-            setIsNotificationVisible(true); // Keep showing notifications
-            // Play sound for next notification
-            const nextNotification = notificationQueue[nextIndex];
-            if (nextNotification && nextNotification.transaction) {
-              playNotificationSoundMemo(nextNotification.transaction.transaction_type);
-            }
-          } else {
-            // Check for previous notifications
-            const prevIndex = notificationQueue.findIndex(
-              (n, i) => i < currentNotificationIndex && !n.isHandled && !n.isDismissed && n.id !== currentNotification.id
-            );
-            
-            if (prevIndex !== -1) {
-              setCurrentNotificationIndex(prevIndex);
-              setIsNotificationVisible(true);
-              // Play sound for previous notification
-              const prevNotification = notificationQueue[prevIndex];
-              if (prevNotification && prevNotification.transaction) {
-                playNotificationSoundMemo(prevNotification.transaction.transaction_type);
-              }
-            } else {
-              // No more notifications
-              setIsNotificationVisible(false);
-              setNotificationQueue([]);
-              setCurrentNotificationIndex(0);
-              // Clear tracking refs
-              activeTransactionsRef.current.clear();
-              processingTransactionsRef.current.clear();
-            }
-          }
         }
-      }, 300);
+      }
     }).catch(error => {
       console.error('Failed to dismiss notification in notification_states:', error);
       // Don't hide the notification if dismiss failed
@@ -1994,6 +2107,36 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
 
   // ===== EFFECTS AND SUBSCRIPTIONS =====
 
+  // Load handled transactions on initialization
+  useEffect(() => {
+    const loadHandledTransactions = async () => {
+      try {
+        const { data: auditLogs, error } = await supabase
+          .from('notification_audit_log')
+          .select('new_state')
+          .eq('action', 'HANDLED')
+          .limit(5000);
+
+        if (!error && auditLogs) {
+          auditLogs.forEach(log => {
+            if (log.new_state && 
+                log.new_state.transaction_id && 
+                log.new_state.event_type &&
+                log.new_state.is_handled === true) {
+              const key = createTransactionKey(log.new_state.transaction_id, log.new_state.event_type);
+              handledTransactionsRef.current.add(key);
+            }
+          });
+          console.log(`[NotificationContext] Loaded ${handledTransactionsRef.current.size} handled transactions from audit log`);
+        }
+      } catch (error) {
+        console.error('Error loading handled transactions:', error);
+      }
+    };
+
+    loadHandledTransactions();
+  }, []);
+
   // Cleanup initialization effect - ENHANCED for handled notifications
   useEffect(() => {
     // Clean up old dismissed and handled notifications on startup
@@ -2010,11 +2153,11 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
   // Setup real-time subscriptions and initialization
   useEffect(() => {
     const initializeProvider = async () => {
-      console.log('[NotificationContext] Initializing notification provider with STRICT notification_states recovery...');
+      console.log('[NotificationContext] Initializing notification provider with STRICT notification_states recovery (NO handled recovery)...');
       
       const session = await initializeSession();
       
-      // CRITICAL FIX: Run comprehensive refresh with NEW transactions check (not audit log recovery)
+      // CRITICAL FIX: Run comprehensive refresh with NEW transactions check (NOT audit log recovery)
       await refreshNotificationsMemo();
       
       // After refresh, check if we have unhandled notifications that need display
@@ -2073,6 +2216,12 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         timestamp: new Date().toISOString()
       });
 
+      // CRITICAL: Check if this transaction was ever handled
+      if (handledTransactionsRef.current.has(transactionKey)) {
+        console.log(`[NotificationContext] ⛔ Ignoring real-time event - transaction was previously handled: ${transactionKey}`);
+        return;
+      }
+
       // CRITICAL: Multiple deduplication checks
       // 1. Check if already processing
       if (processingTransactionsRef.current.has(transactionKey)) {
@@ -2113,6 +2262,18 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         console.log(`[NotificationContext] 🚀 Processing REAL-TIME ${transactionType} for notification_states:`, transaction.id);
         
         try {
+          // CRITICAL: Double-check against audit log for real-time events
+          const wasHandled = await wasTransactionEverHandled(
+            transaction.id, 
+            transactionType === 'Purchase' ? 'transactions' : 'sales_transactions',
+            payload.eventType
+          );
+          
+          if (wasHandled) {
+            console.log(`[NotificationContext] ⛔ Real-time event for previously handled transaction: ${transaction.id}`);
+            return;
+          }
+          
           // CRITICAL FIX: Only wait for photos on Purchase INSERT events
           if (payload.eventType === 'INSERT' && transactionType === 'Purchase') {
             console.log('[NotificationContext] Waiting 2 seconds for photos on purchase...');
@@ -2278,6 +2439,10 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
           
           // Process updates from ALL sessions (including other devices/browsers)
           if (updatedState.is_handled || updatedState.is_dismissed) {
+            // Track as handled
+            const transactionKey = createTransactionKey(updatedState.transaction_id, updatedState.event_type);
+            handledTransactionsRef.current.add(transactionKey);
+            
             // Check if this was handled by another session
             const isFromAnotherSession = updatedState.handled_session !== sessionInfo?.sessionId;
             
@@ -2391,12 +2556,16 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
           const deletedState = payload.old;
           console.log('[NotificationContext] Notification state deleted from notification_states:', deletedState.id);
           
+          // Track as handled
+          const transactionKey = createTransactionKey(deletedState.transaction_id, deletedState.event_type);
+          handledTransactionsRef.current.add(transactionKey);
+          
           // Remove from both queues when deleted
           setNotificationQueue(prev => {
             const filtered = prev.filter(n => n.id !== deletedState.id);
             
             // Remove from tracking
-            const removedNotification = prev.find(n => n.id !== deletedState.id);
+            const removedNotification = prev.find(n => n.id === deletedState.id);
             if (removedNotification) {
               const transactionKey = createTransactionKey(removedNotification.transaction.id, removedNotification.eventType);
               activeTransactionsRef.current.delete(transactionKey);
@@ -2450,7 +2619,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     };
 
     // CRITICAL: Only depend on stable values that should trigger subscription recreation
-  }, [isInitialized, sessionInfo?.sessionId]); // FIXED: Minimal stable dependencies
+  }, [isInitialized, sessionInfo?.sessionId, wasTransactionEverHandled]); // FIXED: Added wasTransactionEverHandled dependency
 
   // Session heartbeat
   useEffect(() => {
@@ -2478,7 +2647,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         // Check their status in notification_states database
         const { data: dbStates, error } = await supabase
           .from('notification_states') // ONLY notification_states, NEVER notification_audit_log
-          .select('id, is_handled, is_dismissed, handled_session')
+          .select('id, is_handled, is_dismissed, handled_session, transaction_id, event_type')
           .in('id', currentIds);
         
         if (error) {
@@ -2490,20 +2659,26 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         const toRemove: string[] = [];
         
         dbStates?.forEach(dbState => {
-          if ((dbState.is_handled || dbState.is_dismissed) && dbState.handled_session !== sessionInfo.sessionId) {
-            toRemove.push(dbState.id);
-            console.log(`[NotificationContext] Sync check: Found notification ${dbState.id} ${dbState.is_handled ? 'handled' : 'dismissed'} by another session in notification_states`);
+          if ((dbState.is_handled || dbState.is_dismissed)) {
+            // Track as handled
+            const transactionKey = createTransactionKey(dbState.transaction_id, dbState.event_type);
+            handledTransactionsRef.current.add(transactionKey);
             
-            // Add to localStorage
-            if (dbState.is_handled) {
-              const handledKey = `handled_${dbState.id}`;
-              localStorage.setItem(handledKey, JSON.stringify({
-                notificationId: dbState.id,
-                handledAt: new Date().toISOString(),
-                sessionId: dbState.handled_session,
-                fromSync: true,
-                permanent: true
-              }));
+            if (dbState.handled_session !== sessionInfo.sessionId) {
+              toRemove.push(dbState.id);
+              console.log(`[NotificationContext] Sync check: Found notification ${dbState.id} ${dbState.is_handled ? 'handled' : 'dismissed'} by another session in notification_states`);
+              
+              // Add to localStorage
+              if (dbState.is_handled) {
+                const handledKey = `handled_${dbState.id}`;
+                localStorage.setItem(handledKey, JSON.stringify({
+                  notificationId: dbState.id,
+                  handledAt: new Date().toISOString(),
+                  sessionId: dbState.handled_session,
+                  fromSync: true,
+                  permanent: true
+                }));
+              }
             }
           }
         });
