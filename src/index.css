@@ -1,4 +1,27 @@
-@import "tailwindcss";
+/* stylelint-disable at-rule-no-unknown */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+/* stylelint-enable at-rule-no-unknown */
+
+/* Ensure consistent rendering across browsers */
+@layer base {
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  /* Prevent color profile issues */
+  :root {
+    color-scheme: light;
+  }
+  
+  /* Reset form elements for consistency */
+  button,
+  input,
+  optgroup,
+  select,
+  textarea {
+    color: inherit;
+  }
+}
