@@ -483,13 +483,13 @@ const Settings: React.FC = () => {
     }
   }, [isAdmin, user, authLoading]);
 
-  // Clear messages after time
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
+ // Clear messages after time
+useEffect(() => {
+  if (!error) return; // Early return when no error
+
+  const timer = setTimeout(() => setError(null), 5000);
+  return () => clearTimeout(timer);
+}, [error]);
 
   if (authLoading || profileLoading) {
     return (
