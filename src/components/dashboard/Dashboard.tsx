@@ -1,6 +1,5 @@
 // src/components/dashboard/Dashboard.tsx - Updated with Role-Based Permissions
 import React, { useState, useEffect, useCallback } from 'react';
-import { type LucideIcon } from 'lucide-react'; // Add this import
 import { 
   DollarSign, FileText, Package, Users, Plus, Download, TrendingUp, Activity, Award, 
   Sparkles, AlertCircle, Loader2, ShoppingCart, UserPlus, Settings, BarChart3, 
@@ -14,7 +13,7 @@ interface StatCardProps {
   title: string;
   value: string;
   change: string | number;
-  icon: LucideIcon; // Changed this line
+  icon: React.ComponentType<any>; // Changed here
   gradient: string;
   isLoading?: boolean;
 }
@@ -22,7 +21,7 @@ interface StatCardProps {
 interface QuickActionButtonProps {
   children: React.ReactNode;
   variant?: 'filled' | 'outline' | 'ghost';
- icon?: LucideIcon; // Changed this line
+  icon: React.ComponentType<any>; // Changed here
   onClick?: () => void;
   disabled?: boolean;
 }
@@ -32,7 +31,7 @@ interface PerformanceMetricProps {
   value: string;
   progress: number;
   target: string;
-   icon: LucideIcon; // Changed this line
+  icon: React.ComponentType<any>; // Changed here
 }
 
 interface TransactionItemProps {
