@@ -1164,31 +1164,35 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     };
   }, [isPageVisible, isWindowFocused, resumeLoading, authLoading, visibilityTimeout, handleAppResume]);
 
-  // ADDED: Automatic loading state recovery mechanism
-  useEffect(() => {
-    // Reset stuck loading states after timeout
-    const loadingStates = [
-      { state: loading, name: 'loading' },
-      { state: resumeLoading, name: 'resumeLoading' },
-      { state: authLoading, name: 'authLoading' }
-    ];
+ // FIXED: Automatic loading state recovery mechanism
+useEffect(() => {
+  // Reset stuck loading states after timeout
+  const loadingStates = [
+    { state: loading, name: 'loading' },
+    { state: resumeLoading, name: 'resumeLoading' },
+    { state: authLoading, name: 'authLoading' }
+  ];
+  
+  const activeLoadingStates = loadingStates.filter(({ state }) => state === true);
+  
+  if (activeLoadingStates.length > 0) {
+    console.log('Active loading states detected:', activeLoadingStates.map(s => s.name));
     
-    const activeLoadingStates = loadingStates.filter(({ state }) => state === true);
+    const timeout = window.setTimeout(() => {
+      console.warn('Detected stuck loading states, attempting automatic recovery...');
+      setLoading(false);
+      setResumeLoading(false);
+      setError('Loading took too long - automatic recovery initiated');
+      setForceRecoveryAvailable(true);
+    }, 30000); // 30 second timeout for automatic recovery
     
-    if (activeLoadingStates.length > 0) {
-      console.log('Active loading states detected:', activeLoadingStates.map(s => s.name));
-      
-      const timeout = window.setTimeout(() => {
-        console.warn('Detected stuck loading states, attempting automatic recovery...');
-        setLoading(false);
-        setResumeLoading(false);
-        setError('Loading took too long - automatic recovery initiated');
-        setForceRecoveryAvailable(true);
-      }, 30000); // 30 second timeout for automatic recovery
-      
-      return () => clearTimeout(timeout);
-    }
-  }, [loading, resumeLoading, authLoading]);
+    // FIXED: Return cleanup function
+    return () => clearTimeout(timeout);
+  }
+  
+  // FIXED: Return undefined when no timeout is set
+  return undefined;
+}, [loading, resumeLoading, authLoading]);
 
   // Monitor online status (maintaining existing functionality with enhanced recovery)
   useEffect(() => {
