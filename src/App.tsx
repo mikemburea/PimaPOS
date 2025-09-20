@@ -1,5 +1,5 @@
-// App.tsx - Fixed Header props and added visibility handling
-import React, { useState, useEffect } from 'react';
+// App.tsx - Production-Ready Fixed Version with Enhanced Loading State Management
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from './lib/supabase';
 import { Menu, X, AlertTriangle, RefreshCw, Wifi, WifiOff, Shield, ShieldCheck, Crown, Users } from 'lucide-react';
 
@@ -586,12 +586,12 @@ const RecoveryComponent = ({
       onRecovery();
       
       setTimeout(() => {
-        alert(`✅ Recovery Complete!\n\nRecovered ${unhandledOnly.length} unhandled notifications.\n\nStats:\n- Total: ${stats.total}\n- Pending: ${stats.pending}\n- Handled: ${stats.handled} (excluded from recovery)`);
+        alert(`Recovery Complete!\n\nRecovered ${unhandledOnly.length} unhandled notifications.\n\nStats:\n- Total: ${stats.total}\n- Pending: ${stats.pending}\n- Handled: ${stats.handled} (excluded from recovery)`);
       }, 500);
       
     } catch (error) {
       console.error('Emergency recovery failed:', error);
-      alert('❌ Recovery failed. Check your connection and try again.');
+      alert('Recovery failed. Check your connection and try again.');
     } finally {
       setIsRecovering(false);
     }
@@ -652,7 +652,7 @@ const RecoveryComponent = ({
           Restores only unhandled transactions from the last 48 hours
         </p>
         <p className="text-xs text-red-500 mt-1 text-center font-medium">
-          ⚠️ Handled notifications are permanently excluded
+          Handled notifications are permanently excluded
         </p>
       </div>
     </div>
@@ -700,7 +700,16 @@ const LoadingSpinner = () => (
   </div>
 );
 
-const ErrorDisplay = ({ error, onRetry }: { error: string; onRetry: () => void }) => (
+// UPDATED: Enhanced ErrorDisplay with recovery options
+const ErrorDisplay = ({ 
+  error, 
+  onRetry,
+  onForceRecovery 
+}: { 
+  error: string; 
+  onRetry: () => void;
+  onForceRecovery?: () => void;
+}) => (
   <div className="flex items-center justify-center min-h-screen px-4">
     <div className="text-center w-full max-w-sm mx-auto">
       <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-4 md:px-6 md:py-4 rounded-lg">
@@ -711,12 +720,22 @@ const ErrorDisplay = ({ error, onRetry }: { error: string; onRetry: () => void }
           <p className="font-bold text-sm md:text-base">Error loading data</p>
         </div>
         <p className="text-xs md:text-sm mb-3 md:mb-4">{error}</p>
-        <button 
-          onClick={onRetry}
-          className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 md:px-4 rounded transition-colors text-sm md:text-base"
-        >
-          Retry
-        </button>
+        <div className="space-y-2">
+          <button 
+            onClick={onRetry}
+            className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 md:px-4 rounded transition-colors text-sm md:text-base"
+          >
+            Retry
+          </button>
+          {onForceRecovery && (
+            <button 
+              onClick={onForceRecovery}
+              className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-3 md:px-4 rounded transition-colors text-sm md:text-base"
+            >
+              Force Recovery
+            </button>
+          )}
+        </div>
       </div>
     </div>
   </div>
@@ -921,7 +940,7 @@ const getPageTitle = (activeTab: string): string => {
   }
 };
 
-// Main App Component with Enhanced First User Admin Role-Based Access Control
+// FIXED: Main App Component with Production-Ready Error Recovery and Loading State Management
 const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   // Get enhanced notification context (maintaining existing functionality)
   const {
@@ -942,7 +961,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     unreadBellCount
   } = useNotifications();
 
-  // NEW: Get user permissions using the updated auth system with first user admin support
+  // Get user permissions using the updated auth system with first user admin support
   const {
     user,
     loading: authLoading,
@@ -968,10 +987,12 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
   
-  // NEW: Visibility and focus state for handling app resume issues
+  // UPDATED: Enhanced visibility and focus state management with timeouts
   const [isPageVisible, setIsPageVisible] = useState(!document.hidden);
   const [isWindowFocused, setIsWindowFocused] = useState(document.hasFocus());
   const [resumeLoading, setResumeLoading] = useState(false);
+  const [visibilityTimeout, setVisibilityTimeout] = useState<number | null>(null);
+  const [forceRecoveryAvailable, setForceRecoveryAvailable] = useState(false);
   
   // Data state (maintaining existing structure)
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -1004,7 +1025,63 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-  // NEW: Handle page visibility and focus changes to prevent stuck loading states
+  // FIXED: Production-ready app resume handler with timeout and recovery
+  const handleAppResume = useCallback(async () => {
+    if (resumeLoading) {
+      console.log('Resume already in progress, skipping...');
+      return;
+    }
+
+    // Add timeout to prevent stuck states
+    const timeoutId = window.setTimeout(() => {
+      console.warn('App resume taking too long, forcing recovery...');
+      setResumeLoading(false);
+      setError('App resume timed out - manual refresh recommended');
+      setForceRecoveryAvailable(true);
+    }, 15000); // 15 second timeout
+
+    try {
+      setResumeLoading(true);
+      setError(null);
+      setForceRecoveryAvailable(false);
+      
+      console.log('App resumed, refreshing data and notifications...');
+      
+      // Use Promise.allSettled to prevent total failure if one operation fails
+      const results = await Promise.allSettled([
+        fetchData(),
+        refreshNotifications(),
+        refreshPermissions()
+      ]);
+      
+      // Log any failures but don't throw
+      let hasFailures = false;
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          hasFailures = true;
+          const operation = ['data fetch', 'notifications refresh', 'permissions refresh'][index];
+          console.error(`Resume operation (${operation}) failed:`, result.reason);
+        }
+      });
+      
+      if (hasFailures) {
+        console.warn('Some resume operations failed, but continuing...');
+        setError('Some data may not be fully updated - consider manual refresh');
+      }
+      
+      clearTimeout(timeoutId);
+      console.log('App resume refresh completed');
+    } catch (error) {
+      console.error('Critical error during app resume:', error);
+      setError('Failed to refresh data after app resume');
+      setForceRecoveryAvailable(true);
+      clearTimeout(timeoutId);
+    } finally {
+      setResumeLoading(false);
+    }
+  }, [refreshNotifications, refreshPermissions]);
+
+  // FIXED: Enhanced visibility change handlers with debouncing and timeout cleanup
   useEffect(() => {
     const handleVisibilityChange = () => {
       const wasVisible = isPageVisible;
@@ -1013,10 +1090,23 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       
       console.log('Page visibility changed:', { wasVisible, nowVisible });
       
-      // If page becomes visible after being hidden, refresh data
-      if (!wasVisible && nowVisible) {
-        console.log('Page became visible, refreshing data...');
-        handleAppResume();
+      // Clear existing timeout to prevent multiple rapid calls
+      if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+        setVisibilityTimeout(null);
+      }
+      
+      // Only trigger resume if page became visible, wasn't visible before, and not already loading
+      if (!wasVisible && nowVisible && !resumeLoading && !authLoading) {
+        console.log('Page became visible, scheduling data refresh...');
+        
+        // Debounce the resume call to prevent rapid successive calls
+        const timeout = window.setTimeout(() => {
+          handleAppResume();
+          setVisibilityTimeout(null);
+        }, 1000); // Wait 1 second before triggering
+        
+        setVisibilityTimeout(timeout);
       }
     };
 
@@ -1027,16 +1117,34 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       
       console.log('Window focused:', { wasFocused, nowFocused });
       
-      // If window becomes focused after being unfocused, refresh data
-      if (!wasFocused && nowFocused) {
-        console.log('Window focused, refreshing data...');
-        handleAppResume();
+      // Clear existing timeout
+      if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+        setVisibilityTimeout(null);
+      }
+      
+      // Only trigger resume if window became focused, wasn't focused before, and not already loading
+      if (!wasFocused && nowFocused && !resumeLoading && !authLoading) {
+        console.log('Window focused, scheduling data refresh...');
+        
+        const timeout = window.setTimeout(() => {
+          handleAppResume();
+          setVisibilityTimeout(null);
+        }, 1000);
+        
+        setVisibilityTimeout(timeout);
       }
     };
 
     const handleWindowBlur = () => {
       setIsWindowFocused(false);
       console.log('Window blurred');
+      
+      // Clear any pending resume operations when window loses focus
+      if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+        setVisibilityTimeout(null);
+      }
     };
 
     // Add event listeners
@@ -1045,56 +1153,64 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     window.addEventListener('blur', handleWindowBlur);
 
     return () => {
+      // Cleanup
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('blur', handleWindowBlur);
+      
+      if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+      }
     };
-  }, [isPageVisible, isWindowFocused]);
+  }, [isPageVisible, isWindowFocused, resumeLoading, authLoading, visibilityTimeout, handleAppResume]);
 
-  // NEW: Handle app resume with proper loading states
-  const handleAppResume = async () => {
-    if (resumeLoading) {
-      console.log('Resume already in progress, skipping...');
-      return;
+  // ADDED: Automatic loading state recovery mechanism
+  useEffect(() => {
+    // Reset stuck loading states after timeout
+    const loadingStates = [
+      { state: loading, name: 'loading' },
+      { state: resumeLoading, name: 'resumeLoading' },
+      { state: authLoading, name: 'authLoading' }
+    ];
+    
+    const activeLoadingStates = loadingStates.filter(({ state }) => state === true);
+    
+    if (activeLoadingStates.length > 0) {
+      console.log('Active loading states detected:', activeLoadingStates.map(s => s.name));
+      
+      const timeout = window.setTimeout(() => {
+        console.warn('Detected stuck loading states, attempting automatic recovery...');
+        setLoading(false);
+        setResumeLoading(false);
+        setError('Loading took too long - automatic recovery initiated');
+        setForceRecoveryAvailable(true);
+      }, 30000); // 30 second timeout for automatic recovery
+      
+      return () => clearTimeout(timeout);
     }
+  }, [loading, resumeLoading, authLoading]);
 
-    try {
-      setResumeLoading(true);
-      setError(null);
-      
-      console.log('App resumed, refreshing data and notifications...');
-      
-      // Refresh data and notifications in parallel
-      await Promise.all([
-        fetchData(),
-        refreshNotifications(),
-        refreshPermissions()
-      ]);
-      
-      console.log('App resume refresh completed');
-    } catch (error) {
-      console.error('Error during app resume:', error);
-      setError('Failed to refresh data after app resume');
-    } finally {
-      setResumeLoading(false);
-    }
-  };
-
-  // Monitor online status (maintaining existing functionality)
+  // Monitor online status (maintaining existing functionality with enhanced recovery)
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
       console.log('App came online, syncing...');
+      setError(null); // Clear any offline-related errors
+      
+      // Delay sync to ensure connection is stable
       setTimeout(() => {
-        fetchData();
-        refreshNotifications();
-        refreshPermissions(); // Refresh permissions when coming online
-      }, 1000);
+        if (!resumeLoading && !loading) {
+          fetchData();
+          refreshNotifications();
+          refreshPermissions();
+        }
+      }, 2000); // Wait 2 seconds for stable connection
     };
     
     const handleOffline = () => {
       setIsOnline(false);
       console.log('App went offline');
+      setError('Connection lost - some features may be limited');
     };
 
     window.addEventListener('online', handleOnline);
@@ -1104,7 +1220,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [refreshNotifications, refreshPermissions]);
+  }, [refreshNotifications, refreshPermissions, resumeLoading, loading]);
 
   // Initialize mobile detection (maintaining existing functionality)
   useEffect(() => {
@@ -1184,7 +1300,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       return;
     }
 
-    // NEW: Then check user permissions with first user admin support
+    // Then check user permissions with first user admin support
     if (!canNavigateTo(tab)) {
       console.warn(`Access denied to ${tab} for user role: ${userRole}`);
       
@@ -1310,12 +1426,25 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
-  // Enhanced data fetching with proper transaction mapping (maintaining existing functionality)
-  const fetchData = async () => {
+  // FIXED: Enhanced data fetching with comprehensive error handling and timeout protection
+  const fetchData = useCallback(async () => {
+    // Add timeout protection
+    const timeoutId = window.setTimeout(() => {
+      console.warn('Data fetch taking too long, force-stopping...');
+      setLoading(false);
+      setResumeLoading(false);
+      setError('Data fetch timed out - please try again');
+      setForceRecoveryAvailable(true);
+    }, 20000); // 20 second timeout
+
     try {
       setLoading(true);
       setError(null);
+      setForceRecoveryAvailable(false);
 
+      console.log('Starting data fetch...');
+
+      // Use Promise.allSettled to handle individual failures gracefully
       const [suppliersResult, transactionsResult, salesTransactionsResult, materialsResult] = await Promise.allSettled([
         supabase.from('suppliers').select('*').order('created_at', { ascending: false }),
         supabase.from('transactions').select(`
@@ -1330,15 +1459,25 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
         supabase.from('materials').select('*').order('created_at', { ascending: false })
       ]);
 
+      let hasErrors = false;
+      let errorMessages: string[] = [];
+
       // Handle suppliers
+      let suppliersData: Supplier[] = [];
       if (suppliersResult.status === 'fulfilled') {
         if (suppliersResult.value.error) {
           console.error('Error fetching suppliers:', suppliersResult.value.error);
+          hasErrors = true;
+          errorMessages.push('suppliers');
         } else {
-          const suppliersData = suppliersResult.value.data || [];
+          suppliersData = suppliersResult.value.data || [];
           console.log('App: Fetched suppliers:', suppliersData.length);
           setSuppliers(suppliersData);
         }
+      } else {
+        console.error('Suppliers fetch rejected:', suppliersResult.reason);
+        hasErrors = true;
+        errorMessages.push('suppliers');
       }
 
       // Transform and combine transactions (maintaining existing logic)
@@ -1349,6 +1488,16 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       const salesData = salesTransactionsResult.status === 'fulfilled' && !salesTransactionsResult.value.error 
         ? salesTransactionsResult.value.data || [] 
         : [];
+
+      if (transactionsResult.status === 'rejected' || (transactionsResult.status === 'fulfilled' && transactionsResult.value.error)) {
+        hasErrors = true;
+        errorMessages.push('purchase transactions');
+      }
+
+      if (salesTransactionsResult.status === 'rejected' || (salesTransactionsResult.status === 'fulfilled' && salesTransactionsResult.value.error)) {
+        hasErrors = true;
+        errorMessages.push('sales transactions');
+      }
 
       // Transform purchases to unified Transaction interface
       const purchases: Transaction[] = purchaseData.map(tx => ({
@@ -1421,6 +1570,8 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       if (materialsResult.status === 'fulfilled') {
         if (materialsResult.value.error) {
           console.error('Error fetching materials:', materialsResult.value.error);
+          hasErrors = true;
+          errorMessages.push('materials');
         } else {
           const materialsData = materialsResult.value.data || [];
           const transformedMaterials: Material[] = materialsData.map((material: any) => ({
@@ -1437,22 +1588,36 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
           }));
           setMaterials(transformedMaterials);
         }
+      } else {
+        hasErrors = true;
+        errorMessages.push('materials');
       }
 
       // Calculate stats
-      const suppliersData = suppliersResult.status === 'fulfilled' && !suppliersResult.value.error ? 
-        (suppliersResult.value.data || []) : [];
-      
       calculateStats(allTransactions, suppliersData);
       setLastSyncTime(new Date());
 
+      clearTimeout(timeoutId);
+
+      // Show partial error message if some data failed to load
+      if (hasErrors) {
+        const failedItems = errorMessages.join(', ');
+        setError(`Some data failed to load: ${failedItems}. App is partially functional.`);
+        console.warn('Partial data fetch failure:', errorMessages);
+      } else {
+        console.log('Data fetch completed successfully');
+      }
+
     } catch (err) {
-      console.error('Error fetching data:', err);
+      clearTimeout(timeoutId);
+      console.error('Critical error fetching data:', err);
       setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
+      setForceRecoveryAvailable(true);
     } finally {
       setLoading(false);
+      setResumeLoading(false); // Always reset resume loading
     }
-  };
+  }, []);
 
   // Enhanced calculate dashboard stats (maintaining existing functionality)
   const calculateStats = (allTransactions: Transaction[], suppliersData: Supplier[]) => {
@@ -1525,10 +1690,58 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     }
   };
 
+  // ADDED: Force recovery function for critical failures
+  const handleForceRecovery = useCallback(async () => {
+    console.log('Force recovery initiated...');
+    
+    // Reset all loading states
+    setLoading(false);
+    setResumeLoading(false);
+    setError(null);
+    setForceRecoveryAvailable(false);
+    
+    // Clear any stuck timeouts
+    if (visibilityTimeout) {
+      clearTimeout(visibilityTimeout);
+      setVisibilityTimeout(null);
+    }
+    
+    // Clear browser state that might be causing issues
+    try {
+      // Clear relevant localStorage entries that might be corrupted
+      const keysToRemove = Object.keys(localStorage).filter(key => 
+        key.startsWith('temp_') || 
+        key.startsWith('cache_') ||
+        key.startsWith('session_')
+      );
+      
+      keysToRemove.forEach(key => {
+        try {
+          localStorage.removeItem(key);
+        } catch (e) {
+          console.warn('Could not remove key:', key);
+        }
+      });
+      
+      console.log('Cleared potentially corrupted browser storage');
+    } catch (error) {
+      console.error('Error during storage cleanup:', error);
+    }
+    
+    // Force refresh all data
+    setTimeout(() => {
+      fetchData();
+      refreshNotifications();
+      refreshPermissions();
+    }, 1000);
+  }, [fetchData, refreshNotifications, refreshPermissions, visibilityTimeout]);
+
   // Initial data fetch (maintaining existing functionality)
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (!authLoading) {
+      fetchData();
+    }
+  }, [fetchData, authLoading]);
 
   // Enhanced logout with navigation check (maintaining existing functionality)
   const handleLogout = () => {
@@ -1631,16 +1844,26 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
 
   // Enhanced content renderer with comprehensive role checking and first user admin support
   const renderContent = () => {
-    // NEW: Show loading spinner if resume is in progress
+    // Show loading spinner if resume is in progress or initial loading
     if (resumeLoading || loading || authLoading) {
       return <LoadingSpinner />;
     }
     
     if (error) {
-      return <ErrorDisplay error={error} onRetry={fetchData} />;
+      return (
+        <ErrorDisplay 
+          error={error} 
+          onRetry={() => {
+            setError(null);
+            setForceRecoveryAvailable(false);
+            fetchData();
+          }}
+          onForceRecovery={forceRecoveryAvailable ? handleForceRecovery : undefined}
+        />
+      );
     }
 
-    // NEW: Check if user has permission for the current tab with first user admin support
+    // Check if user has permission for the current tab with first user admin support
     if (!canNavigateTo(activeTab)) {
       return (
         <PermissionDenied 
@@ -1892,7 +2115,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
           />
         )}
 
-        {/* NEW: Resume Loading Indicator */}
+        {/* Resume Loading Indicator */}
         {resumeLoading && (
           <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[60] bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg">
             <div className="flex items-center gap-2">
@@ -1902,7 +2125,23 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
           </div>
         )}
 
-        {/* NEW: Enhanced role indicator for development with first user admin info */}
+        {/* Force Recovery Available Indicator */}
+        {forceRecoveryAvailable && !error && (
+          <div className="fixed top-32 left-1/2 transform -translate-x-1/2 z-[60] bg-orange-600 text-white px-4 py-2 rounded-lg shadow-lg">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              <span className="text-sm">Recovery available</span>
+              <button 
+                onClick={handleForceRecovery}
+                className="ml-2 px-2 py-1 bg-orange-700 hover:bg-orange-800 rounded text-xs"
+              >
+                Recover
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Enhanced role indicator for development with first user admin info */}
         {process.env.NODE_ENV === 'development' && !authLoading && (
           <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-[60] bg-black text-white text-xs p-2 rounded max-w-xs">
             <div className="flex items-center gap-2">
@@ -1926,6 +2165,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
             )}
             <div className="text-yellow-300 text-xs mt-1">
               Visible: {isPageVisible ? 'Yes' : 'No'} | Focused: {isWindowFocused ? 'Yes' : 'No'}
+              {forceRecoveryAvailable && <span className="text-red-300"> | Recovery Available</span>}
             </div>
           </div>
         )}
@@ -1989,7 +2229,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
         <div className={`flex-1 flex flex-col overflow-hidden min-w-0 ${
           isMobile ? '' : (sidebarOpen ? 'md:ml-0' : 'md:ml-0')
         }`}>
-          {/* FIXED: Enhanced Header with proper props matching interface */}
+          {/* Enhanced Header with proper props matching interface */}
           <div className="relative">
             <Header
               title={getPageTitle(activeTab)}
