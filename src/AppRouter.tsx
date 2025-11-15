@@ -1,56 +1,116 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import App from './App';
-import StandalonePimaPOSWelcome from './PimaPOSWelcome'; // Updated import
+import StandalonePimaPOSWelcome from './PimaPOSWelcome';
 
 const AppRouter: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<'welcome' | 'app'>('welcome');
   const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
   const [user, setUser] = useState<any>(null);
+  
+  // CRITICAL FIX: Prevent any duplicate operations
+  const authCheckComplete = useRef(false);
+  const authListenerActive = useRef(false);
+  const mountedRef = useRef(true);
 
   // Check authentication status on app start
   useEffect(() => {
+    mountedRef.current = true;
+    
+    // Prevent multiple auth checks
+    if (authCheckComplete.current) {
+      console.log('AppRouter: Auth check already completed');
+      return;
+    }
+
     const checkAuthStatus = async () => {
       try {
         console.log('AppRouter: Checking auth status...');
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          console.log('AppRouter: User already authenticated:', user.email);
-          setUser(user);
-          setCurrentPage('app');
+        
+        // CRITICAL: Use getSession instead of getUser to avoid triggering events
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentUser = session?.user;
+        
+        if (currentUser) {
+          console.log('AppRouter: User already authenticated:', currentUser.email);
+          if (mountedRef.current) {
+            setUser(currentUser);
+            setCurrentPage('app');
+          }
         } else {
           console.log('AppRouter: No authenticated user found');
-          setCurrentPage('welcome');
+          if (mountedRef.current) {
+            setCurrentPage('welcome');
+          }
         }
       } catch (error) {
         console.error('AppRouter: Error checking auth status:', error);
-        setCurrentPage('welcome');
+        if (mountedRef.current) {
+          setCurrentPage('welcome');
+        }
       } finally {
-        setIsCheckingAuth(false);
+        if (mountedRef.current) {
+          setIsCheckingAuth(false);
+          authCheckComplete.current = true;
+        }
       }
     };
 
     checkAuthStatus();
+    
 
-    // Listen for auth changes
+    // CRITICAL FIX: Only set up ONE auth listener EVER
+    if (authListenerActive.current) {
+      console.log('AppRouter: Auth listener already active, skipping setup');
+      return;
+    }
+
+    authListenerActive.current = true;
+    console.log('AppRouter: Setting up auth listener (ONE TIME ONLY)');
+
+    // Listen for auth changes - EXTREMELY RESTRICTIVE
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('AppRouter: Auth state change:', event, session?.user?.email);
+      if (!mountedRef.current) {
+        console.log('AppRouter: Component unmounted, ignoring auth event');
+        return;
+      }
       
-      if (event === 'SIGNED_IN' && session?.user) {
+      console.log('AppRouter: Auth state change:', event);
+      
+      // CRITICAL: ONLY respond to actual sign in/out, nothing else
+     if (
+  event === 'SIGNED_IN' && 
+  session?.user && 
+  session?.user?.id !== user?.id
+) {
+
+        // Only if we don't already have a user
         console.log('AppRouter: User signed in, navigating to app');
-        setUser(session.user);
-        setCurrentPage('app');
+        if (mountedRef.current) {
+          setUser(session.user);
+          setCurrentPage('app');
+        }
       } else if (event === 'SIGNED_OUT') {
         console.log('AppRouter: User signed out, navigating to welcome');
-        setUser(null);
-        setCurrentPage('welcome');
+        if (mountedRef.current) {
+          setUser(null);
+          setCurrentPage('welcome');
+        }
+      } else {
+        // Log but ignore all other events
+        console.log(`AppRouter: Ignoring ${event} event (not a real sign in/out)`);
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      console.log('AppRouter: Cleaning up');
+      mountedRef.current = false;
+      authListenerActive.current = false;
+      subscription.unsubscribe();
+    };
+  }, []); // CRITICAL: Empty deps - run once only
 
   // Enhanced navigation functions
   const navigateToApp = () => {
@@ -106,13 +166,12 @@ const AppRouter: React.FC = () => {
     return <App onNavigateBack={navigateToWelcome} />;
   }
 
-  // Pass both navigation callbacks to the welcome component
   return (
     <StandalonePimaPOSWelcome 
       onAuthSuccess={handleAuthSuccess}
       onNavigateToApp={navigateToApp}
     />
-  );
+  ); 
 };
 
 export default AppRouter;

@@ -1,5 +1,5 @@
-// App.tsx - Production-Ready Fixed Version with Enhanced Loading State Management
-import React, { useState, useEffect, useCallback } from 'react';
+// OPTIMIZED: App.tsx - Fixed Infinite Loop in Authentication Resume
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from './lib/supabase';
 import { Menu, X, AlertTriangle, RefreshCw, Wifi, WifiOff, Shield, ShieldCheck, Crown, Users } from 'lucide-react';
 
@@ -349,6 +349,382 @@ const StorageMonitor: React.FC<StorageMonitorProps> = ({
   );
 };
 
+// FIXED: App Resume Hook - Eliminates infinite loop with proper debouncing and state tracking
+const useAppResume = (
+  fetchData: () => Promise<void>,
+  refreshNotifications: () => Promise<void>,
+  skipPermissions: () => Promise<void>  // ← Changed parameter name
+) => {
+  const [resumeState, setResumeState] = useState<'idle' | 'resuming' | 'error'>('idle');
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const resumeTimeoutRef = useRef<number | null>(null);
+  const isResuming = useRef(false);
+  const lastResumeTime = useRef<number>(0);
+  const mountedRef = useRef(true);
+
+  // FIXED: Debounced resume handler with proper race condition prevention
+  const handleAppResume = useCallback(async () => {
+    const now = Date.now();
+    
+    // Check if component is still mounted
+    if (!mountedRef.current) {
+      console.log('Component unmounted, skipping resume');
+      return;
+    }
+    
+    // Prevent multiple simultaneous resumes
+    if (isResuming.current) {
+      console.log('Resume already in progress, ignoring...');
+      return;
+    }
+    
+    // CRITICAL FIX: Stronger debouncing for auth-related resumes
+    if (now - lastResumeTime.current < 15000) { // Increased to 15 seconds
+      console.log('Resume debounced - too soon after last resume (', 
+        Math.round((now - lastResumeTime.current) / 1000), 's)');
+      return;
+    }
+    
+    isResuming.current = true;
+    lastResumeTime.current = now;
+    
+    // Clear any existing timeout
+    if (resumeTimeoutRef.current) {
+      clearTimeout(resumeTimeoutRef.current);
+      resumeTimeoutRef.current = null;
+    }
+    
+    // Set timeout for stuck state recovery
+    resumeTimeoutRef.current = window.setTimeout(() => {
+      if (mountedRef.current) {
+        console.warn('Resume timeout - forcing recovery');
+        setResumeState('error');
+        setResumeError('Resume operation timed out');
+        isResuming.current = false;
+      }
+    }, 20000); // Increased to 20 second timeout
+    
+    try {
+      if (!mountedRef.current) return;
+      
+      setResumeState('resuming');
+      setResumeError(null);
+      
+      console.log('Starting app resume...');
+      
+      // Execute operations sequentially to avoid race conditions
+      await fetchData();
+      if (!mountedRef.current) return;
+      console.log('Data refresh completed');
+      
+      await refreshNotifications();
+if (!mountedRef.current) return;
+console.log('Notifications refresh completed');
+
+await skipPermissions();
+if (!mountedRef.current) return;
+console.log('Permission refresh skipped (managed by auth listener)');
+      
+      if (mountedRef.current) {
+        setResumeState('idle');
+      }
+      
+      // Clear timeout on success
+      if (resumeTimeoutRef.current) {
+        clearTimeout(resumeTimeoutRef.current);
+        resumeTimeoutRef.current = null;
+      }
+      
+      console.log('App resume completed successfully');
+    } catch (error) {
+      console.error('Resume operation failed:', error);
+      if (mountedRef.current) {
+        setResumeState('error');
+        setResumeError(error instanceof Error ? error.message : 'Resume failed');
+      }
+      
+      // Clear timeout on error
+      if (resumeTimeoutRef.current) {
+        clearTimeout(resumeTimeoutRef.current);
+        resumeTimeoutRef.current = null;
+      }
+    } finally {
+      isResuming.current = false;
+    }
+}, [fetchData, refreshNotifications, skipPermissions]);
+  
+  // Clear timeout on unmount and mark as unmounted
+  useEffect(() => {
+    mountedRef.current = true;
+    
+    return () => {
+      mountedRef.current = false;
+      if (resumeTimeoutRef.current) {
+        clearTimeout(resumeTimeoutRef.current);
+      }
+      isResuming.current = false;
+    };
+  }, []);
+  
+  return {
+    resumeState,
+    resumeError,
+    handleAppResume,
+    isResuming: resumeState === 'resuming'
+  };
+};
+
+// COMPLETELY REWRITTEN: Visibility Hook - Prevents stuck authentication with proper state management
+const useVisibilityManager = (
+  onAppResume: () => Promise<void>,
+  isLoading: boolean,
+  authLoading: boolean
+) => {
+  const [isPageVisible, setIsPageVisible] = useState(!document.hidden);
+  const [isWindowFocused, setIsWindowFocused] = useState(document.hasFocus());
+  const visibilityTimeoutRef = useRef<number | null>(null);
+  const focusTimeoutRef = useRef<number | null>(null);
+  const lastResumeAttempt = useRef<number>(0);
+  const mountedRef = useRef(true);
+  const isResuming = useRef(false);
+  const authBlockedCount = useRef<number>(0);
+  
+  // CRITICAL FIX: Store authLoading state to detect changes
+  const prevAuthLoading = useRef(authLoading);
+  
+  useEffect(() => {
+    mountedRef.current = true;
+    
+    // CRITICAL FIX: Track auth state changes to prevent resume during auth transitions
+    if (prevAuthLoading.current !== authLoading) {
+      console.log(`🔄 Auth state changed: ${prevAuthLoading.current} -> ${authLoading}`);
+      prevAuthLoading.current = authLoading;
+      
+      // If auth just started, cancel any pending resumes
+      if (authLoading) {
+        authBlockedCount.current++;
+        console.log(`🔒 Auth started (count: ${authBlockedCount.current}) - cancelling pending resumes`);
+        
+        if (visibilityTimeoutRef.current) {
+          clearTimeout(visibilityTimeoutRef.current);
+          visibilityTimeoutRef.current = null;
+        }
+        if (focusTimeoutRef.current) {
+          clearTimeout(focusTimeoutRef.current);
+          focusTimeoutRef.current = null;
+        }
+        isResuming.current = false;
+      }
+    }
+    
+    const handleVisibilityChange = () => {
+      if (!mountedRef.current) return;
+      
+      const nowVisible = !document.hidden;
+      const wasVisible = isPageVisible;
+      setIsPageVisible(nowVisible);
+      
+      // Clear any existing timeout
+      if (visibilityTimeoutRef.current) {
+        clearTimeout(visibilityTimeoutRef.current);
+        visibilityTimeoutRef.current = null;
+      }
+      
+      // Only log significant visibility changes
+      if (nowVisible !== wasVisible) {
+        console.log(`👁️ Visibility changed: ${wasVisible} -> ${nowVisible}`);
+      }
+      
+      // CRITICAL FIX: Only attempt resume when page becomes visible AND conditions are met
+      if (nowVisible && !wasVisible && !isResuming.current) {
+        const now = Date.now();
+        const timeSinceLastResume = now - lastResumeAttempt.current;
+        
+        // CRITICAL: Completely block resume during authentication
+        if (authLoading) {
+          authBlockedCount.current++;
+          console.log(`🔒 Visibility resume blocked - authentication in progress (blocked: ${authBlockedCount.current} times)`);
+          return;
+        }
+        
+        // Block if app is still loading initial data
+        if (isLoading) {
+          console.log('🔒 Visibility resume blocked - app loading');
+          return;
+        }
+        
+        // Require at least 20 seconds between resume attempts (increased from 15)
+        if (timeSinceLastResume < 20000) {
+          console.log(`🔒 Visibility resume throttled - ${Math.round(timeSinceLastResume / 1000)}s since last attempt (need 20s)`);
+          return;
+        }
+        
+        console.log('✅ Page visible - scheduling data refresh in 3 seconds...');
+        
+        // Schedule resume with delay to ensure stability
+        visibilityTimeoutRef.current = window.setTimeout(() => {
+          if (!mountedRef.current || isResuming.current) {
+            console.log('⚠️ Resume cancelled - component state changed');
+            return;
+          }
+          
+          // Triple-check auth hasn't started during delay
+          if (authLoading) {
+            authBlockedCount.current++;
+            console.log(`🔒 Resume cancelled - auth started during delay (blocked: ${authBlockedCount.current} times)`);
+            return;
+          }
+          
+          // Verify page is still visible and focused
+          if (document.hidden) {
+            console.log('🔒 Resume cancelled - page no longer visible');
+            return;
+          }
+          
+          console.log('🚀 Executing visibility-triggered resume...');
+          isResuming.current = true;
+          lastResumeAttempt.current = Date.now();
+          
+          onAppResume().finally(() => {
+            if (mountedRef.current) {
+              isResuming.current = false;
+              console.log('✅ Visibility resume completed');
+            }
+          });
+        }, 3000); // Increased to 3-second delay for stability
+      }
+    };
+    
+    const handleWindowFocus = () => {
+      if (!mountedRef.current) return;
+      
+      const wasFocused = isWindowFocused;
+      setIsWindowFocused(true);
+      
+      // Clear any existing timeout
+      if (focusTimeoutRef.current) {
+        clearTimeout(focusTimeoutRef.current);
+        focusTimeoutRef.current = null;
+      }
+      
+      // Only log significant focus changes
+      if (wasFocused !== true) {
+        console.log(`🎯 Window focused`);
+      }
+      
+      // CRITICAL FIX: Separate focus handling from visibility
+      // Only resume on focus if page was already visible AND it's a real focus event
+      if (!document.hidden && !wasFocused && !isResuming.current) {
+        const now = Date.now();
+        const timeSinceLastResume = now - lastResumeAttempt.current;
+        
+        // CRITICAL: Block during authentication
+        if (authLoading) {
+          authBlockedCount.current++;
+          console.log(`🔒 Focus resume blocked - authentication in progress (blocked: ${authBlockedCount.current} times)`);
+          return;
+        }
+        
+        // Block if loading
+        if (isLoading) {
+          console.log('🔒 Focus resume blocked - app loading');
+          return;
+        }
+        
+        // Require at least 20 seconds (increased from 15)
+        if (timeSinceLastResume < 20000) {
+          console.log(`🔒 Focus resume throttled - ${Math.round(timeSinceLastResume / 1000)}s since last attempt (need 20s)`);
+          return;
+        }
+        
+        console.log('✅ Window focused - scheduling refresh in 3 seconds...');
+        
+        focusTimeoutRef.current = window.setTimeout(() => {
+          if (!mountedRef.current || isResuming.current) {
+            console.log('⚠️ Focus resume cancelled - component state changed');
+            return;
+          }
+          
+          // Triple-check auth hasn't started
+          if (authLoading) {
+            authBlockedCount.current++;
+            console.log(`🔒 Focus resume cancelled - auth started (blocked: ${authBlockedCount.current} times)`);
+            return;
+          }
+          
+          // Verify focus and visibility state haven't changed
+          if (document.hidden || !document.hasFocus()) {
+            console.log('🔒 Focus resume cancelled - focus/visibility changed');
+            return;
+          }
+          
+          console.log('🚀 Executing focus-triggered resume...');
+          isResuming.current = true;
+          lastResumeAttempt.current = Date.now();
+          
+          onAppResume().finally(() => {
+            if (mountedRef.current) {
+              isResuming.current = false;
+              console.log('✅ Focus resume completed');
+            }
+          });
+        }, 3000); // Increased to 3 seconds
+      }
+    };
+    
+    const handleWindowBlur = () => {
+      if (!mountedRef.current) return;
+      
+      const wasFocused = isWindowFocused;
+      setIsWindowFocused(false);
+      
+      if (wasFocused) {
+        console.log('👋 Window blurred');
+      }
+      
+      // Cancel any pending resumes when losing focus
+      if (focusTimeoutRef.current) {
+        clearTimeout(focusTimeoutRef.current);
+        focusTimeoutRef.current = null;
+        console.log('🚫 Cancelled pending focus resume due to blur');
+      }
+    };
+    
+    // Add event listeners
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('blur', handleWindowBlur);
+    
+    // Log initial state only once
+    console.log('🎬 Visibility manager initialized:', {
+      visible: !document.hidden,
+      focused: document.hasFocus(),
+      authLoading,
+      isLoading
+    });
+    
+    return () => {
+      mountedRef.current = false;
+      
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('blur', handleWindowBlur);
+      
+      if (visibilityTimeoutRef.current) {
+        clearTimeout(visibilityTimeoutRef.current);
+      }
+      if (focusTimeoutRef.current) {
+        clearTimeout(focusTimeoutRef.current);
+      }
+      
+      isResuming.current = false;
+      console.log('🛑 Visibility manager cleaned up');
+    };
+  }, [onAppResume]); // CRITICAL FIX: Only depend on onAppResume, not state variables
+  
+  return { isPageVisible, isWindowFocused };
+};
+
 // Enhanced Transaction interface matching your actual database schema (maintaining existing structure)
 interface Transaction {
   id: string;
@@ -690,12 +1066,12 @@ const NavigationBlockedWarning = ({
   </div>
 );
 
-// Loading and Error components (maintaining existing functionality)
-const LoadingSpinner = () => (
+// FIXED: Loading component that doesn't interfere with resume logic
+const LoadingSpinner = ({ message = "Loading data..." }: { message?: string }) => (
   <div className="flex items-center justify-center min-h-screen px-4">
     <div className="text-center">
       <div className="animate-spin rounded-full h-8 w-8 md:h-12 md:w-12 border-b-2 border-blue-600 mx-auto"></div>
-      <p className="mt-3 md:mt-4 text-gray-600 text-sm md:text-base">Loading data...</p>
+      <p className="mt-3 md:mt-4 text-gray-600 text-sm md:text-base">{message}</p>
     </div>
   </div>
 );
@@ -940,7 +1316,7 @@ const getPageTitle = (activeTab: string): string => {
   }
 };
 
-// FIXED: Main App Component with Production-Ready Error Recovery and Loading State Management
+// FIXED: Main App Component with Infinite Loop Prevention
 const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   // Get enhanced notification context (maintaining existing functionality)
   const {
@@ -979,20 +1355,13 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   // Initialize storage monitoring with threshold (maintaining existing functionality)
   const { storageUsagePercent, needsCleanup } = useStorageMonitor(true, 0.8);
 
-  // State management (maintaining existing structure)
+  // FIXED: Simplified state management - removed problematic states
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
-  
-  // UPDATED: Enhanced visibility and focus state management with timeouts
-  const [isPageVisible, setIsPageVisible] = useState(!document.hidden);
-  const [isWindowFocused, setIsWindowFocused] = useState(document.hasFocus());
-  const [resumeLoading, setResumeLoading] = useState(false);
-  const [visibilityTimeout, setVisibilityTimeout] = useState<number | null>(null);
-  const [forceRecoveryAvailable, setForceRecoveryAvailable] = useState(false);
   
   // Data state (maintaining existing structure)
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -1017,435 +1386,31 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     avgSalesValue: 0
   });
   
+  // FIXED: Single loading state with proper management
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  
+  // CRITICAL FIX: Ref to track if initial fetch is complete
+  const initialFetchComplete = useRef(false);
+  const fetchInProgress = useRef(false);
+  const authBlockedRef = useRef(false);
 
   // Get Supabase configuration (maintaining existing functionality)
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-  // FIXED: Production-ready app resume handler with timeout and recovery
-  const handleAppResume = useCallback(async () => {
-    if (resumeLoading) {
-      console.log('Resume already in progress, skipping...');
-      return;
-    }
-
-    // Add timeout to prevent stuck states
-    const timeoutId = window.setTimeout(() => {
-      console.warn('App resume taking too long, forcing recovery...');
-      setResumeLoading(false);
-      setError('App resume timed out - manual refresh recommended');
-      setForceRecoveryAvailable(true);
-    }, 15000); // 15 second timeout
-
-    try {
-      setResumeLoading(true);
-      setError(null);
-      setForceRecoveryAvailable(false);
-      
-      console.log('App resumed, refreshing data and notifications...');
-      
-      // Use Promise.allSettled to prevent total failure if one operation fails
-      const results = await Promise.allSettled([
-        fetchData(),
-        refreshNotifications(),
-        refreshPermissions()
-      ]);
-      
-      // Log any failures but don't throw
-      let hasFailures = false;
-      results.forEach((result, index) => {
-        if (result.status === 'rejected') {
-          hasFailures = true;
-          const operation = ['data fetch', 'notifications refresh', 'permissions refresh'][index];
-          console.error(`Resume operation (${operation}) failed:`, result.reason);
-        }
-      });
-      
-      if (hasFailures) {
-        console.warn('Some resume operations failed, but continuing...');
-        setError('Some data may not be fully updated - consider manual refresh');
-      }
-      
-      clearTimeout(timeoutId);
-      console.log('App resume refresh completed');
-    } catch (error) {
-      console.error('Critical error during app resume:', error);
-      setError('Failed to refresh data after app resume');
-      setForceRecoveryAvailable(true);
-      clearTimeout(timeoutId);
-    } finally {
-      setResumeLoading(false);
-    }
-  }, [refreshNotifications, refreshPermissions]);
-
-  // FIXED: Enhanced visibility change handlers with debouncing and timeout cleanup
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      const wasVisible = isPageVisible;
-      const nowVisible = !document.hidden;
-      setIsPageVisible(nowVisible);
-      
-      console.log('Page visibility changed:', { wasVisible, nowVisible });
-      
-      // Clear existing timeout to prevent multiple rapid calls
-      if (visibilityTimeout) {
-        clearTimeout(visibilityTimeout);
-        setVisibilityTimeout(null);
-      }
-      
-      // Only trigger resume if page became visible, wasn't visible before, and not already loading
-      if (!wasVisible && nowVisible && !resumeLoading && !authLoading) {
-        console.log('Page became visible, scheduling data refresh...');
-        
-        // Debounce the resume call to prevent rapid successive calls
-        const timeout = window.setTimeout(() => {
-          handleAppResume();
-          setVisibilityTimeout(null);
-        }, 1000); // Wait 1 second before triggering
-        
-        setVisibilityTimeout(timeout);
-      }
-    };
-
-    const handleWindowFocus = () => {
-      const wasFocused = isWindowFocused;
-      const nowFocused = true;
-      setIsWindowFocused(nowFocused);
-      
-      console.log('Window focused:', { wasFocused, nowFocused });
-      
-      // Clear existing timeout
-      if (visibilityTimeout) {
-        clearTimeout(visibilityTimeout);
-        setVisibilityTimeout(null);
-      }
-      
-      // Only trigger resume if window became focused, wasn't focused before, and not already loading
-      if (!wasFocused && nowFocused && !resumeLoading && !authLoading) {
-        console.log('Window focused, scheduling data refresh...');
-        
-        const timeout = window.setTimeout(() => {
-          handleAppResume();
-          setVisibilityTimeout(null);
-        }, 1000);
-        
-        setVisibilityTimeout(timeout);
-      }
-    };
-
-    const handleWindowBlur = () => {
-      setIsWindowFocused(false);
-      console.log('Window blurred');
-      
-      // Clear any pending resume operations when window loses focus
-      if (visibilityTimeout) {
-        clearTimeout(visibilityTimeout);
-        setVisibilityTimeout(null);
-      }
-    };
-
-    // Add event listeners
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleWindowFocus);
-    window.addEventListener('blur', handleWindowBlur);
-
-    return () => {
-      // Cleanup
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleWindowFocus);
-      window.removeEventListener('blur', handleWindowBlur);
-      
-      if (visibilityTimeout) {
-        clearTimeout(visibilityTimeout);
-      }
-    };
-  }, [isPageVisible, isWindowFocused, resumeLoading, authLoading, visibilityTimeout, handleAppResume]);
-
- // FIXED: Automatic loading state recovery mechanism
-useEffect(() => {
-  // Reset stuck loading states after timeout
-  const loadingStates = [
-    { state: loading, name: 'loading' },
-    { state: resumeLoading, name: 'resumeLoading' },
-    { state: authLoading, name: 'authLoading' }
-  ];
-  
-  const activeLoadingStates = loadingStates.filter(({ state }) => state === true);
-  
-  if (activeLoadingStates.length > 0) {
-    console.log('Active loading states detected:', activeLoadingStates.map(s => s.name));
-    
-    const timeout = window.setTimeout(() => {
-      console.warn('Detected stuck loading states, attempting automatic recovery...');
-      setLoading(false);
-      setResumeLoading(false);
-      setError('Loading took too long - automatic recovery initiated');
-      setForceRecoveryAvailable(true);
-    }, 30000); // 30 second timeout for automatic recovery
-    
-    // FIXED: Return cleanup function
-    return () => clearTimeout(timeout);
-  }
-  
-  // FIXED: Return undefined when no timeout is set
-  return undefined;
-}, [loading, resumeLoading, authLoading]);
-
-  // Monitor online status (maintaining existing functionality with enhanced recovery)
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      console.log('App came online, syncing...');
-      setError(null); // Clear any offline-related errors
-      
-      // Delay sync to ensure connection is stable
-      setTimeout(() => {
-        if (!resumeLoading && !loading) {
-          fetchData();
-          refreshNotifications();
-          refreshPermissions();
-        }
-      }, 2000); // Wait 2 seconds for stable connection
-    };
-    
-    const handleOffline = () => {
-      setIsOnline(false);
-      console.log('App went offline');
-      setError('Connection lost - some features may be limited');
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, [refreshNotifications, refreshPermissions, resumeLoading, loading]);
-
-  // Initialize mobile detection (maintaining existing functionality)
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-      if (window.innerWidth >= 768) {
-        setSidebarOpen(true);
-      } else {
-        setSidebarOpen(false);
-      }
-    };
-
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  // Initialize notification persistence system (maintaining existing functionality)
-  useEffect(() => {
-    console.log('Initializing notification persistence system...');
-    
-    const stopCleanup = NotificationPersistenceService.startPeriodicCleanup(30);
-    
-    const cleanupHandledOnStartup = async () => {
-      try {
-        const deletedCount = await NotificationPersistenceService.permanentlyDeleteHandledNotifications(0.5);
-        if (deletedCount > 0) {
-          console.log(`[App] Cleaned up ${deletedCount} handled notifications on startup`);
-        }
-      } catch (error) {
-        console.error('Error cleaning up handled notifications on startup:', error);
-      }
-    };
-    
-    cleanupHandledOnStartup();
-    
-    const checkForUnhandledNotifications = async () => {
-      try {
-        const pendingNotifications = await NotificationPersistenceService.getPendingNotifications();
-        
-        console.log(`Startup check: ${pendingNotifications.length} pending notifications found`);
-        
-        if (pendingNotifications.length > 0) {
-          console.log(`Found ${pendingNotifications.length} pending notifications from previous session`);
-          setShowRecovery(true);
-          
-          setTimeout(() => {
-            if (showRecovery) {
-              console.log('Auto-triggering notification recovery for UNHANDLED notifications...');
-              handleRecoveryAction();
-            }
-          }, 5000);
-        }
-      } catch (error) {
-        console.error('Error checking for unhandled notifications:', error);
-      }
-    };
-
-    setTimeout(checkForUnhandledNotifications, 2000);
-
-    return () => {
-      stopCleanup();
-    };
-  }, []);
-
-  // Initialize bell notifications on startup (maintaining existing functionality)
-  useEffect(() => {
-    setTimeout(() => {
-      refreshNotifications();
-    }, 1000);
-  }, [refreshNotifications]);
-
-  // Enhanced tab change handler with role-based navigation blocking and first user admin logic
-  const handleTabChange = (tab: string) => {
-    // First check notification blocking (existing functionality)
-    if (!attemptNavigation(tab)) {
-      return;
-    }
-
-    // Then check user permissions with first user admin support
-    if (!canNavigateTo(tab)) {
-      console.warn(`Access denied to ${tab} for user role: ${userRole}`);
-      
-      // Enhanced permission message with first user admin info
-      let permissionMessage = `You don't have permission to access this feature.`;
-      
-      if (isFirstUser) {
-        permissionMessage = `This feature requires administrator privileges. As the first user, you'll automatically become an admin when you sign up!`;
-      } else if (isAdmin) {
-        permissionMessage = 'This feature is temporarily unavailable.';
-      } else {
-        permissionMessage = `Your current role (${userRole}) allows access to: ${permissions.join(', ')}. Contact your administrator for additional access.`;
-      }
-      
-      // Create enhanced notification with first user admin info
-      const notificationDiv = document.createElement('div');
-      notificationDiv.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 z-[70] bg-red-600 text-white px-4 py-3 rounded-lg shadow-xl max-w-md';
-      notificationDiv.innerHTML = `
-        <div class="flex items-start gap-3">
-          <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-          </svg>
-          <div>
-            <div class="flex items-center gap-2 mb-1">
-              <span class="text-sm font-medium">Access Denied</span>
-              ${isFirstUser ? '<span class="text-xs bg-purple-500 px-2 py-1 rounded">First User</span>' : ''}
-            </div>
-            <p class="text-xs">${permissionMessage}</p>
-            ${isFirstUser ? '<p class="text-xs mt-1 opacity-90">Sign up to become the first administrator!</p>' : ''}
-          </div>
-        </div>
-      `;
-      
-      document.body.appendChild(notificationDiv);
-      
-      // Remove notification after 5 seconds
-      setTimeout(() => {
-        if (document.body.contains(notificationDiv)) {
-          document.body.removeChild(notificationDiv);
-        }
-      }, 5000);
-      
-      return;
-    }
-    
-    setActiveTab(tab);
-    if (isMobile) {
-      setSidebarOpen(false);
-      setReportsOpen(false);
-    }
-  };
-
-  // Enhanced navigation handlers for Dashboard with permission checks and first user admin awareness
-  const handleNavigateToTransactions = () => {
-    console.log('Navigating to transactions from dashboard');
-    if (!hasPermission('transactions')) {
-      const message = isFirstUser 
-        ? 'Transactions require admin access. Sign up as the first user to become an administrator!'
-        : 'You don\'t have permission to view transactions. Contact your administrator if you need access.';
-      alert(message);
-      return;
-    }
-    if (attemptNavigation('transactions')) {
-      setActiveTab('transactions');
-      if (isMobile) {
-        setSidebarOpen(false);
-        setReportsOpen(false);
-      }
-    }
-  };
-
-  const handleNavigateToSuppliers = () => {
-    console.log('Navigating to suppliers from dashboard');
-    if (!hasPermission('suppliers')) {
-      const message = isFirstUser
-        ? 'Sign up as the first user to get full access to supplier management!'
-        : 'You don\'t have permission to view suppliers.';
-      alert(message);
-      return;
-    }
-    if (attemptNavigation('suppliers')) {
-      setActiveTab('suppliers');
-      if (isMobile) {
-        setSidebarOpen(false);
-        setReportsOpen(false);
-      }
-    }
-  };
-
-  const handleNavigateToAddSupplier = () => {
-    console.log('Navigating to add supplier from dashboard');
-    if (!hasPermission('suppliers')) {
-      const message = isFirstUser
-        ? 'Sign up as the first user to start adding suppliers!'
-        : 'You don\'t have permission to add suppliers.';
-      alert(message);
-      return;
-    }
-    if (attemptNavigation('suppliers')) {
-      setActiveTab('suppliers');
-      if (isMobile) {
-        setSidebarOpen(false);
-        setReportsOpen(false);
-      }
-    }
-  };
-
-  const handleNavigateToMaterials = () => {
-    console.log('Navigating to materials');
-    if (!hasPermission('materials')) {
-      const message = isFirstUser
-        ? 'Sign up as the first user to manage materials!'
-        : 'You don\'t have permission to view materials.';
-      alert(message);
-      return;
-    }
-    if (attemptNavigation('materials')) {
-      setActiveTab('materials');
-      if (isMobile) {
-        setSidebarOpen(false);
-        setReportsOpen(false);
-      }
-    }
-  };
-
-  // FIXED: Enhanced data fetching with comprehensive error handling and timeout protection
+  // FIXED: Enhanced data fetching with infinite loop prevention
   const fetchData = useCallback(async () => {
-    // Add timeout protection
-    const timeoutId = window.setTimeout(() => {
-      console.warn('Data fetch taking too long, force-stopping...');
-      setLoading(false);
-      setResumeLoading(false);
-      setError('Data fetch timed out - please try again');
-      setForceRecoveryAvailable(true);
-    }, 20000); // 20 second timeout
-
+    // CRITICAL FIX: Prevent concurrent fetches
+    if (fetchInProgress.current) {
+      console.log('Fetch already in progress, skipping...');
+      return;
+    }
+    
+    fetchInProgress.current = true;
+    
     try {
-      setLoading(true);
-      setError(null);
-      setForceRecoveryAvailable(false);
-
       console.log('Starting data fetch...');
 
       // Use Promise.allSettled to handle individual failures gracefully
@@ -1600,8 +1565,11 @@ useEffect(() => {
       // Calculate stats
       calculateStats(allTransactions, suppliersData);
       setLastSyncTime(new Date());
-
-      clearTimeout(timeoutId);
+      
+      // CRITICAL FIX: Mark initial fetch as complete
+      if (!initialFetchComplete.current) {
+        initialFetchComplete.current = true;
+      }
 
       // Show partial error message if some data failed to load
       if (hasErrors) {
@@ -1609,19 +1577,38 @@ useEffect(() => {
         setError(`Some data failed to load: ${failedItems}. App is partially functional.`);
         console.warn('Partial data fetch failure:', errorMessages);
       } else {
+        setError(null); // Clear any existing errors
         console.log('Data fetch completed successfully');
       }
 
     } catch (err) {
-      clearTimeout(timeoutId);
       console.error('Critical error fetching data:', err);
       setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
-      setForceRecoveryAvailable(true);
     } finally {
-      setLoading(false);
-      setResumeLoading(false); // Always reset resume loading
+      // CRITICAL FIX: Always release the lock
+      fetchInProgress.current = false;
     }
   }, []);
+
+  // CRITICAL FIX: Skip permission refresh on app resume
+const skipPermissionRefresh = useCallback(async () => {
+  console.log('⏭️ Skipping permission refresh on app resume (prevents auth loop)');
+  // Permissions are managed by their own auth listener in usePermissions.ts
+}, []);
+
+const { resumeState, resumeError, handleAppResume, isResuming } = useAppResume(
+  fetchData,
+  refreshNotifications,
+  skipPermissionRefresh  // ← Changed from refreshPermissions
+);
+
+  // FIXED: Initialize visibility management with proper dependencies
+  // CRITICAL: Only enable after initial fetch is complete AND auth is loaded
+  const { isPageVisible, isWindowFocused } = useVisibilityManager(
+    handleAppResume,
+    loading || isResuming || !initialFetchComplete.current,
+    authLoading
+  );
 
   // Enhanced calculate dashboard stats (maintaining existing functionality)
   const calculateStats = (allTransactions: Transaction[], suppliersData: Supplier[]) => {
@@ -1694,21 +1681,13 @@ useEffect(() => {
     }
   };
 
-  // ADDED: Force recovery function for critical failures
+  // FIXED: Force recovery function for critical failures
   const handleForceRecovery = useCallback(async () => {
     console.log('Force recovery initiated...');
     
-    // Reset all loading states
+    // Reset all states
     setLoading(false);
-    setResumeLoading(false);
     setError(null);
-    setForceRecoveryAvailable(false);
-    
-    // Clear any stuck timeouts
-    if (visibilityTimeout) {
-      clearTimeout(visibilityTimeout);
-      setVisibilityTimeout(null);
-    }
     
     // Clear browser state that might be causing issues
     try {
@@ -1736,16 +1715,295 @@ useEffect(() => {
     setTimeout(() => {
       fetchData();
       refreshNotifications();
-      refreshPermissions();
+     
     }, 1000);
-  }, [fetchData, refreshNotifications, refreshPermissions, visibilityTimeout]);
+  }, [fetchData, refreshNotifications, refreshPermissions]);
 
-  // Initial data fetch (maintaining existing functionality)
+  // FIXED: Online/offline handler with proper cleanup and no circular dependencies
   useEffect(() => {
-    if (!authLoading) {
-      fetchData();
+    let onlineTimeout: number | null = null;
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      console.log('App came online, syncing...');
+      setError(null); // Clear any offline-related errors
+      
+      // Clear any existing timeout
+      if (onlineTimeout) {
+        clearTimeout(onlineTimeout);
+        onlineTimeout = null;
+      }
+      
+    // CRITICAL FIX: Only sync data and notifications, NOT permissions
+if (initialFetchComplete.current && !isResuming && !loading && !authLoading) {
+  onlineTimeout = window.setTimeout(() => {
+    fetchData();
+    refreshNotifications();
+    // REMOVED: refreshPermissions() - this caused the auth loop
+  }, 3000);
+}
+    };
+    
+    const handleOffline = () => {
+      setIsOnline(false);
+      console.log('App went offline');
+      setError('Connection lost - some features may be limited');
+      
+      // Clear any pending online operations
+      if (onlineTimeout) {
+        clearTimeout(onlineTimeout);
+        onlineTimeout = null;
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      
+      if (onlineTimeout) {
+        clearTimeout(onlineTimeout);
+      }
+    };
+ }, [refreshNotifications, isResuming, loading, authLoading, fetchData]);
+
+  // Initialize mobile detection (maintaining existing functionality)
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+      if (window.innerWidth >= 768) {
+        setSidebarOpen(true);
+      } else {
+        setSidebarOpen(false);
+      }
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Initialize notification persistence system (maintaining existing functionality)
+  useEffect(() => {
+    console.log('Initializing notification persistence system...');
+    
+    const stopCleanup = NotificationPersistenceService.startPeriodicCleanup(30);
+    
+    const cleanupHandledOnStartup = async () => {
+      try {
+        const deletedCount = await NotificationPersistenceService.permanentlyDeleteHandledNotifications(0.5);
+        if (deletedCount > 0) {
+          console.log(`[App] Cleaned up ${deletedCount} handled notifications on startup`);
+        }
+      } catch (error) {
+        console.error('Error cleaning up handled notifications on startup:', error);
+      }
+    };
+    
+    cleanupHandledOnStartup();
+    
+    const checkForUnhandledNotifications = async () => {
+      try {
+        const pendingNotifications = await NotificationPersistenceService.getPendingNotifications();
+        
+        console.log(`Startup check: ${pendingNotifications.length} pending notifications found`);
+        
+        if (pendingNotifications.length > 0) {
+          console.log(`Found ${pendingNotifications.length} pending notifications from previous session`);
+          setShowRecovery(true);
+          
+          setTimeout(() => {
+            if (showRecovery) {
+              console.log('Auto-triggering notification recovery for UNHANDLED notifications...');
+              handleRecoveryAction();
+            }
+          }, 5000);
+        }
+      } catch (error) {
+        console.error('Error checking for unhandled notifications:', error);
+      }
+    };
+
+    setTimeout(checkForUnhandledNotifications, 2000);
+
+    return () => {
+      stopCleanup();
+    };
+  }, []);
+
+  // Initialize bell notifications on startup (maintaining existing functionality)
+  useEffect(() => {
+    setTimeout(() => {
+      refreshNotifications();
+    }, 1000);
+  }, [refreshNotifications]);
+
+  // FIXED: Initial data fetch with proper loading state management
+  useEffect(() => {
+    // Only fetch data if auth is loaded and we haven't completed initial fetch
+    if (!authLoading && !initialFetchComplete.current && !fetchInProgress.current) {
+      const initializeData = async () => {
+        setLoading(true);
+        try {
+          await fetchData();
+        } catch (error) {
+          console.error('Initial data fetch failed:', error);
+          setError('Failed to load initial data');
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      initializeData();
     }
-  }, [fetchData, authLoading]);
+  }, [authLoading, fetchData]);
+
+  // OPTIMIZED: Memoized user permissions to prevent excessive re-renders
+  const userPermissions = useMemo(() => ({
+    canViewTransactions: hasPermission('transactions'),
+    canViewSuppliers: hasPermission('suppliers'),
+    canViewMaterials: hasPermission('materials'),
+    canViewAnalytics: hasPermission('analytics'),
+    canViewReports: hasPermission('reports'),
+    isAdmin,
+    isFirstUser,
+    userStats
+  }), [hasPermission, isAdmin, isFirstUser, userStats]);
+
+  // Enhanced tab change handler with role-based navigation blocking and first user admin logic
+  const handleTabChange = (tab: string) => {
+    // First check notification blocking (existing functionality)
+    if (!attemptNavigation(tab)) {
+      return;
+    }
+
+    // Then check user permissions with first user admin support
+    if (!canNavigateTo(tab)) {
+      console.warn(`Access denied to ${tab} for user role: ${userRole}`);
+      
+      // Enhanced permission message with first user admin info
+      let permissionMessage = `You don't have permission to access this feature.`;
+      
+      if (isFirstUser) {
+        permissionMessage = `This feature requires administrator privileges. As the first user, you'll automatically become an admin when you sign up!`;
+      } else if (isAdmin) {
+        permissionMessage = 'This feature is temporarily unavailable.';
+      } else {
+        permissionMessage = `Your current role (${userRole}) allows access to: ${permissions.join(', ')}. Contact your administrator for additional access.`;
+      }
+      
+      // Create enhanced notification with first user admin info
+      const notificationDiv = document.createElement('div');
+      notificationDiv.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 z-[70] bg-red-600 text-white px-4 py-3 rounded-lg shadow-xl max-w-md';
+      notificationDiv.innerHTML = `
+        <div class="flex items-start gap-3">
+          <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-sm font-medium">Access Denied</span>
+              ${isFirstUser ? '<span class="text-xs bg-purple-500 px-2 py-1 rounded">First User</span>' : ''}
+            </div>
+            <p class="text-xs">${permissionMessage}</p>
+            ${isFirstUser ? '<p class="text-xs mt-1 opacity-90">Sign up to become the first administrator!</p>' : ''}
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(notificationDiv);
+      
+      // Remove notification after 5 seconds
+      setTimeout(() => {
+        if (document.body.contains(notificationDiv)) {
+          document.body.removeChild(notificationDiv);
+        }
+      }, 5000);
+      
+      return;
+    }
+    
+    setActiveTab(tab);
+    if (isMobile) {
+      setSidebarOpen(false);
+      setReportsOpen(false);
+    }
+  };
+
+  // Enhanced navigation handlers for Dashboard with permission checks and first user admin awareness
+  const handleNavigateToTransactions = () => {
+    console.log('Navigating to transactions from dashboard');
+    if (!hasPermission('transactions')) {
+      const message = isFirstUser 
+        ? 'Transactions require admin access. Sign up as the first user to become an administrator!'
+        : 'You don\'t have permission to view transactions. Contact your administrator if you need access.';
+      alert(message);
+      return;
+    }
+    if (attemptNavigation('transactions')) {
+      setActiveTab('transactions');
+      if (isMobile) {
+        setSidebarOpen(false);
+        setReportsOpen(false);
+      }
+    }
+  };
+
+  const handleNavigateToSuppliers = () => {
+    console.log('Navigating to suppliers from dashboard');
+    if (!hasPermission('suppliers')) {
+      const message = isFirstUser
+        ? 'Sign up as the first user to get full access to supplier management!'
+        : 'You don\'t have permission to view suppliers.';
+      alert(message);
+      return;
+    }
+    if (attemptNavigation('suppliers')) {
+      setActiveTab('suppliers');
+      if (isMobile) {
+        setSidebarOpen(false);
+        setReportsOpen(false);
+      }
+    }
+  };
+
+  const handleNavigateToAddSupplier = () => {
+    console.log('Navigating to add supplier from dashboard');
+    if (!hasPermission('suppliers')) {
+      const message = isFirstUser
+        ? 'Sign up as the first user to start adding suppliers!'
+        : 'You don\'t have permission to add suppliers.';
+      alert(message);
+      return;
+    }
+    if (attemptNavigation('suppliers')) {
+      setActiveTab('suppliers');
+      if (isMobile) {
+        setSidebarOpen(false);
+        setReportsOpen(false);
+      }
+    }
+  };
+
+  const handleNavigateToMaterials = () => {
+    console.log('Navigating to materials');
+    if (!hasPermission('materials')) {
+      const message = isFirstUser
+        ? 'Sign up as the first user to manage materials!'
+        : 'You don\'t have permission to view materials.';
+      alert(message);
+      return;
+    }
+    if (attemptNavigation('materials')) {
+      setActiveTab('materials');
+      if (isMobile) {
+        setSidebarOpen(false);
+        setReportsOpen(false);
+      }
+    }
+  };
 
   // Enhanced logout with navigation check (maintaining existing functionality)
   const handleLogout = () => {
@@ -1846,23 +2104,23 @@ useEffect(() => {
     });
   };
 
-  // Enhanced content renderer with comprehensive role checking and first user admin support
+  // FIXED: Enhanced content renderer with proper loading state management
   const renderContent = () => {
-    // Show loading spinner if resume is in progress or initial loading
-    if (resumeLoading || loading || authLoading) {
-      return <LoadingSpinner />;
+    // Show loading spinner for initial load or auth loading, but not for resume
+    if ((loading && !isResuming) || authLoading) {
+      return <LoadingSpinner message={authLoading ? "Authenticating..." : "Loading data..."} />;
     }
     
-    if (error) {
+    // Show error if there's an error (but allow resume error to be handled separately)
+    if (error && resumeState !== 'error') {
       return (
         <ErrorDisplay 
           error={error} 
           onRetry={() => {
             setError(null);
-            setForceRecoveryAvailable(false);
             fetchData();
           }}
-          onForceRecovery={forceRecoveryAvailable ? handleForceRecovery : undefined}
+          onForceRecovery={handleForceRecovery}
         />
       );
     }
@@ -1889,16 +2147,7 @@ useEffect(() => {
             onNavigateToSuppliers={handleNavigateToSuppliers}
             onNavigateToAddSupplier={handleNavigateToAddSupplier}
             onNavigateToMaterials={handleNavigateToMaterials}
-            userPermissions={{
-              canViewTransactions: hasPermission('transactions'),
-              canViewSuppliers: hasPermission('suppliers'),
-              canViewMaterials: hasPermission('materials'),
-              canViewAnalytics: hasPermission('analytics'),
-              canViewReports: hasPermission('reports'),
-              isAdmin,
-              isFirstUser,
-              userStats
-            }}
+            userPermissions={userPermissions}
           />
         );
       case 'transactions':
@@ -2071,16 +2320,7 @@ useEffect(() => {
             onNavigateToSuppliers={handleNavigateToSuppliers}
             onNavigateToAddSupplier={handleNavigateToAddSupplier}
             onNavigateToMaterials={handleNavigateToMaterials}
-            userPermissions={{
-              canViewTransactions: hasPermission('transactions'),
-              canViewSuppliers: hasPermission('suppliers'),
-              canViewMaterials: hasPermission('materials'),
-              canViewAnalytics: hasPermission('analytics'),
-              canViewReports: hasPermission('reports'),
-              isAdmin,
-              isFirstUser,
-              userStats
-            }}
+            userPermissions={userPermissions}
           />
         );
     }
@@ -2119,8 +2359,8 @@ useEffect(() => {
           />
         )}
 
-        {/* Resume Loading Indicator */}
-        {resumeLoading && (
+        {/* FIXED: Resume Loading Indicator - only shows during resume, not initial load */}
+        {isResuming && (
           <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[60] bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg">
             <div className="flex items-center gap-2">
               <RefreshCw className="w-4 h-4 animate-spin" />
@@ -2129,12 +2369,12 @@ useEffect(() => {
           </div>
         )}
 
-        {/* Force Recovery Available Indicator */}
-        {forceRecoveryAvailable && !error && (
+        {/* Resume Error Indicator */}
+        {resumeError && (
           <div className="fixed top-32 left-1/2 transform -translate-x-1/2 z-[60] bg-orange-600 text-white px-4 py-2 rounded-lg shadow-lg">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4" />
-              <span className="text-sm">Recovery available</span>
+              <span className="text-sm">Resume failed: {resumeError}</span>
               <button 
                 onClick={handleForceRecovery}
                 className="ml-2 px-2 py-1 bg-orange-700 hover:bg-orange-800 rounded text-xs"
@@ -2168,8 +2408,7 @@ useEffect(() => {
               </div>
             )}
             <div className="text-yellow-300 text-xs mt-1">
-              Visible: {isPageVisible ? 'Yes' : 'No'} | Focused: {isWindowFocused ? 'Yes' : 'No'}
-              {forceRecoveryAvailable && <span className="text-red-300"> | Recovery Available</span>}
+              Visible: {isPageVisible ? 'Yes' : 'No'} | Focused: {isWindowFocused ? 'Yes' : 'No'} | Resume: {resumeState}
             </div>
           </div>
         )}

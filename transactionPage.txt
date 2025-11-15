@@ -1,0 +1,703 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#f9fafc">
+
+
+
+
+
+    <!-- Account Badge -->
+    <com.google.android.material.chip.Chip
+        android:id="@+id/accountBadge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="24dp"
+        android:text="ACC-12345"
+        android:textColor="#1565c0"
+        android:textSize="12sp"
+        app:chipBackgroundColor="#e3f2fd"
+        app:layout_constraintBottom_toTopOf="@+id/mainTitle"
+        app:layout_constraintEnd_toStartOf="@+id/usernameBadge"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Username Badge -->
+    <com.google.android.material.chip.Chip
+        android:id="@+id/usernameBadge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:text="John Smith"
+        android:textColor="#1565c0"
+        android:textSize="12sp"
+        app:chipBackgroundColor="#e3f2fd"
+        app:layout_constraintStart_toEndOf="@id/accountBadge"
+        app:layout_constraintTop_toTopOf="@id/accountBadge" />
+
+    <!-- Main Title -->
+    <TextView
+        android:id="@+id/mainTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="24dp"
+        android:text="Transaction Summary"
+        android:textColor="#212121"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/accountBadge" />
+
+    <!-- Weight Card -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/weightCard"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="16dp"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="4dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/mainTitle">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/weightLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Weight Recorded"
+                android:textColor="#757575"
+                android:textSize="16sp" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/weightValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="142.5"
+                    android:textColor="#212121"
+                    android:textSize="40sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/weightUnit"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="lb"
+                    android:textColor="#9e9e9e"
+                    android:textSize="28sp" />
+            </LinearLayout>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/statusChip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Verified"
+                android:textColor="#2e7d32"
+                android:textSize="14sp"
+                app:chipBackgroundColor="#e8f5e9" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Receipt Card -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/receiptCard"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="16dp"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="4dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/weightCard">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Receipt Header -->
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="#eeeeee"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerVertical="true"
+                    android:text="Receipt Details"
+                    android:textColor="#424242"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+            </RelativeLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="2dp"
+                android:background="#f5f5f5" />
+
+            <!-- Row 1 -->
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="16dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerVertical="true"
+                    android:text="Transaction ID"
+                    android:textColor="#757575"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:text="WTX-789023"
+                    android:textColor="#212121"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </RelativeLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#f5f5f5" />
+
+            <!-- Row 2 -->
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="16dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerVertical="true"
+                    android:text="Date &amp; Time"
+                    android:textColor="#757575"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:text="04/03/2025 • 14:32"
+                    android:textColor="#212121"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </RelativeLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#f5f5f5" />
+
+            <!-- Row 3 (Certified By) -->
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="16dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerVertical="true"
+                    android:text="Certified By"
+                    android:textColor="#757575"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:text="James Wilson"
+                    android:textColor="#212121"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </RelativeLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#f5f5f5" />
+
+            <!-- Receipt Actions -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="16dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/emailButton"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:text="Email"
+                    android:textColor="#616161"
+                    app:icon="@android:drawable/ic_dialog_email"
+                    app:iconTint="#616161" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/printButton"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:text="Print"
+                    android:textColor="#616161"
+                    app:icon="@android:drawable/ic_menu_upload"
+                    app:iconTint="#616161" />
+            </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Success Message (Initially Gone) -->
+    <TextView
+        android:id="@+id/successMessage"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="16dp"
+        android:background="#e8f5e9"
+        android:padding="8dp"
+        android:text="Receipt sent to printer. Transaction complete."
+        android:textAlignment="center"
+        android:textColor="#2e7d32"
+        android:textSize="12sp"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/receiptCard"
+        tools:visibility="visible" />
+
+    <!-- Bottom Action Panel -->
+    <LinearLayout
+        android:id="@+id/bottomActionPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@android:color/white"
+        android:elevation="8dp"
+        android:orientation="horizontal"
+        android:padding="16dp"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/cancelButton"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:text="Cancel"
+            android:textColor="#757575" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/completeButton"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:backgroundTint="#3949ab"
+            android:text="Complete"
+            android:textColor="@android:color/white" />
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
+----------------------------------------------------------------------------------------------------------------------
+package com.example.cranepro;
+
+import android.app.Dialog;
+import android.app.ProgressDialog;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import androidx.fragment.app.Fragment;
+
+import android.os.Handler;
+import android.os.Looper;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.TextView;
+import com.google.android.material.button.MaterialButton;
+import android.app.AlertDialog;
+import android.bluetooth.BluetoothAdapter;
+import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
+import androidx.fragment.app.FragmentActivity;
+
+public class Transaction_details extends BottomSheetDialogFragment {
+    private FragmentNavigationListener navigationListener;
+    private TextView successMessage;
+
+    public Transaction_details() {
+        // Required empty public constructor
+    }
+
+    public void setNavigationListener(FragmentNavigationListener listener) {
+        this.navigationListener = listener;
+    }
+
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        View view = inflater.inflate(R.layout.fragment_transaction_details, container, false);
+
+        // Initialize views
+        successMessage = view.findViewById(R.id.successMessage);
+        MaterialButton completeButton = view.findViewById(R.id.completeButton);
+        MaterialButton printButton = view.findViewById(R.id.printButton);
+        MaterialButton emailButton = view.findViewById(R.id.emailButton);
+        MaterialButton cancelButton = view.findViewById(R.id.cancelButton);
+
+        if (completeButton != null) {
+            completeButton.setOnClickListener(v -> {
+                if (!isAdded() || getActivity() == null) {
+                    showErrorDialog("Cannot complete transaction: Fragment not attached");
+                    return;
+                }
+
+                // Show a progress dialog
+                ProgressDialog progressDialog = new ProgressDialog(getContext());
+                progressDialog.setMessage("Saving transaction...");
+                progressDialog.setCancelable(false);
+                progressDialog.show();
+
+                // Save transaction to database (asynchronous)
+                new AsyncTask<Void, Void, Boolean>() {
+                    @Override
+                    protected Boolean doInBackground(Void... voids) {
+                        try {
+                            // Mock implementation
+                            Thread.sleep(1000); // Simulate a long-running operation
+                            return true;
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                            return false;
+                        }
+                    }
+
+                    @Override
+                    protected void onPostExecute(Boolean success) {
+                        progressDialog.dismiss();
+                        if (success) {
+                            showCompletionDialog();
+                        } else {
+                            showErrorDialog("Failed to save transaction");
+                        }
+                    }
+                }.execute();
+            });
+        }
+
+        // Set up print button
+        if (printButton != null) {
+            printButton.setOnClickListener(v -> {
+                // Print logic
+                printReceipt();
+            });
+        }
+
+        // Set up email button
+        if (emailButton != null) {
+            emailButton.setOnClickListener(v -> {
+                emailReceipt();
+            });
+        }
+
+        // Set up cancel button
+        if (cancelButton != null) {
+            cancelButton.setOnClickListener(v -> {
+                // Just dismiss the bottom sheet
+                dismiss();
+            });
+        }
+
+        return view;
+    }
+
+    /**
+     * Navigates to the Readings fragment in the dashboard activity
+     */
+    private void navigateToReadingsFragment() {
+        FragmentActivity activity = getActivity();
+        if (activity == null) {
+            showErrorDialog("Unable to navigate: Host activity not found");
+            return;
+        }
+        if (!(activity instanceof Dashboard)) {
+            showErrorDialog("Unable to navigate: Invalid host activity");
+            return;
+        }
+
+        Dashboard dashboard = (Dashboard) activity;
+        Readings newReadingsFragment = new Readings();
+
+        try {
+            dashboard.getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.fragment_container, newReadingsFragment)
+                    .setReorderingAllowed(true)
+                    .commit();
+            dashboard.getBottomNavigationView().setSelectedItemId(R.id.nav_home);
+        } catch (Exception e) {
+            e.printStackTrace();
+            showErrorDialog("Navigation error: " + e.getMessage());
+        }
+    }
+    /**
+     * Saves the current transaction details to the database
+     */
+    private void saveTransactionToDatabase() {
+        // TODO: Implement database saving logic
+        // This would typically involve:
+        // 1. Getting the transaction details from the UI
+        // 2. Creating a Transaction object
+        // 3. Using a repository or DAO to save to the database
+
+        try {
+            // Mock implementation
+           // TransactionRepository repository = TransactionRepository.getInstance(getContext());
+           // String transactionId = getTransactionIdFromUI();
+           // double weight = getWeightFromUI();
+          //  repository.saveTransaction(transactionId, weight);
+        } catch (Exception e) {
+            showErrorDialog("Failed to save transaction: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Shows a dialog confirming the transaction has been completed
+     */
+    private void showCompletionDialog() {
+        new AlertDialog.Builder(getContext())
+                .setTitle("Transaction Complete")
+                .setMessage("Transaction has been successfully saved.")
+                .setPositiveButton("OK", (dialog, which) -> {
+                    Fragment parentFragment = getParentFragment();
+                    if (parentFragment instanceof AccountValidationDialogFragment) {
+                        AccountValidationDialogFragment dialogFragment = (AccountValidationDialogFragment) parentFragment;
+                        Dialog parentDialog = dialogFragment.getDialog();
+                        if (parentDialog != null && parentDialog.getWindow() != null) {
+                            parentDialog.getWindow().setWindowAnimations(R.style.DialogAnimation);
+                        }
+                        dialogFragment.dismiss();
+                    } else {
+                        showErrorDialog("Unable to close dialog: Parent fragment not found");
+                        return;
+                    }
+
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        if (isAdded() && getActivity() != null) {
+                            navigateToReadingsFragment();
+                        }
+                    }, 300);
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .setCancelable(false)
+                .show();
+    }
+
+    /**
+     * Shows an error dialog with the specified message
+     */
+    private void showErrorDialog(String message) {
+        new AlertDialog.Builder(getContext())
+                .setTitle("Error")
+                .setMessage(message)
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
+    /**
+     * Handles printing the receipt
+     */
+    private void printReceipt() {
+        // Connect to printer
+        BluetoothPrinter printer = getPrinter();
+
+        // Format receipt
+        String receipt = formatReceipt();
+
+        try {
+            // Send to printer
+            boolean success = printer.print(receipt);
+
+            // Show success message
+            if (success) {
+                successMessage.setVisibility(View.VISIBLE);
+            } else {
+                showErrorDialog("Printing failed. Please check printer connection.");
+            }
+        } catch (Exception e) {
+            showErrorDialog("Printing error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Gets the printer connection
+     */
+    private BluetoothPrinter getPrinter() {
+        // TODO: Implement actual printer connection logic
+        // Check for Bluetooth permissions and availability
+        BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
+            showErrorDialog("Bluetooth is required for printing. Please enable Bluetooth.");
+        }
+
+        // For now, return a mock printer
+        return new BluetoothPrinter();
+    }
+
+    /**
+     * Formats the receipt content
+     */
+    private String formatReceipt() {
+        // TODO: Implement proper receipt formatting
+        // Extract values from UI fields
+        String transactionId = getTransactionIdFromUI();
+        String date = getDateFromUI();
+        String certifiedBy = getCertifiedByFromUI();
+        String weight = getWeightWithUnitFromUI();
+
+        // Format receipt
+        StringBuilder receipt = new StringBuilder();
+        receipt.append("CraneScale Receipt\n\n");
+        receipt.append("Transaction ID: ").append(transactionId).append("\n");
+        receipt.append("Date & Time: ").append(date).append("\n");
+        receipt.append("Certified By: ").append(certifiedBy).append("\n");
+        receipt.append("Weight Recorded: ").append(weight).append("\n");
+        receipt.append("\nThank you for using CraneScale!");
+
+        return receipt.toString();
+    }
+
+    /**
+     * Handles emailing the receipt
+     */
+    private void emailReceipt() {
+        // TODO: Implement email functionality
+        try {
+            // Format receipt
+            String receipt = formatReceipt();
+
+            // Get customer email (would come from account details or UI input)
+            String customerEmail = getCustomerEmail();
+
+            // Send email with receipt
+         //   EmailService emailService = new EmailService(getContext());
+           // boolean success = emailService.sendReceipt(customerEmail, receipt);
+
+          //  if (success) {
+          //      showNotification("Receipt emailed successfully");
+          //  } else {
+        //        showErrorDialog("Failed to email receipt. Please try again.");
+        //    }
+        } catch (Exception e) {
+            showErrorDialog("Email error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Shows a temporary notification message
+     */
+    private void showNotification(String message) {
+        // Show a toast or temporary notification
+        // For now, we'll use the success message TextView
+        successMessage.setText(message);
+        successMessage.setVisibility(View.VISIBLE);
+
+        // Hide after delay
+        successMessage.postDelayed(() -> {
+            if (successMessage != null && isAdded()) {
+                successMessage.setVisibility(View.GONE);
+            }
+        }, 3000); // Hide after 3 seconds
+    }
+
+    // Helper methods to extract UI field values
+
+    private String getTransactionIdFromUI() {
+        // TODO: Implement actual UI extraction
+        return "WTX-789023"; // Currently hardcoded from the layout
+    }
+
+    private String getDateFromUI() {
+        // TODO: Implement actual UI extraction
+        return "04/03/2025 • 14:32"; // Currently hardcoded from the layout
+    }
+
+    private String getCertifiedByFromUI() {
+        // TODO: Implement actual UI extraction
+        return "James Wilson"; // Currently hardcoded from the layout
+    }
+
+    private double getWeightFromUI() {
+        // TODO: Implement actual UI extraction
+        return 142.5; // Currently hardcoded from the layout
+    }
+
+    private String getWeightWithUnitFromUI() {
+        // TODO: Implement actual UI extraction
+        return "142.5 lb"; // Currently hardcoded from the layout
+    }
+
+    private String getCustomerEmail() {
+        // TODO: Implement actual customer email retrieval
+        // This would typically come from the account information or a database
+        return "customer@example.com";
+    }
+
+    /**
+     * Mock printer class for demonstration purposes
+     */
+    private class BluetoothPrinter {
+        public boolean print(String content) {
+            // This is a mock implementation
+            // In a real app, this would connect to a Bluetooth printer and send the content
+            return true; // Simulate successful printing
+        }
+    }
+}

@@ -1,5 +1,5 @@
-// src/hooks/usePermissions.ts - Updated with First User Admin logic
-import React, { useState, useEffect, useCallback } from 'react';
+// src/hooks/usePermissions.ts - FIXED: No Authentication Loop on Tab Switch
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 export type UserRole = 'admin' | 'user';
@@ -13,7 +13,6 @@ export type Permission =
   | 'reports'
   | 'settings';
 
-// User and Profile interfaces
 interface User {
   id: string;
   email?: string;
@@ -31,13 +30,11 @@ interface Profile {
   [key: string]: any;
 }
 
-// Permission configurations for each role
 const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   admin: ['dashboard', 'transactions', 'suppliers', 'materials', 'analytics', 'reports', 'settings'],
   user: ['dashboard', 'suppliers', 'materials']
 };
 
-// Navigation items that require specific permissions
 export const NAVIGATION_PERMISSIONS: Record<string, Permission> = {
   'dashboard': 'dashboard',
   'transactions': 'transactions',
@@ -80,7 +77,13 @@ export const usePermissions = (): UserPermissions => {
     adminCount: 0
   });
 
-  // Check if user would be first user (for signup scenarios)
+  // CRITICAL FIX: Track initialization and prevent concurrent operations
+  const initialLoadComplete = useRef(false);
+  const refreshInProgress = useRef(false);
+  const lastRefreshTime = useRef<number>(0);
+  const authListenerActive = useRef(false);
+  const mountedRef = useRef(true);
+
   const checkFirstUserStatus = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -98,7 +101,7 @@ export const usePermissions = (): UserPermissions => {
       setIsFirstUser(isFirst);
       
       if (isFirst) {
-        console.log('🎯 First user detection: No users exist yet - next signup will be admin');
+        console.log('🎯 First user detection: No users exist yet');
       }
     } catch (error) {
       console.error('Error in checkFirstUserStatus:', error);
@@ -106,7 +109,6 @@ export const usePermissions = (): UserPermissions => {
     }
   }, []);
 
-  // Get user statistics
   const fetchUserStats = useCallback(async () => {
     try {
       const { data: stats, error } = await supabase
@@ -115,8 +117,6 @@ export const usePermissions = (): UserPermissions => {
         .single();
 
       if (error) {
-        console.warn('Could not fetch user stats:', error);
-        // Fallback - count manually
         const { data: profiles, error: profileError } = await supabase
           .from('profiles')
           .select('user_type');
@@ -124,59 +124,104 @@ export const usePermissions = (): UserPermissions => {
         if (!profileError && profiles) {
           const total = profiles.length;
           const adminCount = profiles.filter(p => p.user_type === 'admin').length;
-          setUserStats({ totalUsers: total, adminCount });
+          if (mountedRef.current) {
+            setUserStats({ totalUsers: total, adminCount });
+          }
         }
         return;
       }
 
-      setUserStats({
-        totalUsers: stats?.total_users || 0,
-        adminCount: stats?.admin_count || 0
-      });
+      if (mountedRef.current) {
+        setUserStats({
+          totalUsers: stats?.total_users || 0,
+          adminCount: stats?.admin_count || 0
+        });
+      }
     } catch (error) {
       console.error('Error fetching user stats:', error);
     }
   }, []);
 
+  // CRITICAL FIX: Heavily restricted refresh to prevent loops
   const refreshPermissions = useCallback(async () => {
+    const now = Date.now();
+    
+    if (!mountedRef.current) {
+      console.log('🚫 Component unmounted, skipping permission refresh');
+      return;
+    }
+    
+    // Prevent concurrent refreshes
+    if (refreshInProgress.current) {
+      console.log('🔒 Permission refresh already in progress');
+      return;
+    }
+
+    // CRITICAL: Much longer debounce for non-initial loads (30 seconds)
+    if (initialLoadComplete.current && now - lastRefreshTime.current < 30000) {
+      console.log(`🔒 Permission refresh debounced (${Math.round((now - lastRefreshTime.current) / 1000)}s since last)`);
+      return;
+    }
+
+    refreshInProgress.current = true;
+    lastRefreshTime.current = now;
+
     try {
-      setLoading(true);
+      // Only show loading on initial load
+      if (!initialLoadComplete.current) {
+        setLoading(true);
+        console.log('🔄 Initial permission load...');
+      } else {
+        console.log('🔄 Background permission refresh (rare)');
+      }
       
-      console.log('🔄 Refreshing permissions...');
+      // Use getSession to avoid triggering auth events
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
-      // Get current user from Supabase
-      const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError) {
-        console.error('Error fetching user:', userError);
-        setUser(null);
-        setProfile(null);
-        setRole('user');
-        setPermissions(ROLE_PERMISSIONS.user);
-        setLoading(false);
+      if (sessionError) {
+        console.error('Error fetching session:', sessionError);
+        if (mountedRef.current) {
+          setUser(null);
+          setProfile(null);
+          setRole('user');
+          setPermissions(ROLE_PERMISSIONS.user);
+          setLoading(false);
+        }
+        refreshInProgress.current = false;
         return;
       }
 
-      setUser(currentUser);
-
-      // Check first user status (useful for debugging)
-      await checkFirstUserStatus();
+      const currentUser = session?.user || null;
       
-      // Fetch user statistics
-      await fetchUserStats();
+      // Only update user state if it changed
+      if (currentUser?.id !== user?.id) {
+        if (mountedRef.current) {
+          setUser(currentUser);
+        }
+      }
+
+      // Check first user status only on initial load
+      if (!initialLoadComplete.current) {
+        await checkFirstUserStatus();
+        await fetchUserStats();
+      }
 
       if (!currentUser) {
         console.log('👤 No authenticated user');
-        setProfile(null);
-        setRole('user');
-        setPermissions([]);
-        setLoading(false);
+        if (mountedRef.current) {
+          setProfile(null);
+          setRole('user');
+          setPermissions([]);
+          setLoading(false);
+        }
+        refreshInProgress.current = false;
+        initialLoadComplete.current = true;
         return;
       }
 
       console.log('👤 Authenticated user:', currentUser.email);
 
-      // Get user profile with role information
+      // Get user profile
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
@@ -185,75 +230,109 @@ export const usePermissions = (): UserPermissions => {
 
       if (profileError) {
         console.error('Error fetching user profile:', profileError);
-        // Default to user role if error
-        setProfile(null);
-        setRole('user');
-        setPermissions(ROLE_PERMISSIONS.user);
+        if (mountedRef.current) {
+          setProfile(null);
+          setRole('user');
+          setPermissions(ROLE_PERMISSIONS.user);
+        }
       } else {
         console.log('📋 Profile loaded:', profileData.email, 'Role:', profileData.user_type);
-        setProfile(profileData);
-        const userRole = (profileData?.user_type as UserRole) || 'user';
-        setRole(userRole);
-        setPermissions(ROLE_PERMISSIONS[userRole]);
+        
+        // Only update if profile changed
+        if (profile?.user_type !== profileData?.user_type) {
+          if (mountedRef.current) {
+            setProfile(profileData);
+            const userRole = (profileData?.user_type as UserRole) || 'user';
+            setRole(userRole);
+            setPermissions(ROLE_PERMISSIONS[userRole]);
 
-        // Log permission details
-        if (userRole === 'admin') {
-          console.log('🛡️ Admin permissions granted:', ROLE_PERMISSIONS[userRole].join(', '));
-        } else {
-          console.log('👤 User permissions granted:', ROLE_PERMISSIONS[userRole].join(', '));
+            if (userRole === 'admin') {
+              console.log('🛡️ Admin permissions granted');
+            } else {
+              console.log('👤 User permissions granted');
+            }
+          }
         }
       }
     } catch (error) {
       console.error('Error refreshing permissions:', error);
-      setUser(null);
-      setProfile(null);
-      setRole('user');
-      setPermissions(ROLE_PERMISSIONS.user);
-    } finally {
-      setLoading(false);
-    }
-  }, [checkFirstUserStatus, fetchUserStats]);
-
-  useEffect(() => {
-    refreshPermissions();
-
-    // Subscribe to auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔐 Auth state changed:', event);
-      
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        await refreshPermissions();
-      } else if (event === 'SIGNED_OUT') {
-        console.log('👋 User signed out - resetting permissions');
+      if (mountedRef.current) {
         setUser(null);
         setProfile(null);
         setRole('user');
-        setPermissions([]);
+        setPermissions(ROLE_PERMISSIONS.user);
+      }
+    } finally {
+      if (mountedRef.current) {
         setLoading(false);
-        
-        // Check first user status again after logout
+      }
+      refreshInProgress.current = false;
+      initialLoadComplete.current = true;
+    }
+  }, [checkFirstUserStatus, fetchUserStats, user, profile]);
+
+  // CRITICAL FIX: Minimal auth listener - only respond to real auth events
+  useEffect(() => {
+    mountedRef.current = true;
+    
+    // Prevent multiple listeners
+    if (authListenerActive.current) {
+      console.log('🔒 Auth listener already active');
+      return;
+    }
+    
+    authListenerActive.current = true;
+
+    // Initial permission load
+    refreshPermissions();
+
+    // Auth state listener - ONLY for critical events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mountedRef.current) return;
+      
+      console.log('🔐 Auth event:', event);
+      
+      // CRITICAL: Only respond to sign in/out, ignore everything else
+   if (event === 'SIGNED_IN') {
+  if (session?.user?.id === user?.id) {
+    console.log("usePermissions: Ignoring SIGNED_IN event for same user (token refresh)");
+    return;
+  }
+  console.log("usePermissions: Real SIGNED_IN (new user)");
+  await refreshPermissions();
+}
+ else if (event === 'SIGNED_OUT') {
+        console.log('👋 User signed out');
+        if (mountedRef.current) {
+          setUser(null);
+          setProfile(null);
+          setRole('user');
+          setPermissions([]);
+          setLoading(false);
+        }
+        initialLoadComplete.current = false;
         await checkFirstUserStatus();
         await fetchUserStats();
       }
+      // CRITICAL: Ignore TOKEN_REFRESHED, USER_UPDATED, INITIAL_SESSION, etc.
+      // These events were causing the infinite loop
     });
 
     return () => {
+      console.log('🛑 Cleaning up permission hook');
+      mountedRef.current = false;
+      authListenerActive.current = false;
       subscription.unsubscribe();
     };
-  }, [refreshPermissions, checkFirstUserStatus, fetchUserStats]);
+  }, []); // Empty deps - run once
 
   const hasPermission = useCallback((permission: Permission): boolean => {
-    const hasAccess = permissions.includes(permission);
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`🔍 Permission check: ${permission} = ${hasAccess ? '✅' : '❌'} (Role: ${role})`);
-    }
-    return hasAccess;
-  }, [permissions, role]);
+    return permissions.includes(permission);
+  }, [permissions]);
 
   const canNavigateTo = useCallback((route: string): boolean => {
     const requiredPermission = NAVIGATION_PERMISSIONS[route];
     if (!requiredPermission) {
-      // If route doesn't require specific permission, allow access
       return true;
     }
     return hasPermission(requiredPermission);
@@ -276,10 +355,9 @@ export const usePermissions = (): UserPermissions => {
   };
 };
 
-// Enhanced Permission service for complex operations with First User Admin support
+// Permission service (unchanged but using getSession consistently)
 export class PermissionService {
   
-  // Check if user can perform specific action
   static async canPerformAction(
     userId: string, 
     action: 'create' | 'read' | 'update' | 'delete',
@@ -296,10 +374,8 @@ export class PermissionService {
 
       const userRole = data.user_type as UserRole;
 
-      // Admin can do everything
       if (userRole === 'admin') return true;
 
-      // Regular users have limited permissions
       if (userRole === 'user') {
         switch (resource) {
           case 'supplier':
@@ -307,9 +383,9 @@ export class PermissionService {
           case 'material':
             return action === 'create' || action === 'read';
           case 'transaction':
-            return false; // No transaction access for regular users
+            return false;
           case 'report':
-            return false; // No report access for regular users
+            return false;
           default:
             return false;
         }
@@ -322,17 +398,16 @@ export class PermissionService {
     }
   }
 
-  // Update user role (admin only)
   static async updateUserRole(userId: string, newRole: UserRole): Promise<boolean> {
     try {
-      // Get current user to verify admin status
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUser = session?.user;
+      
       if (!currentUser) {
         console.error('No authenticated user for role update');
         return false;
       }
 
-      // Check if current user is admin
       const { data: adminProfile } = await supabase
         .from('profiles')
         .select('user_type')
@@ -344,7 +419,6 @@ export class PermissionService {
         return false;
       }
 
-      // Update the user's role
       const { error } = await supabase
         .from('profiles')
         .update({ 
@@ -366,17 +440,16 @@ export class PermissionService {
     }
   }
 
-  // Get all users with their roles (admin only)
   static async getAllUsersWithRoles() {
     try {
-      // Get current user to verify admin status
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUser = session?.user;
+      
       if (!currentUser) {
         console.error('No authenticated user');
         return [];
       }
 
-      // Check if current user is admin
       const { data: adminProfile } = await supabase
         .from('profiles')
         .select('user_type')
@@ -388,7 +461,6 @@ export class PermissionService {
         return [];
       }
 
-      // Fetch all users
       const { data, error } = await supabase
         .from('profiles')
         .select('id, full_name, email, user_type, created_at')
@@ -399,7 +471,6 @@ export class PermissionService {
         return [];
       }
 
-      console.log('📋 Fetched', data.length, 'users for admin view');
       return data;
     } catch (error) {
       console.error('Error fetching users with roles:', error);
@@ -407,7 +478,6 @@ export class PermissionService {
     }
   }
 
-  // Check if any admin exists
   static async hasAdminUsers(): Promise<boolean> {
     try {
       const { data, error } = await supabase
@@ -428,7 +498,6 @@ export class PermissionService {
     }
   }
 
-  // Get system statistics
   static async getSystemStats(): Promise<{
     totalUsers: number;
     adminCount: number;
@@ -443,9 +512,6 @@ export class PermissionService {
         .single();
 
       if (error) {
-        console.warn('Could not fetch system stats from view, fetching manually');
-        
-        // Fallback - count manually
         const { data: profiles } = await supabase
           .from('profiles')
           .select('user_type, email');
@@ -484,14 +550,12 @@ export class PermissionService {
     }
   }
 
-  // Check if current signup would be first user
   static async wouldBeFirstUser(): Promise<boolean> {
     try {
       const { data, error } = await supabase.rpc('is_first_user');
       
       if (error) {
         console.error('Error calling is_first_user function:', error);
-        // Fallback check
         const { data: profiles } = await supabase
           .from('profiles')
           .select('id')
@@ -507,14 +571,13 @@ export class PermissionService {
   }
 }
 
-// Fixed HOC for protecting components based on permissions
 export const withPermission = <P extends object>(
   WrappedComponent: React.ComponentType<P>,
   requiredPermission: Permission,
   fallbackComponent?: React.ComponentType<P>
 ): React.ComponentType<P> => {
   const PermissionProtectedComponent: React.FC<P> = (props: P) => {
-    const { hasPermission, loading, isAdmin, role } = usePermissions();
+    const { hasPermission, loading, role } = usePermissions();
 
     if (loading) {
       return React.createElement('div', {
@@ -543,20 +606,6 @@ export const withPermission = <P extends object>(
       }, React.createElement('div', {
         className: 'text-center bg-white rounded-lg shadow-xl p-8 max-w-md mx-4'
       }, [
-        React.createElement('div', {
-          key: 'icon',
-          className: 'w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4'
-        }, React.createElement('svg', {
-          className: 'w-8 h-8 text-red-600',
-          fill: 'none',
-          stroke: 'currentColor',
-          viewBox: '0 0 24 24'
-        }, React.createElement('path', {
-          strokeLinecap: 'round',
-          strokeLinejoin: 'round',
-          strokeWidth: '2',
-          d: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z'
-        }))),
         React.createElement('h2', {
           key: 'title',
           className: 'text-2xl font-bold text-gray-900 mb-2'
@@ -578,10 +627,6 @@ export const withPermission = <P extends object>(
             className: 'text-gray-600'
           }, `Required Permission: ${requiredPermission}`)
         ]),
-        React.createElement('p', {
-          key: 'contact',
-          className: 'text-sm text-gray-500 mb-4'
-        }, 'Contact your administrator if you need access.'),
         React.createElement('button', {
           key: 'back',
           className: 'bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors',
@@ -598,19 +643,16 @@ export const withPermission = <P extends object>(
   return PermissionProtectedComponent;
 };
 
-// Hook to check specific permission
 export const useHasPermission = (permission: Permission): boolean => {
   const { hasPermission } = usePermissions();
   return hasPermission(permission);
 };
 
-// Hook to check if user can navigate to route
 export const useCanNavigate = (route: string): boolean => {
   const { canNavigateTo } = usePermissions();
   return canNavigateTo(route);
 };
 
-// Hook to get first user status (useful for registration forms)
 export const useFirstUserStatus = () => {
   const { isFirstUser, userStats } = usePermissions();
   return { isFirstUser, userStats };

@@ -1,0 +1,215 @@
+package com.nesis.ews;
+
+import android.content.Context;
+import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.Bundle;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
+import androidx.fragment.app.Fragment;
+import androidx.navigation.NavController;
+import androidx.navigation.Navigation;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+
+import android.util.TypedValue;
+import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import com.facebook.shimmer.ShimmerFrameLayout;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
+import com.squareup.picasso.Picasso;
+
+
+public class User_Profile extends Fragment {
+
+    private TextView textViewWelcome,textViewFullName,textViewuUserName,textViewEmail,textViewDoB,textViewGender,textViewmobile;
+private ProgressBar progressBar;
+private String fullName,email,doB,gender,mobile ,username;
+    private SwipeRefreshLayout swipeRefreshLayout;
+    private ShimmerFrameLayout shimmerFrameLayout;
+private ImageView imageView;
+private FirebaseAuth authProfile;
+    private NavController navController;
+    public User_Profile() {
+        // Required empty public constructor
+    }
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setHasOptionsMenu(true);
+    }
+
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container,
+                             Bundle savedInstanceState) {
+        // Inflate the layout for this fragment
+        View view = inflater.inflate(R.layout.fragment_user__profile, container, false);
+        navController = Navigation.findNavController(requireActivity(), R.id.fragmentContainerView2);
+        return view;
+    }
+
+
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+imageView=view.findViewById(R.id.imageView_profile_dp);
+        navController = Navigation.findNavController(view);
+        shimmerFrameLayout = view.findViewById(R.id.shimmer_view_container_circle);
+textViewWelcome=view.findViewById(R.id.textView_show_welcome);
+        textViewFullName=view.findViewById(R.id.textView_show_full_name);
+        textViewEmail=view.findViewById(R.id.textView_show_email);
+        textViewDoB=view.findViewById(R.id.textView_show_dob);
+        textViewGender=view.findViewById(R.id.textView_show_gender);
+        textViewmobile=view.findViewById(R.id.textView_show_mobile);
+        textViewuUserName=view.findViewById(R.id.textView_show_username);
+        swipeRefreshLayout=view.findViewById(R.id.swipeContainer);
+        swipeToRefresh();
+        progressBar=view.findViewById(R.id.progress_bars);
+        authProfile=FirebaseAuth.getInstance();
+        FirebaseUser firebaseUser= authProfile.getCurrentUser();
+        if(firebaseUser==null)
+        {
+            Context context = getContext();
+            CharSequence text = " Something went wrong! User's details not available at the moment " ;
+            int duration = Toast.LENGTH_LONG;
+            Toast toast = Toast.makeText(context, text, duration);
+            toast.show();
+        }
+        else {
+            progressBar.setVisibility(View.VISIBLE);
+            shimmerFrameLayout.startShimmer();
+            showUserProfile(firebaseUser);
+
+        }
+imageView.setOnClickListener(new View.OnClickListener() {
+    @Override
+    public void onClick(View view) {
+        ///to upload profile picture----------------->
+        navController.navigate(R.id.action_user_Profile_to_upload_Profile_pic);
+    }
+});
+
+    }
+
+    private void swipeToRefresh() {
+        swipeRefreshLayout.setColorSchemeColors(
+                ContextCompat.getColor(requireContext(), R.color.cadet_blue),
+                ContextCompat.getColor(requireContext(), R.color.green_yellow),
+                ContextCompat.getColor(requireContext(), R.color.orange_red),
+                ContextCompat.getColor(requireContext(), R.color.violet_red)
+        );
+        swipeRefreshLayout.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
+            @Override
+            public void onRefresh() {
+                // Refresh the content of the Fragment here
+                // For example, you might call a method to fetch new data and update the UI
+
+
+                // After refreshing, stop the refresh animation
+refreshUserProfile();
+                swipeRefreshLayout.setRefreshing(false);
+            }
+        });
+
+    }
+
+    public void refreshUserProfile() {
+        FirebaseUser firebaseUser = FirebaseAuth.getInstance().getCurrentUser();
+        if (firebaseUser != null) {
+            showUserProfile(firebaseUser);
+        }
+    }
+    private void showUserProfile( FirebaseUser firebaseUser) {
+        String userID = firebaseUser.getUid();
+
+        DatabaseReference referenceProfile= FirebaseDatabase.getInstance().getReference("Registered users");
+        referenceProfile.child(userID).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot snapshot) {
+                ReadWriteUserDetails readUserDetails=snapshot.getValue(ReadWriteUserDetails.class);
+                if(readUserDetails !=null)
+                {
+                    fullName= firebaseUser.getDisplayName();
+                    email= firebaseUser.getEmail();
+                    doB=readUserDetails.doB;
+                    gender=readUserDetails.gender;
+                    mobile=readUserDetails.mobile;
+                    username=readUserDetails.username;
+
+                    textViewFullName.setText(fullName);
+                    textViewEmail.setText(email);
+                    textViewDoB.setText(doB);
+                    textViewGender.setText(gender);
+                    textViewmobile.setText(mobile);
+                   textViewuUserName.setText(username);
+
+                   Uri uri=firebaseUser.getPhotoUrl();
+                    Picasso.with(getContext()).load(uri).into(imageView);
+                }
+                else {
+                    Context context = getContext();
+                    CharSequence text = " Something went wrong!  " ;
+                    int duration = Toast.LENGTH_LONG;
+                    Toast toast = Toast.makeText(context, text, duration);
+                    toast.show();
+                }
+                progressBar.setVisibility(View.GONE);
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError error) {
+                Context context = getContext();
+                CharSequence text = " Something went wrong!  " ;
+                int duration = Toast.LENGTH_LONG;
+                Toast toast = Toast.makeText(context, text, duration);
+                toast.show();
+                progressBar.setVisibility(View.GONE);
+            }
+        });
+    }
+    @Override
+    public void onCreateOptionsMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
+        inflater.inflate(R.menu.top_appbar, menu);
+        super.onCreateOptionsMenu(menu, inflater);
+    }
+    @Override
+    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.update_profile:
+                navController.navigate(R.id.action_user_Profile_to_update_Profile);
+                return true;
+            case R.id.update_email:
+                navController.navigate(R.id.action_user_Profile_to_update_Email);
+                return true;
+            case R.id.change_passwort:
+                navController.navigate(R.id.action_user_Profile_to_change_password);
+                return true;
+            case R.id.delete_profile:
+                navController.navigate(R.id.action_user_Profile_to_delete_Profile);
+                return true;
+            case R.id.profile_logout:
+                navController.navigate(R.id.action_user_Profile_to_login_new);
+                return true;
+            default:
+                return super.onOptionsItemSelected(item);
+        }
+    }
+
+
+}
