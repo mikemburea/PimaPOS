@@ -68,26 +68,86 @@ const useSuppliers = () => {
     try {
       console.log('Fetching suppliers from database...');
       
-      const { data, error: fetchError, count } = await supabase
-        .from('suppliers')
-        .select('*', { count: 'exact' })
-        .order('created_at', { ascending: false });
+      // Fetch suppliers, transactions, and sales_transactions in parallel
+      const [suppliersResult, transactionsResult, salesTransactionsResult] = await Promise.allSettled([
+        supabase
+          .from('suppliers')
+          .select('*', { count: 'exact' })
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('transactions')
+          .select('*'),
+        supabase
+          .from('sales_transactions')
+          .select('*')
+      ]);
 
-      if (fetchError) {
-        throw fetchError;
+      if (suppliersResult.status === 'rejected' || suppliersResult.value.error) {
+        throw suppliersResult.status === 'rejected' 
+          ? suppliersResult.reason 
+          : suppliersResult.value.error;
       }
 
-      console.log(`Fetched ${data?.length || 0} suppliers from database`);
-      
-      // Set the actual data from database (could be empty array)
-      const suppliersData = data || [];
-      setSuppliers(suppliersData);
+      const rawSuppliers = suppliersResult.value.data || [];
+      const transactions = transactionsResult.status === 'fulfilled' && !transactionsResult.value.error
+        ? transactionsResult.value.data || []
+        : [];
+      const salesTransactions = salesTransactionsResult.status === 'fulfilled' && !salesTransactionsResult.value.error
+        ? salesTransactionsResult.value.data || []
+        : [];
+
+      console.log(`Fetched ${rawSuppliers.length} suppliers, ${transactions.length} purchase transactions, ${salesTransactions.length} sales transactions`);
+
+      // Calculate real stats for each supplier from actual transactions
+      const suppliersWithRealStats = rawSuppliers.map(supplier => {
+        const supplierTransactions = transactions.filter(t => t.supplier_id === supplier.id);
+        const supplierSalesTransactions = salesTransactions.filter(t => t.supplier_id === supplier.id);
+        
+        const purchaseTransactionCount = supplierTransactions.length;
+        const salesTransactionCount = supplierSalesTransactions.length;
+        const totalTransactions = purchaseTransactionCount + salesTransactionCount;
+        
+        const purchaseValue = supplierTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+        const salesValue = supplierSalesTransactions.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+        const totalValue = purchaseValue + salesValue;
+        
+        const purchaseWeight = supplierTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
+        const salesWeight = supplierSalesTransactions.reduce((sum, t) => sum + (t.weight_kg || 0), 0);
+        const totalWeight = purchaseWeight + salesWeight;
+
+        const allTransactionDates = [
+          ...supplierTransactions.map(t => t.transaction_date),
+          ...supplierSalesTransactions.map(t => t.transaction_date)
+        ].filter(Boolean);
+        
+        const firstTransactionDate = allTransactionDates.length > 0
+          ? new Date(Math.min(...allTransactionDates.map(d => new Date(d).getTime()))).toISOString()
+          : null;
+        
+        const lastTransactionDate = allTransactionDates.length > 0
+          ? new Date(Math.max(...allTransactionDates.map(d => new Date(d).getTime()))).toISOString()
+          : null;
+        
+        const averageTransactionValue = totalTransactions > 0 ? totalValue / totalTransactions : 0;
+
+        return {
+          ...supplier,
+          total_transactions: totalTransactions,
+          total_value: totalValue,
+          total_weight: totalWeight,
+          first_transaction_date: firstTransactionDate,
+          last_transaction_date: lastTransactionDate,
+          average_transaction_value: averageTransactionValue
+        };
+      });
+
+      setSuppliers(suppliersWithRealStats);
       setLastFetchTime(new Date());
       
       // Log some stats
-      if (suppliersData.length > 0) {
-        const activeSuppliers = suppliersData.filter(s => s.status === 'active').length;
-        const totalValue = suppliersData.reduce((sum, s) => sum + (s.total_value || 0), 0);
+      if (suppliersWithRealStats.length > 0) {
+        const activeSuppliers = suppliersWithRealStats.filter(s => s.status === 'active').length;
+        const totalValue = suppliersWithRealStats.reduce((sum, s) => sum + (s.total_value || 0), 0);
         console.log(`Active suppliers: ${activeSuppliers}, Total business value: KES ${totalValue.toLocaleString()}`);
       }
 
@@ -559,6 +619,454 @@ const useSuppliers = () => {
     updateSupplier,
     deleteSupplier
   };
+};
+
+// Supplier Details Modal with Transactions
+const SupplierDetailsModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  supplier: Supplier | null;
+}> = ({ isOpen, onClose, supplier }) => {
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'purchases' | 'sales'>('overview');
+
+  // Fetch supplier transactions
+  const fetchSupplierTransactions = async (supplierId: string) => {
+    try {
+      setLoading(true);
+      
+      // Fetch both purchase and sales transactions
+      const [purchasesResult, salesResult] = await Promise.allSettled([
+        supabase
+          .from('transactions')
+          .select('*')
+          .eq('supplier_id', supplierId)
+          .order('transaction_date', { ascending: false }),
+        supabase
+          .from('sales_transactions')
+          .select('*')
+          .eq('supplier_id', supplierId)
+          .order('transaction_date', { ascending: false })
+      ]);
+
+      const purchases = purchasesResult.status === 'fulfilled' && !purchasesResult.value.error
+        ? purchasesResult.value.data || []
+        : [];
+      
+      const sales = salesResult.status === 'fulfilled' && !salesResult.value.error
+        ? salesResult.value.data || []
+        : [];
+
+      // Combine and mark transaction types
+      const allTransactions = [
+        ...purchases.map(t => ({ ...t, transaction_type: 'Purchase' })),
+        ...sales.map(t => ({ ...t, transaction_type: 'Sale' }))
+      ].sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
+
+      setTransactions(allTransactions);
+      
+    } catch (err) {
+      console.error('Error fetching supplier transactions:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load transactions when supplier changes
+  useEffect(() => {
+    if (supplier && isOpen) {
+      fetchSupplierTransactions(supplier.id);
+    }
+  }, [supplier, isOpen]);
+
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setTransactions([]);
+      setActiveTab('overview');
+    }
+  }, [isOpen]);
+
+  if (!isOpen || !supplier) return null;
+
+  const purchases = transactions.filter(t => t.transaction_type === 'Purchase');
+  const sales = transactions.filter(t => t.transaction_type === 'Sale');
+
+  const purchaseValue = purchases.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+  const salesValue = sales.reduce((sum, t) => sum + (t.total_amount || 0), 0);
+  const netValue = salesValue - purchaseValue;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <div className="flex-1">
+            <h2 className="text-2xl font-bold text-gray-900">{supplier.name}</h2>
+            <p className="text-sm text-gray-600 mt-1">{supplier.email} • {supplier.phone}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <X size={24} />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200 px-6">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
+              activeTab === 'overview'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Overview
+          </button>
+          <button
+            onClick={() => setActiveTab('purchases')}
+            className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
+              activeTab === 'purchases'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Purchases ({purchases.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('sales')}
+            className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
+              activeTab === 'sales'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Sales ({sales.length})
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            </div>
+          ) : (
+            <>
+              {/* Overview Tab */}
+              {activeTab === 'overview' && (
+                <div className="space-y-6">
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-blue-50 rounded-lg p-4">
+                      <p className="text-sm text-blue-700 font-medium">Total Transactions</p>
+                      <p className="text-2xl font-bold text-blue-900 mt-1">{transactions.length}</p>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-4">
+                      <p className="text-sm text-green-700 font-medium">Total Value</p>
+                      <p className="text-2xl font-bold text-green-900 mt-1">
+                        KES {((purchaseValue + salesValue) / 1000).toFixed(0)}K
+                      </p>
+                    </div>
+                    <div className="bg-purple-50 rounded-lg p-4">
+                      <p className="text-sm text-purple-700 font-medium">Total Weight</p>
+                      <p className="text-2xl font-bold text-purple-900 mt-1">
+                        {((supplier.total_weight || 0) / 1000).toFixed(1)}T
+                      </p>
+                    </div>
+                    <div className={`rounded-lg p-4 ${netValue >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                      <p className={`text-sm font-medium ${netValue >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                        Net Position
+                      </p>
+                      <p className={`text-2xl font-bold mt-1 ${netValue >= 0 ? 'text-emerald-900' : 'text-red-900'}`}>
+                        KES {(netValue / 1000).toFixed(0)}K
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Supplier Info */}
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <h3 className="font-semibold text-gray-900">Supplier Information</h3>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-gray-600">Address</p>
+                        <p className="font-medium text-gray-900">{supplier.address}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">Contact Person</p>
+                        <p className="font-medium text-gray-900">{supplier.contact_person || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">Materials</p>
+                        <p className="font-medium text-gray-900">{supplier.material_types.join(', ')}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">Supplier Tier</p>
+                        <p className="font-medium text-gray-900 capitalize">{supplier.supplier_tier || 'Occasional'}</p>
+                      </div>
+                      {supplier.credit_limit && supplier.credit_limit > 0 && (
+                        <div>
+                          <p className="text-gray-600">Credit Limit</p>
+                          <p className="font-medium text-gray-900">KES {supplier.credit_limit.toLocaleString()}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-gray-600">Preferred Payment</p>
+                        <p className="font-medium text-gray-900 capitalize">
+                          {supplier.preferred_payment_method?.replace('_', ' ') || 'Cash'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Transaction Timeline */}
+                  {supplier.first_transaction_date && (
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <h3 className="font-semibold text-gray-900 mb-3">Transaction Timeline</h3>
+                      <div className="flex items-center justify-between text-sm">
+                        <div>
+                          <p className="text-gray-600">First Transaction</p>
+                          <p className="font-medium text-gray-900">
+                            {new Date(supplier.first_transaction_date).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-gray-600">Average Value</p>
+                          <p className="font-medium text-gray-900">
+                            KES {(supplier.average_transaction_value || 0).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-gray-600">Last Transaction</p>
+                          <p className="font-medium text-gray-900">
+                            {supplier.last_transaction_date 
+                              ? new Date(supplier.last_transaction_date).toLocaleDateString()
+                              : 'N/A'
+                            }
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recent Transactions */}
+                  {transactions.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold text-gray-900 mb-3">Recent Transactions</h3>
+                      <div className="space-y-2">
+                        {transactions.slice(0, 5).map((tx) => (
+                          <div key={tx.id} className="bg-white border border-gray-200 rounded-lg p-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-2 h-2 rounded-full ${
+                                  tx.transaction_type === 'Purchase' ? 'bg-blue-500' : 'bg-green-500'
+                                }`}></div>
+                                <div>
+                                  <p className="font-medium text-gray-900 text-sm">
+                                    {tx.transaction_number || tx.transaction_id || tx.id}
+                                  </p>
+                                  <p className="text-xs text-gray-500">
+                                    {new Date(tx.transaction_date).toLocaleDateString()} • {tx.material_type || tx.material_name}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-semibold text-gray-900 text-sm">
+                                  KES {(tx.total_amount || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-gray-500">{tx.weight_kg || 0} kg</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Purchases Tab */}
+              {activeTab === 'purchases' && (
+                <div className="space-y-3">
+                  {purchases.length === 0 ? (
+                    <div className="text-center py-12">
+                      <p className="text-gray-500">No purchase transactions found</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="bg-blue-50 rounded-lg p-4 mb-4">
+                        <div className="grid grid-cols-3 gap-4 text-center">
+                          <div>
+                            <p className="text-sm text-blue-700">Transactions</p>
+                            <p className="text-xl font-bold text-blue-900">{purchases.length}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-blue-700">Total Value</p>
+                            <p className="text-xl font-bold text-blue-900">
+                              KES {(purchaseValue / 1000).toFixed(0)}K
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-blue-700">Total Weight</p>
+                            <p className="text-xl font-bold text-blue-900">
+                              {(purchases.reduce((sum, t) => sum + (t.weight_kg || 0), 0) / 1000).toFixed(1)}T
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {purchases.map((tx) => (
+                        <div key={tx.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <p className="font-semibold text-gray-900">
+                                {tx.transaction_number || tx.id}
+                              </p>
+                              <p className="text-sm text-gray-500">
+                                {new Date(tx.transaction_date).toLocaleDateString()} at{' '}
+                                {new Date(tx.transaction_date).toLocaleTimeString()}
+                              </p>
+                            </div>
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                              tx.payment_status === 'completed'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-amber-50 text-amber-700'
+                            }`}>
+                              {tx.payment_status || 'pending'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div>
+                              <p className="text-gray-600">Material</p>
+                              <p className="font-medium text-gray-900">{tx.material_type}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Weight</p>
+                              <p className="font-medium text-gray-900">{tx.weight_kg || 0} kg</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Unit Price</p>
+                              <p className="font-medium text-gray-900">KES {tx.unit_price || 0}/kg</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Total Amount</p>
+                              <p className="font-semibold text-gray-900">
+                                KES {(tx.total_amount || 0).toLocaleString()}
+                              </p>
+                            </div>
+                          </div>
+                          {tx.notes && (
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                              <p className="text-sm text-gray-600 italic">{tx.notes}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Sales Tab */}
+              {activeTab === 'sales' && (
+                <div className="space-y-3">
+                  {sales.length === 0 ? (
+                    <div className="text-center py-12">
+                      <p className="text-gray-500">No sales transactions found</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="bg-green-50 rounded-lg p-4 mb-4">
+                        <div className="grid grid-cols-3 gap-4 text-center">
+                          <div>
+                            <p className="text-sm text-green-700">Transactions</p>
+                            <p className="text-xl font-bold text-green-900">{sales.length}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-green-700">Total Value</p>
+                            <p className="text-xl font-bold text-green-900">
+                              KES {(salesValue / 1000).toFixed(0)}K
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-green-700">Total Weight</p>
+                            <p className="text-xl font-bold text-green-900">
+                              {(sales.reduce((sum, t) => sum + (t.weight_kg || 0), 0) / 1000).toFixed(1)}T
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {sales.map((tx) => (
+                        <div key={tx.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <p className="font-semibold text-gray-900">
+                                {tx.transaction_id || tx.id}
+                              </p>
+                              <p className="text-sm text-gray-500">
+                                {new Date(tx.transaction_date).toLocaleDateString()} at{' '}
+                                {new Date(tx.transaction_date).toLocaleTimeString()}
+                              </p>
+                            </div>
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                              tx.payment_status === 'completed'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-amber-50 text-amber-700'
+                            }`}>
+                              {tx.payment_status || 'pending'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div>
+                              <p className="text-gray-600">Material</p>
+                              <p className="font-medium text-gray-900">{tx.material_name}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Weight</p>
+                              <p className="font-medium text-gray-900">{tx.weight_kg || 0} kg</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Price per kg</p>
+                              <p className="font-medium text-gray-900">KES {tx.price_per_kg || 0}/kg</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Total Amount</p>
+                              <p className="font-semibold text-gray-900">
+                                KES {(tx.total_amount || 0).toLocaleString()}
+                              </p>
+                            </div>
+                          </div>
+                          {tx.notes && (
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                              <p className="text-sm text-gray-600 italic">{tx.notes}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+          <button
+            onClick={onClose}
+            className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // Enhanced Empty State Component
@@ -1107,6 +1615,8 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
   // Handle window resize
   useEffect(() => {
@@ -1151,6 +1661,11 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleViewDetails = (supplier: Supplier) => {
+    setSelectedSupplier(supplier);
+    setIsDetailsModalOpen(true);
   };
 
   const getTierInfo = (supplier: Supplier) => {
@@ -1435,6 +1950,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
                   </span>
                   <div className="flex items-center gap-1 sm:gap-2">
                     <button 
+                      onClick={() => handleViewDetails(supplier)}
                       className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors"
                       title="View Details"
                     >
@@ -1465,6 +1981,16 @@ const Suppliers: React.FC<SuppliersProps> = ({ onSupplierUpdate }) => {
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleAddSupplier}
         isSubmitting={isSubmitting}
+      />
+
+      {/* Supplier Details Modal */}
+      <SupplierDetailsModal
+        isOpen={isDetailsModalOpen}
+        onClose={() => {
+          setIsDetailsModalOpen(false);
+          setSelectedSupplier(null);
+        }}
+        supplier={selectedSupplier}
       />
     </div>
   );

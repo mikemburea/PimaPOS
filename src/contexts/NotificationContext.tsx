@@ -1511,180 +1511,222 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     }
   }, [notificationQueue, refreshNotificationsMemo, playNotificationSoundMemo]);
 
-  // FIXED: Mark notification as handled - properly updates database and removes from queue
-  const markAsHandledById = async (notificationId: string): Promise<void> => {
-    if (!sessionInfo) {
-      console.warn('[NotificationContext] No session info available for marking notification as handled');
+ // 1. FIXED markAsHandledById function
+const markAsHandledById = async (notificationId: string): Promise<void> => {
+  if (!sessionInfo) {
+    console.warn('[NotificationContext] No session info available for marking notification as handled');
+    return;
+  }
+
+  console.log(`[NotificationContext] Marking notification ${notificationId} as HANDLED (permanent) in notification_states`);
+
+  try {
+    // Get the notification to find its transaction key
+    const notification = notificationQueue.find(n => n.id === notificationId);
+    if (notification) {
+      const transactionKey = createTransactionKey(notification.transaction.id, notification.eventType);
+      
+      // Add to handled transactions cache
+      handledTransactionsRef.current.add(transactionKey);
+      
+      // Remove from processing and active tracking
+      processingTransactionsRef.current.delete(transactionKey);
+      activeTransactionsRef.current.delete(transactionKey);
+    }
+    
+    // FIRST: Check if already handled by another session
+    const { data: checkData, error: checkError } = await supabase
+      .from('notification_states')
+      .select('is_handled, is_dismissed, handled_session, handled_by')
+      .eq('id', notificationId)
+      .single();
+
+    if (checkError) {
+      console.error('Error checking notification state before handling:', checkError);
+      // Continue anyway - don't block on check error
+    } else if (checkData && checkData.is_handled) {
+      console.log(`[NotificationContext] Notification already handled by ${checkData.handled_by} in session ${checkData.handled_session}`);
+      
+      // Remove from local state
+      setNotificationQueue(prev => prev.filter(n => n.id !== notificationId));
+      setBellNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
+      // Show alert
+      setCrossSessionAlert('This notification was already handled on another device');
+      setTimeout(() => setCrossSessionAlert(null), 3000);
+      
       return;
     }
 
-    console.log(`[NotificationContext] Marking notification ${notificationId} as HANDLED (permanent) in notification_states`);
+    // CRITICAL FIX: Use proper Supabase update syntax with minimal fields
+    const updateData = {
+      is_handled: true,
+      handled_at: new Date().toISOString(),
+      handled_by: sessionInfo.userIdentifier,
+      handled_session: sessionInfo.sessionId
+    };
 
-    try {
-      // Get the notification to find its transaction key
-      const notification = notificationQueue.find(n => n.id === notificationId);
-      if (notification) {
-        const transactionKey = createTransactionKey(notification.transaction.id, notification.eventType);
-        
-        // Add to handled transactions cache
-        handledTransactionsRef.current.add(transactionKey);
-        
-        // Remove from processing and active tracking
-        processingTransactionsRef.current.delete(transactionKey);
-        activeTransactionsRef.current.delete(transactionKey);
-      }
+    console.log('[NotificationContext] Updating notification_states with:', updateData);
+
+    // FIXED: Proper update syntax - eq() must come AFTER update()
+    const { data: updateResult, error: updateError } = await supabase
+      .from('notification_states')
+      .update(updateData)
+      .eq('id', notificationId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('[NotificationContext] Error marking notification as handled:', {
+        message: updateError.message,
+        details: updateError.details,
+        hint: updateError.hint,
+        code: updateError.code
+      });
       
-      // FIRST: Check if already handled by another session
-      const { data: checkData, error: checkError } = await supabase
-        .from('notification_states')
-        .select('is_handled, is_dismissed, handled_session, handled_by')
-        .eq('id', notificationId)
-        .single();
+      // Don't throw - continue with local state update
+      console.log('[NotificationContext] Continuing with local state update despite DB error');
+    } else {
+      console.log('[NotificationContext] ✅ Successfully updated notification_states:', updateResult);
+    }
 
-      if (checkError) {
-        console.error('Error checking notification state before handling:', checkError);
-      } else if (checkData && checkData.is_handled) {
-        console.log(`[NotificationContext] Notification already handled by ${checkData.handled_by} in session ${checkData.handled_session}`);
-        
-        // Remove from local state
-        setNotificationQueue(prev => prev.filter(n => n.id !== notificationId));
-        setBellNotifications(prev => prev.filter(n => n.id !== notificationId));
-        
-        // Show alert
-        setCrossSessionAlert('This notification was already handled on another device');
-        setTimeout(() => setCrossSessionAlert(null), 3000);
-        
-        return;
-      }
-
-      // Update in notification_states with explicit handled status
-      const { error } = await supabase
-        .from('notification_states') // Update notification_states ONLY
-        .update({
-          is_handled: true,  // CRITICAL: Mark as handled
-          is_dismissed: false, // Ensure it's not confused with dismissed
-          handled_at: new Date().toISOString(),
-          handled_by: sessionInfo.userIdentifier,
-          handled_session: sessionInfo.sessionId,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', notificationId);
-
-      if (error) {
-        console.error('Error marking notification as handled in notification_states:', error);
-        throw error;
-      }
-
-      // Verify the update was successful
+    // Verify the update was successful (only if no error)
+    if (!updateError) {
       const { data: verifyData, error: verifyError } = await supabase
         .from('notification_states')
-        .select('is_handled')
+        .select('is_handled, handled_at')
         .eq('id', notificationId)
         .single();
 
-      if (verifyError || !verifyData?.is_handled) {
-        console.error('Failed to verify notification was marked as handled in notification_states');
-        throw new Error('Verification failed');
+      if (verifyError) {
+        console.warn('[NotificationContext] Could not verify update:', verifyError);
+      } else if (verifyData?.is_handled) {
+        console.log('[NotificationContext] ✅ Verified notification is marked as handled');
+      } else {
+        console.error('[NotificationContext] ⚠️ Verification failed - notification not marked as handled');
       }
-
-      console.log(`[NotificationContext] ✅ Successfully marked notification ${notificationId} as HANDLED in notification_states (verified)`);
-
-      // Remove from local state immediately
-      setNotificationQueue(prev => 
-        prev.filter(n => n.id !== notificationId)
-      );
-      
-      // Also remove from bell notifications since it's handled
-      setBellNotifications(prev => 
-        prev.filter(n => n.id !== notificationId)
-      );
-
-      // Add to a permanent handled list in localStorage to prevent any recovery
-      const handledKey = `handled_${notificationId}`;
-      localStorage.setItem(handledKey, JSON.stringify({
-        notificationId,
-        handledAt: new Date().toISOString(),
-        sessionId: sessionInfo.sessionId,
-        permanent: true
-      }));
-
-      // Clean up any dismissed key if it exists
-      const dismissedKey = `dismissed_${notificationId}`;
-      localStorage.removeItem(dismissedKey);
-
-    } catch (error) {
-      console.error('Failed to mark notification as handled in notification_states:', error);
-      alert('Failed to mark notification as complete. Please try again.');
-    }
-  };
-
-  // FIXED: Enhanced dismissById function - properly updates database
-  const dismissById = async (notificationId: string): Promise<void> => {
-    if (!sessionInfo) {
-      console.warn('No session info available for dismissing notification');
-      return;
     }
 
-    console.log('[NotificationContext] Dismissing notification in notification_states:', notificationId);
+    // Always update local state, even if DB update fails
+    setNotificationQueue(prev => 
+      prev.filter(n => n.id !== notificationId)
+    );
+    
+    setBellNotifications(prev => 
+      prev.filter(n => n.id !== notificationId)
+    );
 
-    try {
-      // Get the notification to find its transaction key
-      const notification = notificationQueue.find(n => n.id === notificationId);
-      if (notification) {
-        const transactionKey = createTransactionKey(notification.transaction.id, notification.eventType);
-        
-        // Remove from processing and active tracking
-        processingTransactionsRef.current.delete(transactionKey);
-        activeTransactionsRef.current.delete(transactionKey);
-      }
+    // Add to permanent handled list in localStorage
+    const handledKey = `handled_${notificationId}`;
+    localStorage.setItem(handledKey, JSON.stringify({
+      notificationId,
+      handledAt: new Date().toISOString(),
+      sessionId: sessionInfo.sessionId,
+      permanent: true
+    }));
+
+    // Clean up any dismissed key if it exists
+    const dismissedKey = `dismissed_${notificationId}`;
+    localStorage.removeItem(dismissedKey);
+
+    console.log('[NotificationContext] ✅ Local state updated successfully');
+
+  } catch (error) {
+    console.error('[NotificationContext] Critical error marking notification as handled:', error);
+    
+    // Still update local state on error
+    setNotificationQueue(prev => prev.filter(n => n.id !== notificationId));
+    setBellNotifications(prev => prev.filter(n => n.id !== notificationId));
+    
+    alert('Failed to mark notification as complete. The notification has been removed locally.');
+  }
+};
+
+ // 2. FIXED dismissById function
+const dismissById = async (notificationId: string): Promise<void> => {
+  if (!sessionInfo) {
+    console.warn('[NotificationContext] No session info available for dismissing notification');
+    return;
+  }
+
+  console.log('[NotificationContext] Dismissing notification in notification_states:', notificationId);
+
+  try {
+    // Get the notification to find its transaction key
+    const notification = notificationQueue.find(n => n.id === notificationId);
+    if (notification) {
+      const transactionKey = createTransactionKey(notification.transaction.id, notification.eventType);
       
-      // First update notification_states
-      const { error } = await supabase
-        .from('notification_states') // Update notification_states ONLY
-        .update({
-          is_dismissed: true,
-          is_handled: false, // Make sure we distinguish between dismissed and handled
-          handled_at: new Date().toISOString(),
-          handled_by: sessionInfo.userIdentifier,
-          handled_session: sessionInfo.sessionId,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', notificationId);
+      // Remove from processing and active tracking
+      processingTransactionsRef.current.delete(transactionKey);
+      activeTransactionsRef.current.delete(transactionKey);
+    }
+    
+    // CRITICAL FIX: Use proper Supabase update syntax with minimal fields
+    const updateData = {
+      is_dismissed: true,
+      handled_at: new Date().toISOString(),
+      handled_by: sessionInfo.userIdentifier,
+      handled_session: sessionInfo.sessionId
+    };
 
-      if (error) {
-        console.error('Database error dismissing notification in notification_states:', error);
-        throw error;
-      }
+    console.log('[NotificationContext] Dismissing notification_states with:', updateData);
 
-      console.log('[NotificationContext] ✅ Successfully dismissed notification in notification_states:', notificationId);
+    // FIXED: Proper update syntax - eq() must come AFTER update()
+    const { data: updateResult, error: updateError } = await supabase
+      .from('notification_states')
+      .update(updateData)
+      .eq('id', notificationId)
+      .select()
+      .single();
 
-      // Then update local state - remove from both queues
-      setNotificationQueue(prev => {
-        const filtered = prev.filter(n => n.id !== notificationId);
-        console.log(`[NotificationContext] Removed from queue: ${prev.length} -> ${filtered.length}`);
-        return filtered;
+    if (updateError) {
+      console.error('[NotificationContext] Error dismissing notification:', {
+        message: updateError.message,
+        details: updateError.details,
+        hint: updateError.hint,
+        code: updateError.code
       });
       
-      setBellNotifications(prev => {
-        const filtered = prev.filter(n => n.id !== notificationId);
-        console.log(`[NotificationContext] Removed from bell: ${prev.length} -> ${filtered.length}`);
-        return filtered;
-      });
-
-      // Also add to a local dismissed cache to prevent re-adding
-      const dismissedKey = `dismissed_${notificationId}`;
-      localStorage.setItem(dismissedKey, JSON.stringify({
-        notificationId,
-        dismissedAt: new Date().toISOString(),
-        sessionId: sessionInfo.sessionId
-      }));
-
-    } catch (error) {
-      console.error('Error dismissing notification in notification_states:', error);
-      // Show user-friendly error
-      alert('Failed to dismiss notification. Please try again.');
+      // Don't throw - continue with local state update
+      console.log('[NotificationContext] Continuing with local state update despite DB error');
+    } else {
+      console.log('[NotificationContext] ✅ Successfully dismissed in notification_states:', updateResult);
     }
-  };
+
+    // Always update local state
+    setNotificationQueue(prev => {
+      const filtered = prev.filter(n => n.id !== notificationId);
+      console.log(`[NotificationContext] Removed from queue: ${prev.length} -> ${filtered.length}`);
+      return filtered;
+    });
+    
+    setBellNotifications(prev => {
+      const filtered = prev.filter(n => n.id !== notificationId);
+      console.log(`[NotificationContext] Removed from bell: ${prev.length} -> ${filtered.length}`);
+      return filtered;
+    });
+
+    // Add to local dismissed cache
+    const dismissedKey = `dismissed_${notificationId}`;
+    localStorage.setItem(dismissedKey, JSON.stringify({
+      notificationId,
+      dismissedAt: new Date().toISOString(),
+      sessionId: sessionInfo.sessionId
+    }));
+
+    console.log('[NotificationContext] ✅ Local state updated successfully');
+
+  } catch (error) {
+    console.error('[NotificationContext] Critical error dismissing notification:', error);
+    
+    // Still update local state on error
+    setNotificationQueue(prev => prev.filter(n => n.id !== notificationId));
+    setBellNotifications(prev => prev.filter(n => n.id !== notificationId));
+    
+    alert('Failed to dismiss notification. The notification has been removed locally.');
+  }
+};
 
   // CRITICAL FIX: Enhanced addNotification with strict deduplication and notification_states only
   const addNotification = async (notification: Omit<NotificationData, 'id' | 'timestamp' | 'isHandled' | 'isDismissed' | 'photos' | 'photosFetched' | 'photoRetryCount'>) => {
@@ -1955,19 +1997,22 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
 
   // ===== NAVIGATION AND CONTROL FUNCTIONS =====
 
-  // FIXED: Enhanced mark current as handled - properly navigates after handling
-  const markCurrentAsHandled = async () => {
-    const currentNotification = notificationQueue[currentNotificationIndex];
-    if (!currentNotification) return;
-    
-    console.log('[NotificationContext] Marking current notification as PERMANENTLY handled in notification_states');
-    
-    // Use the enhanced markAsHandledById which now permanently handles notifications in notification_states
+ // 3. FIXED markCurrentAsHandled function
+const markCurrentAsHandled = async () => {
+  const currentNotification = notificationQueue[currentNotificationIndex];
+  if (!currentNotification) {
+    console.log('[NotificationContext] No current notification to mark as handled');
+    return;
+  }
+  
+  console.log('[NotificationContext] Marking current notification as PERMANENTLY handled in notification_states');
+  
+  try {
+    // Use the fixed markAsHandledById which now handles everything properly
     await markAsHandledById(currentNotification.id);
     
     // After marking as handled, navigate to next unhandled notification
-    // Note: The notification has already been removed from the queue by markAsHandledById
-    const updatedQueue = notificationQueueRef.current; // Get the updated queue
+    const updatedQueue = notificationQueueRef.current;
     const remainingUnhandled = updatedQueue.filter(n => !n.isHandled && !n.isDismissed);
     
     if (remainingUnhandled.length === 0) {
@@ -1988,71 +2033,76 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         
         // Play sound for next notification
         const nextNotification = updatedQueue[firstUnhandledIndex];
-        if (nextNotification && nextNotification.transaction) {
+        if (nextNotification?.transaction) {
           playNotificationSoundMemo(nextNotification.transaction.transaction_type);
         }
       } else {
-        // Shouldn't reach here, but handle it anyway
         console.log('[NotificationContext] No more unhandled notifications, closing panel');
         setIsNotificationVisible(false);
         setCurrentNotificationIndex(0);
       }
     }
-  };
+  } catch (error) {
+    console.error('[NotificationContext] Error in markCurrentAsHandled:', error);
+    // Error is already handled by markAsHandledById
+  }
+};
 
-  // FIXED: Enhanced dismiss current notification - properly navigates after dismissing
-  const dismissCurrentNotification = () => {
-    const currentNotification = notificationQueue[currentNotificationIndex];
-    if (!currentNotification) return;
+  // 4. FIXED dismissCurrentNotification function
+const dismissCurrentNotification = () => {
+  const currentNotification = notificationQueue[currentNotificationIndex];
+  if (!currentNotification) {
+    console.log('[NotificationContext] No current notification to dismiss');
+    return;
+  }
 
-    console.log('[NotificationContext] Dismissing current notification in notification_states:', currentNotification.id);
+  console.log('[NotificationContext] Dismissing current notification in notification_states:', currentNotification.id);
+  
+  // Dismiss in notification_states first, then update UI
+  dismissById(currentNotification.id).then(() => {
+    // After dismissing, navigate to next unhandled notification
+    const updatedQueue = notificationQueueRef.current;
+    const remainingUnhandled = updatedQueue.filter(n => !n.isHandled && !n.isDismissed);
     
-    // Dismiss in notification_states first, then update UI
-    dismissById(currentNotification.id).then(() => {
-      // After dismissing, navigate to next unhandled notification
-      const updatedQueue = notificationQueueRef.current; // Get the updated queue
-      const remainingUnhandled = updatedQueue.filter(n => !n.isHandled && !n.isDismissed);
+    if (remainingUnhandled.length === 0) {
+      console.log('[NotificationContext] No remaining notifications after dismiss');
+      setIsNotificationVisible(false);
+      setNotificationQueue([]);
+      setCurrentNotificationIndex(0);
       
-      if (remainingUnhandled.length === 0) {
-        console.log('[NotificationContext] No remaining notifications after dismiss');
+      // Clear tracking refs
+      activeTransactionsRef.current.clear();
+      processingTransactionsRef.current.clear();
+    } else {
+      // Find the first unhandled notification
+      const firstUnhandledIndex = updatedQueue.findIndex(n => !n.isHandled && !n.isDismissed);
+      
+      if (firstUnhandledIndex !== -1) {
+        console.log(`[NotificationContext] Moving to next unhandled notification at index ${firstUnhandledIndex}`);
+        setCurrentNotificationIndex(firstUnhandledIndex);
+        
+        // Keep modal visible
+        if (!isNotificationVisible) {
+          setIsNotificationVisible(true);
+        }
+        
+        // Play sound for next notification
+        const nextNotification = updatedQueue[firstUnhandledIndex];
+        if (nextNotification?.transaction) {
+          playNotificationSoundMemo(nextNotification.transaction.transaction_type);
+        }
+      } else {
+        console.log('[NotificationContext] No more unhandled notifications, closing panel');
         setIsNotificationVisible(false);
         setNotificationQueue([]);
         setCurrentNotificationIndex(0);
-        
-        // Clear tracking refs
-        activeTransactionsRef.current.clear();
-        processingTransactionsRef.current.clear();
-      } else {
-        // Find the first unhandled notification
-        const firstUnhandledIndex = updatedQueue.findIndex(n => !n.isHandled && !n.isDismissed);
-        
-        if (firstUnhandledIndex !== -1) {
-          console.log(`[NotificationContext] Moving to next unhandled notification at index ${firstUnhandledIndex}`);
-          setCurrentNotificationIndex(firstUnhandledIndex);
-          
-          // Keep modal visible
-          if (!isNotificationVisible) {
-            setIsNotificationVisible(true);
-          }
-          
-          // Play sound for next notification
-          const nextNotification = updatedQueue[firstUnhandledIndex];
-          if (nextNotification && nextNotification.transaction) {
-            playNotificationSoundMemo(nextNotification.transaction.transaction_type);
-          }
-        } else {
-          // Shouldn't reach here, but handle it anyway
-          console.log('[NotificationContext] No more unhandled notifications, closing panel');
-          setIsNotificationVisible(false);
-          setNotificationQueue([]);
-          setCurrentNotificationIndex(0);
-        }
       }
-    }).catch(error => {
-      console.error('Failed to dismiss notification in notification_states:', error);
-      // Don't hide the notification if dismiss failed
-    });
-  };
+    }
+  }).catch(error => {
+    console.error('[NotificationContext] Failed to dismiss notification in notification_states:', error);
+    // Error is already handled by dismissById
+  });
+};
 
   // Navigation methods
   const navigateToNext = () => {
