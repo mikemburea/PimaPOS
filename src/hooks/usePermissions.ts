@@ -1,4 +1,4 @@
-// src/hooks/usePermissions.ts - FIXED: No Authentication Loop on Tab Switch
+// src/hooks/usePermissions.ts - FINAL FIX: Eliminates all auth loops
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -77,12 +77,21 @@ export const usePermissions = (): UserPermissions => {
     adminCount: 0
   });
 
-  // CRITICAL FIX: Track initialization and prevent concurrent operations
+  // CRITICAL FIX: Use refs to avoid stale closures
+  const currentUserRef = useRef<User | null>(null);
   const initialLoadComplete = useRef(false);
   const refreshInProgress = useRef(false);
   const lastRefreshTime = useRef<number>(0);
   const authListenerActive = useRef(false);
   const mountedRef = useRef(true);
+  
+  // CRITICAL FIX: Track processed auth events to prevent duplicates
+  const processedAuthEvents = useRef(new Set<string>());
+
+  // Update ref whenever user state changes
+  useEffect(() => {
+    currentUserRef.current = user;
+  }, [user]);
 
   const checkFirstUserStatus = useCallback(async () => {
     try {
@@ -142,39 +151,22 @@ export const usePermissions = (): UserPermissions => {
     }
   }, []);
 
-  // CRITICAL FIX: Heavily restricted refresh to prevent loops
-  const refreshPermissions = useCallback(async () => {
-    const now = Date.now();
-    
+  const checkUserPermissions = useCallback(async () => {
     if (!mountedRef.current) {
-      console.log('🚫 Component unmounted, skipping permission refresh');
+      console.log('🚫 Component unmounted, skipping permission check');
       return;
     }
     
-    // Prevent concurrent refreshes
     if (refreshInProgress.current) {
-      console.log('🔒 Permission refresh already in progress');
-      return;
-    }
-
-    // CRITICAL: Much longer debounce for non-initial loads (30 seconds)
-    if (initialLoadComplete.current && now - lastRefreshTime.current < 30000) {
-      console.log(`🔒 Permission refresh debounced (${Math.round((now - lastRefreshTime.current) / 1000)}s since last)`);
+      console.log('🔒 Permission check already in progress');
       return;
     }
 
     refreshInProgress.current = true;
+    const now = Date.now();
     lastRefreshTime.current = now;
 
     try {
-      // Only show loading on initial load
-      if (!initialLoadComplete.current) {
-        setLoading(true);
-        console.log('🔄 Initial permission load...');
-      } else {
-        console.log('🔄 Background permission refresh (rare)');
-      }
-      
       // Use getSession to avoid triggering auth events
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
@@ -185,25 +177,16 @@ export const usePermissions = (): UserPermissions => {
           setProfile(null);
           setRole('user');
           setPermissions(ROLE_PERMISSIONS.user);
-          setLoading(false);
         }
-        refreshInProgress.current = false;
         return;
       }
 
       const currentUser = session?.user || null;
       
-      // Only update user state if it changed
-      if (currentUser?.id !== user?.id) {
-        if (mountedRef.current) {
-          setUser(currentUser);
-        }
-      }
-
-      // Check first user status only on initial load
-      if (!initialLoadComplete.current) {
-        await checkFirstUserStatus();
-        await fetchUserStats();
+      // Update user state and ref
+      if (mountedRef.current) {
+        setUser(currentUser);
+        currentUserRef.current = currentUser;
       }
 
       if (!currentUser) {
@@ -212,10 +195,7 @@ export const usePermissions = (): UserPermissions => {
           setProfile(null);
           setRole('user');
           setPermissions([]);
-          setLoading(false);
         }
-        refreshInProgress.current = false;
-        initialLoadComplete.current = true;
         return;
       }
 
@@ -238,24 +218,21 @@ export const usePermissions = (): UserPermissions => {
       } else {
         console.log('📋 Profile loaded:', profileData.email, 'Role:', profileData.user_type);
         
-        // Only update if profile changed
-        if (profile?.user_type !== profileData?.user_type) {
-          if (mountedRef.current) {
-            setProfile(profileData);
-            const userRole = (profileData?.user_type as UserRole) || 'user';
-            setRole(userRole);
-            setPermissions(ROLE_PERMISSIONS[userRole]);
+        if (mountedRef.current) {
+          setProfile(profileData);
+          const userRole = (profileData?.user_type as UserRole) || 'user';
+          setRole(userRole);
+          setPermissions(ROLE_PERMISSIONS[userRole]);
 
-            if (userRole === 'admin') {
-              console.log('🛡️ Admin permissions granted');
-            } else {
-              console.log('👤 User permissions granted');
-            }
+          if (userRole === 'admin') {
+            console.log('🛡️ Admin permissions granted');
+          } else {
+            console.log('👤 User permissions granted');
           }
         }
       }
     } catch (error) {
-      console.error('Error refreshing permissions:', error);
+      console.error('Error checking permissions:', error);
       if (mountedRef.current) {
         setUser(null);
         setProfile(null);
@@ -263,19 +240,55 @@ export const usePermissions = (): UserPermissions => {
         setPermissions(ROLE_PERMISSIONS.user);
       }
     } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-      }
       refreshInProgress.current = false;
-      initialLoadComplete.current = true;
     }
-  }, [checkFirstUserStatus, fetchUserStats, user, profile]);
+  }, []);
 
-  // CRITICAL FIX: Minimal auth listener - only respond to real auth events
+  const refreshPermissions = useCallback(async () => {
+    const now = Date.now();
+    
+    if (!mountedRef.current) {
+      console.log('🚫 Component unmounted, skipping refresh');
+      return;
+    }
+    
+    if (refreshInProgress.current) {
+      console.log('🔒 Permission refresh already in progress');
+      return;
+    }
+
+    // CRITICAL: Longer debounce for subsequent refreshes (30s)
+    if (initialLoadComplete.current && now - lastRefreshTime.current < 30000) {
+      console.log(`🔒 Refresh debounced (${Math.round((now - lastRefreshTime.current) / 1000)}s since last)`);
+      return;
+    }
+
+    // Only show loading spinner on initial load
+    if (!initialLoadComplete.current) {
+      setLoading(true);
+      console.log('🔄 Initial permission load...');
+    } else {
+      console.log('🔄 Background refresh (manual only)');
+    }
+
+    await checkUserPermissions();
+    
+    // Check first user status only on initial load
+    if (!initialLoadComplete.current) {
+      await checkFirstUserStatus();
+      await fetchUserStats();
+    }
+
+    if (mountedRef.current) {
+      setLoading(false);
+    }
+    initialLoadComplete.current = true;
+  }, [checkUserPermissions, checkFirstUserStatus, fetchUserStats]);
+
+  // CRITICAL FIX: Ultra-minimal auth listener with proper deduplication
   useEffect(() => {
     mountedRef.current = true;
     
-    // Prevent multiple listeners
     if (authListenerActive.current) {
       console.log('🔒 Auth listener already active');
       return;
@@ -283,39 +296,85 @@ export const usePermissions = (): UserPermissions => {
     
     authListenerActive.current = true;
 
-    // Initial permission load
+    // Initial load
     refreshPermissions();
 
-    // Auth state listener - ONLY for critical events
+    // CRITICAL FIX: Minimal auth listener that uses refs
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mountedRef.current) return;
       
       console.log('🔐 Auth event:', event);
       
-      // CRITICAL: Only respond to sign in/out, ignore everything else
-   if (event === 'SIGNED_IN') {
-  if (session?.user?.id === user?.id) {
-    console.log("usePermissions: Ignoring SIGNED_IN event for same user (token refresh)");
-    return;
-  }
-  console.log("usePermissions: Real SIGNED_IN (new user)");
-  await refreshPermissions();
-}
- else if (event === 'SIGNED_OUT') {
-        console.log('👋 User signed out');
-        if (mountedRef.current) {
-          setUser(null);
-          setProfile(null);
-          setRole('user');
-          setPermissions([]);
-          setLoading(false);
-        }
-        initialLoadComplete.current = false;
-        await checkFirstUserStatus();
-        await fetchUserStats();
+      // CRITICAL FIX: Create deduplication key using session details
+      const dedupeKey = session 
+        ? `${event}_${session.user.id}_${session.access_token.slice(-8)}`
+        : `${event}_no_session`;
+      
+      // Check if we've already processed this exact event
+      if (processedAuthEvents.current.has(dedupeKey)) {
+        console.log(`⏭️ Skipping duplicate ${event} event`);
+        return;
       }
-      // CRITICAL: Ignore TOKEN_REFRESHED, USER_UPDATED, INITIAL_SESSION, etc.
-      // These events were causing the infinite loop
+      
+      // Mark as processed
+      processedAuthEvents.current.add(dedupeKey);
+      
+      // Clean old entries (keep last 10)
+      if (processedAuthEvents.current.size > 10) {
+        const entries = Array.from(processedAuthEvents.current);
+        processedAuthEvents.current = new Set(entries.slice(-10));
+      }
+      
+      // CRITICAL FIX: Use ref to get current user (avoids stale closure)
+      const currentUserId = currentUserRef.current?.id;
+      
+      switch (event) {
+        case 'SIGNED_IN':
+          // Only refresh if this is a NEW user (not same user refreshing token)
+          if (session?.user?.id !== currentUserId) {
+            console.log('✅ New user sign-in detected, refreshing permissions');
+            await checkUserPermissions();
+            await checkFirstUserStatus();
+            await fetchUserStats();
+          } else {
+            console.log('⏭️ Token refresh for same user, skipping permission reload');
+          }
+          break;
+          
+        case 'SIGNED_OUT':
+          console.log('👋 User signed out, clearing permissions');
+          if (mountedRef.current) {
+            setUser(null);
+            currentUserRef.current = null;
+            setProfile(null);
+            setRole('user');
+            setPermissions([]);
+            setLoading(false);
+          }
+          initialLoadComplete.current = false;
+          processedAuthEvents.current.clear();
+          await checkFirstUserStatus();
+          await fetchUserStats();
+          break;
+          
+        case 'TOKEN_REFRESHED':
+          console.log('🔄 Token refreshed, no action needed');
+          // Do nothing - token refresh should not trigger permission reload
+          break;
+          
+        case 'USER_UPDATED':
+          console.log('📝 User updated, no permission reload needed');
+          // Do nothing - user updates don't affect permissions in our system
+          break;
+          
+        case 'INITIAL_SESSION':
+          console.log('🎬 Initial session event');
+          // Already handled by initial refreshPermissions() call
+          break;
+          
+        default:
+          console.log(`ℹ️ Ignoring auth event: ${event}`);
+      }
     });
 
     return () => {
@@ -323,8 +382,9 @@ export const usePermissions = (): UserPermissions => {
       mountedRef.current = false;
       authListenerActive.current = false;
       subscription.unsubscribe();
+      processedAuthEvents.current.clear();
     };
-  }, []); // Empty deps - run once
+  }, [checkUserPermissions, checkFirstUserStatus, fetchUserStats, refreshPermissions]);
 
   const hasPermission = useCallback((permission: Permission): boolean => {
     return permissions.includes(permission);
@@ -355,7 +415,7 @@ export const usePermissions = (): UserPermissions => {
   };
 };
 
-// Permission service (unchanged but using getSession consistently)
+// Permission service (unchanged - already using getSession)
 export class PermissionService {
   
   static async canPerformAction(

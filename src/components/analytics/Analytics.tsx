@@ -1,4 +1,4 @@
-// src/components/analytics/Analytics.tsx - Fixed supplier data display to match Dashboard
+// src/components/analytics/Analytics.tsx - Fixed to pull real data from database
 import React, { useState, useEffect } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -101,7 +101,7 @@ interface SupplierPerformance {
   materialTypes: string[];
   registrationDate: string;
   daysSinceFirstTransaction: number;
-  transactionFrequency: number; // transactions per month
+  transactionFrequency: number;
 }
 
 interface AnalyticsProps {
@@ -167,83 +167,99 @@ const Analytics: React.FC<AnalyticsProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // FIXED: Enhanced data processing to ensure consistency with Dashboard
-  const processPropsData = (
-    propSalesTransactions: SalesTransaction[], 
-    propSuppliers: Supplier[], 
-    propMaterials: Material[]
-  ) => {
-    console.log('Analytics: Processing props data');
-    console.log('Sales transactions:', propSalesTransactions?.length || 0);
-    console.log('Suppliers:', propSuppliers?.length || 0);
-    console.log('Materials:', propMaterials?.length || 0);
-    
-    // Ensure all suppliers are included, regardless of status initially
-    const processedSuppliers = propSuppliers || [];
-    
-    // Log supplier details for debugging
-    console.log('Supplier details:', processedSuppliers.map(s => ({
-      name: s.name,
-      status: s.status,
-      total_transactions: s.total_transactions,
-      total_value: s.total_value
-    })));
-    
-    setSalesTransactions(propSalesTransactions || []);
-    setSuppliers(processedSuppliers);
-    setMaterials(propMaterials || []);
-    setLoading(false); // IMPORTANT: Set loading to false here
-  };
-
-  // Fetch data from Supabase
+  // Fetch data from Supabase - ALWAYS fetch, don't rely on props
   const fetchAnalyticsData = async () => {
     try {
+      console.log('📊 Analytics: Starting data fetch...');
       setLoading(true);
       setError(null);
 
-      // FIXED: Use prop data if any props are provided (even if empty arrays)
-      if (propSalesTransactions || propSuppliers || propMaterials) {
-        console.log('Analytics: Using prop data');
-        console.log('Analytics: Received suppliers:', propSuppliers?.length || 0);
-        console.log('Analytics: Received sales transactions:', propSalesTransactions?.length || 0);
-        console.log('Analytics: Received materials:', propMaterials?.length || 0);
-        
-        // Use props data even if arrays are empty
-        setSalesTransactions(propSalesTransactions || []);
-        setSuppliers(propSuppliers || []);
-        setMaterials(propMaterials || []);
-        setLoading(false);
-        return; // Exit early
-      }
-
-      console.log('Analytics: No props provided, fetching data from Supabase');
-
-      // Fetch all data in parallel - FIXED: Don't filter suppliers by status here
-      const [salesTransactionsResult, suppliersResult, materialsResult] = await Promise.all([
+      // Fetch all data in parallel - INCLUDING regular transactions
+      const [transactionsResult, salesTransactionsResult, suppliersResult, materialsResult] = await Promise.all([
+        supabase
+          .from('transactions')
+          .select('*')
+          .order('transaction_date', { ascending: false }),
         supabase
           .from('sales_transactions')
           .select('*')
-          .order('created_at', { ascending: false }),
+          .order('transaction_date', { ascending: false }),
         supabase
           .from('suppliers')
-          .select('*') // REMOVED status filter to match Dashboard behavior
+          .select('*')
           .order('total_value', { ascending: false }),
         supabase
           .from('materials')
           .select('*')
           .eq('is_active', true)
+          .order('name', { ascending: true })
       ]);
 
-      if (salesTransactionsResult.error) throw salesTransactionsResult.error;
-      if (suppliersResult.error) throw suppliersResult.error;
-      if (materialsResult.error) throw materialsResult.error;
+      // Check for errors
+      if (transactionsResult.error) {
+        console.error('❌ Transactions error:', transactionsResult.error);
+        throw transactionsResult.error;
+      }
+      if (salesTransactionsResult.error) {
+        console.error('❌ Sales transactions error:', salesTransactionsResult.error);
+        throw salesTransactionsResult.error;
+      }
+      if (suppliersResult.error) {
+        console.error('❌ Suppliers error:', suppliersResult.error);
+        throw suppliersResult.error;
+      }
+      if (materialsResult.error) {
+        console.error('❌ Materials error:', materialsResult.error);
+        throw materialsResult.error;
+      }
 
-      setSalesTransactions(salesTransactionsResult.data || []);
-      setSuppliers(suppliersResult.data || []);
-      setMaterials(materialsResult.data || []);
+      const fetchedTransactions = transactionsResult.data || [];
+      const fetchedSalesTransactions = salesTransactionsResult.data || [];
+      const fetchedSuppliers = suppliersResult.data || [];
+      const fetchedMaterials = materialsResult.data || [];
+
+      console.log('✅ Analytics: Data fetched successfully');
+      console.log('📊 Purchase transactions:', fetchedTransactions.length);
+      console.log('📊 Sales transactions:', fetchedSalesTransactions.length);
+      console.log('🏪 Suppliers:', fetchedSuppliers.length);
+      console.log('📦 Materials:', fetchedMaterials.length);
+
+      // Log sample data for debugging
+      if (fetchedTransactions.length > 0) {
+        console.log('Sample purchase transaction:', fetchedTransactions[0]);
+      }
+      if (fetchedSalesTransactions.length > 0) {
+        console.log('Sample sales transaction:', fetchedSalesTransactions[0]);
+      }
+      if (fetchedSuppliers.length > 0) {
+        console.log('Sample supplier:', fetchedSuppliers[0]);
+      }
+      if (fetchedMaterials.length > 0) {
+        console.log('Sample material:', fetchedMaterials[0]);
+      }
+
+      // Combine both transaction types for analytics
+      const allTransactions = [
+        ...fetchedTransactions.map(t => ({
+          ...t,
+          transaction_type: 'purchase' as const,
+          material_name: t.material_type || 'Unknown',
+          weight_kg: t.weight_kg || 0,
+          price_per_kg: t.unit_price || 0,
+          total_amount: t.total_amount || 0,
+          payment_status: t.payment_status || 'pending'
+        })),
+        ...fetchedSalesTransactions
+      ];
+
+      console.log('📊 Combined transactions for analytics:', allTransactions.length);
+
+      setSalesTransactions(allTransactions as SalesTransaction[]);
+      setSuppliers(fetchedSuppliers);
+      setMaterials(fetchedMaterials);
 
     } catch (err) {
-      console.error('Error fetching analytics data:', err);
+      console.error('❌ Error fetching analytics data:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch analytics data');
     } finally {
       setLoading(false);
@@ -330,9 +346,8 @@ const Analytics: React.FC<AnalyticsProps> = ({
         materialStats.weight += transaction.weight_kg;
         materialStats.revenue += transaction.total_amount;
         materialStats.transactions += 1;
-        materialStats.value = materialStats.weight; // Use weight as the primary value for pie chart
+        materialStats.value = materialStats.weight;
         
-        // Calculate average price from actual transactions
         if (materialStats.transactions > 0) {
           materialStats.avgPrice = materialStats.revenue / materialStats.weight;
         }
@@ -344,29 +359,22 @@ const Analytics: React.FC<AnalyticsProps> = ({
     });
 
     return Array.from(materialStatsMap.values())
-      .filter(material => material.transactions > 0) // Only show materials with transactions
+      .filter(material => material.transactions > 0)
       .sort((a, b) => b.weight - a.weight);
   };
 
-  // FIXED: Calculate supplier performance using all suppliers (matching Dashboard logic)
+  // Calculate supplier performance
   const calculateSupplierPerformance = (): SupplierPerformance[] => {
-    console.log('Analytics: Calculating supplier performance');
-    console.log('Total suppliers available:', suppliers.length);
-    
     const activeSuppliers = suppliers.filter(supplier => supplier.status === 'active');
-    console.log('Active suppliers:', activeSuppliers.length);
-    
     const suppliersWithTransactions = activeSuppliers.filter(supplier => supplier.total_transactions > 0);
-    console.log('Active suppliers with transactions:', suppliersWithTransactions.length);
     
     return suppliersWithTransactions
       .map(supplier => {
-        // Calculate additional metrics
         const firstTransactionDate = supplier.first_transaction_date || supplier.registered_date;
         const daysSinceFirst = supplier.first_transaction_date ? 
           Math.floor((new Date().getTime() - new Date(supplier.first_transaction_date).getTime()) / (1000 * 60 * 60 * 24)) : 0;
         
-        const monthsSinceFirst = Math.max(1, daysSinceFirst / 30); // Avoid division by zero
+        const monthsSinceFirst = Math.max(1, daysSinceFirst / 30);
         const transactionFrequency = supplier.total_transactions / monthsSinceFirst;
 
         return {
@@ -393,23 +401,20 @@ const Analytics: React.FC<AnalyticsProps> = ({
       .slice(0, 10);
   };
 
-  // FIXED: Calculate comprehensive summary statistics (matching Dashboard logic)
+  // Calculate comprehensive summary statistics
   const calculateSummaryStats = () => {
     const completedTransactions = salesTransactions.filter(t => t.payment_status === 'completed');
     const totalRevenue = completedTransactions.reduce((sum, t) => sum + t.total_amount, 0);
     const totalWeight = completedTransactions.reduce((sum, t) => sum + t.weight_kg, 0);
     
-    // Calculate averages
     const avgTransactionValue = completedTransactions.length > 0 ? totalRevenue / completedTransactions.length : 0;
     const avgPricePerKg = totalWeight > 0 ? totalRevenue / totalWeight : 0;
     
-    // Get top material by revenue
     const materialStats = calculateMaterialStats();
     const topMaterialByRevenue = materialStats.length > 0 ? materialStats.reduce((max, material) => 
       material.revenue > max.revenue ? material : max, materialStats[0]
     ) : null;
     
-    // Calculate growth (using last 30 days vs previous 30 days)
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
@@ -428,23 +433,15 @@ const Analytics: React.FC<AnalyticsProps> = ({
     
     const monthlyGrowth = previousRevenue > 0 ? ((recentRevenue - previousRevenue) / previousRevenue) * 100 : 0;
     
-    // FIXED: Use proper supplier counts (matching Dashboard logic)
     const allSuppliers = suppliers || [];
     const activeSuppliers = allSuppliers.filter(s => s.status === 'active').length;
     const activeSuppliersWithTransactions = allSuppliers.filter(s => s.status === 'active' && s.total_transactions > 0).length;
     const activeMaterials = new Set(completedTransactions.map(t => t.material_name)).size;
     
-    console.log('Analytics summary stats:');
-    console.log('All suppliers:', allSuppliers.length);
-    console.log('Active suppliers:', activeSuppliers);
-    console.log('Active suppliers with transactions:', activeSuppliersWithTransactions);
-    
-    // Calculate special price transactions
     const specialPriceTransactions = completedTransactions.filter(t => t.is_special_price).length;
     const specialPricePercentage = completedTransactions.length > 0 ? 
       (specialPriceTransactions / completedTransactions.length) * 100 : 0;
     
-    // Calculate total credit extended
     const totalCreditLimit = allSuppliers.reduce((sum, s) => sum + (s.credit_limit || 0), 0);
     
     return {
@@ -511,14 +508,14 @@ const Analytics: React.FC<AnalyticsProps> = ({
     const allSuppliers = suppliers || [];
     
     const monthlyRegistrations = allSuppliers.reduce((acc, supplier) => {
-      const month = new Date(supplier.registered_date).toISOString().slice(0, 7); // YYYY-MM
+      const month = new Date(supplier.registered_date).toISOString().slice(0, 7);
       acc[month] = (acc[month] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
     return Object.keys(monthlyRegistrations)
       .sort()
-      .slice(-12) // Last 12 months
+      .slice(-12)
       .map(month => ({
         month: new Date(month + '-01').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
         registrations: monthlyRegistrations[month]
@@ -530,13 +527,9 @@ const Analytics: React.FC<AnalyticsProps> = ({
     const totalTransactions = salesTransactions.length;
     const completedTransactions = salesTransactions.filter(t => t.payment_status === 'completed');
     
-    // Success rate (completed vs total)
     const successRate = totalTransactions > 0 ? (completedTransactions.length / totalTransactions) * 100 : 0;
-    
-    // Average days to complete (simplified - assume same day completion for completed transactions)
     const avgProcessingTime = '< 1 hour';
     
-    // Price variance analysis
     const priceVariances = materials.map(material => {
       const materialTransactions = completedTransactions.filter(t => t.material_name === material.name);
       if (materialTransactions.length === 0) return { material: material.name, variance: 0 };
@@ -550,7 +543,6 @@ const Analytics: React.FC<AnalyticsProps> = ({
     const avgPriceVariance = priceVariances.length > 0 ? 
       priceVariances.reduce((sum, pv) => sum + pv.variance, 0) / priceVariances.length : 0;
     
-    // Material diversity score
     const uniqueMaterials = new Set(completedTransactions.map(t => t.material_name)).size;
     const totalMaterials = materials.filter(m => m.is_active).length;
     const diversityScore = totalMaterials > 0 ? (uniqueMaterials / totalMaterials) * 100 : 0;
@@ -565,17 +557,11 @@ const Analytics: React.FC<AnalyticsProps> = ({
     };
   };
 
-  // FIXED: Enhanced useEffect with better prop change detection
+  // Fetch data on mount
   useEffect(() => {
-    console.log('Analytics: useEffect triggered');
-    console.log('Props received:', {
-      salesTransactions: propSalesTransactions?.length,
-      suppliers: propSuppliers?.length,
-      materials: propMaterials?.length
-    });
-    
+    console.log('🚀 Analytics: Component mounted, fetching data...');
     fetchAnalyticsData();
-  }, [propSalesTransactions, propSuppliers, propMaterials]);
+  }, []); // Empty dependency array - only run on mount
 
   // Render loading state
   if (loading) {
@@ -603,13 +589,8 @@ const Analytics: React.FC<AnalyticsProps> = ({
     );
   }
 
-  // Check if we have data - FIXED: Better data validation
+  // Check if we have data
   const hasData = salesTransactions.length > 0 || suppliers.length > 0;
-  console.log('Analytics: Has data check:', { 
-    salesTransactions: salesTransactions.length, 
-    suppliers: suppliers.length,
-    hasData 
-  });
 
   // Calculate all statistics
   const monthlyData = calculateMonthlyData();
@@ -620,12 +601,6 @@ const Analytics: React.FC<AnalyticsProps> = ({
   const supplierTierStats = calculateSupplierTierStats();
   const paymentMethodStats = calculatePaymentMethodStats();
   const registrationTrends = calculateRegistrationTrends();
-
-  console.log('Analytics: Calculated stats:', {
-    activeSuppliers: summaryStats.activeSuppliers,
-    activeSuppliersWithTransactions: summaryStats.activeSuppliersWithTransactions,
-    supplierPerformanceCount: supplierPerformance.length
-  });
 
   return (
     <div className="space-y-6 p-6 bg-gray-50 min-h-screen">
@@ -667,7 +642,11 @@ const Analytics: React.FC<AnalyticsProps> = ({
                     KES {summaryStats.totalRevenue.toLocaleString()}
                   </p>
                   <p className="text-sm text-green-600 mt-2 flex items-center">
-                    <TrendingUp className="w-4 h-4 mr-1" />
+                    {summaryStats.monthlyGrowth >= 0 ? (
+                      <TrendingUp className="w-4 h-4 mr-1" />
+                    ) : (
+                      <TrendingDown className="w-4 h-4 mr-1" />
+                    )}
                     {summaryStats.monthlyGrowth > 0 ? '+' : ''}{summaryStats.monthlyGrowth.toFixed(1)}% vs last month
                   </p>
                 </div>
@@ -893,7 +872,6 @@ const Analytics: React.FC<AnalyticsProps> = ({
             </div>
           </div>
 
-          {/* Rest of the component remains the same... */}
           {/* Business Intelligence Cards */}
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* Meru Center Performance */}

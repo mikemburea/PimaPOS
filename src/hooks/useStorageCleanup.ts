@@ -14,7 +14,7 @@ export function useStorageCleanup() {
   const [error, setError] = useState<string | null>(null)
   const [lastCleanup, setLastCleanup] = useState<CleanupResult | null>(null)
 
-  // Check storage status
+  // Check storage status from Supabase buckets
   const checkStatus = useCallback(async () => {
     setIsLoading(true)
     setError(null)
@@ -23,19 +23,19 @@ export function useStorageCleanup() {
       const storageStatus = await getStorageStatus()
       setStatus(storageStatus)
     } catch (err: any) {
-      setError(err.message)
+      setError(err.message || 'Failed to check storage status')
     } finally {
       setIsLoading(false)
     }
   }, [])
 
-  // Run cleanup manually
+  // Run cleanup manually with 90 days retention
   const runCleanup = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     
     try {
-      const result = await runStorageCleanup()
+      const result = await runStorageCleanup(90)
       setLastCleanup(result)
       
       if (result.success) {
@@ -70,7 +70,10 @@ export function useStorageCleanup() {
     
     try {
       const result = await checkAndCleanupStorage()
-      setStatus(result.status)
+      
+      if (result.status) {
+        setStatus(result.status)
+      }
       
       if (result.cleanupResult) {
         setLastCleanup(result.cleanupResult)
@@ -106,5 +109,9 @@ export function useStorageCleanup() {
     isWarning: status?.status === 'WARNING',
     storageUsagePercent: status?.percent_of_1gb || 0,
     storageUsageMB: status?.size_mb || 0,
+    // Bucket details
+    transactionPhotosCount: status?.bucket_details?.transaction_photos || 0,
+    deliveryPhotosCount: status?.bucket_details?.delivery_photos || 0,
+    totalPhotos: status?.photo_count || 0,
   }
 }

@@ -1,3 +1,5 @@
+// AppRouter.tsx - FIXED VERSION WITH ALL RESUME/RELOAD PATCHES
+// This version eliminates stuck loading states and auth loops
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import App from './App';
@@ -7,148 +9,232 @@ const AppRouter: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<'welcome' | 'app'>('welcome');
   const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
   const [user, setUser] = useState<any>(null);
-  
-  // CRITICAL FIX: Prevent any duplicate operations
+
+  // Control flags
   const authCheckComplete = useRef(false);
   const authListenerActive = useRef(false);
   const mountedRef = useRef(true);
 
-  // Check authentication status on app start
+  // CRITICAL FIX: Track processed events with better dedupe key
+  const processedEvents = useRef(new Set<string>());
+
+  // CRITICAL FIX: Track latest currentPage to avoid stale closures
+  const currentPageRef = useRef<'welcome' | 'app'>(currentPage);
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
+
+  // --- INITIAL AUTH CHECK + LISTENER ---
   useEffect(() => {
     mountedRef.current = true;
-    
-    // Prevent multiple auth checks
+    console.log('AppRouter: Initial mount');
+
+    // CRITICAL FIX: Only run initial check once
     if (authCheckComplete.current) {
-      console.log('AppRouter: Auth check already completed');
+      console.log('AppRouter: Skipping initial auth check (already completed)');
+      setIsCheckingAuth(false);
       return;
     }
 
     const checkAuthStatus = async () => {
       try {
-        console.log('AppRouter: Checking auth status...');
-        
-        // CRITICAL: Use getSession instead of getUser to avoid triggering events
+        console.log('AppRouter: Performing initial auth check...');
         const { data: { session } } = await supabase.auth.getSession();
         const currentUser = session?.user;
-        
+
         if (currentUser) {
-          console.log('AppRouter: User already authenticated:', currentUser.email);
+          console.log('AppRouter: Initial auth - user found:', currentUser.email);
           if (mountedRef.current) {
             setUser(currentUser);
             setCurrentPage('app');
           }
         } else {
-          console.log('AppRouter: No authenticated user found');
+          console.log('AppRouter: Initial auth - no user found');
           if (mountedRef.current) {
             setCurrentPage('welcome');
           }
         }
-      } catch (error) {
-        console.error('AppRouter: Error checking auth status:', error);
+      } catch (err) {
+        console.error('AppRouter: Error during initial auth check:', err);
         if (mountedRef.current) {
           setCurrentPage('welcome');
         }
       } finally {
         if (mountedRef.current) {
-          setIsCheckingAuth(false);
           authCheckComplete.current = true;
+          setIsCheckingAuth(false);
         }
       }
     };
 
     checkAuthStatus();
-    
 
-    // CRITICAL FIX: Only set up ONE auth listener EVER
+    // CRITICAL FIX: Ensure listener is setup only once
     if (authListenerActive.current) {
-      console.log('AppRouter: Auth listener already active, skipping setup');
+      console.log('AppRouter: Auth listener already active — skipping');
       return;
     }
 
     authListenerActive.current = true;
-    console.log('AppRouter: Setting up auth listener (ONE TIME ONLY)');
+    console.log('AppRouter: Setting up ONE-TIME Supabase auth listener');
 
-    // Listen for auth changes - EXTREMELY RESTRICTIVE
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mountedRef.current) {
-        console.log('AppRouter: Component unmounted, ignoring auth event');
-        return;
-      }
-      
-      console.log('AppRouter: Auth state change:', event);
-      
-      // CRITICAL: ONLY respond to actual sign in/out, nothing else
-     if (
-  event === 'SIGNED_IN' && 
-  session?.user && 
-  session?.user?.id !== user?.id
-) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        // CRITICAL FIX: Get fresh page state on every event (no stale closures)
+        const isPageVisible = !document.hidden;
+        const isPageFocused = document.hasFocus();
+        const current = currentPageRef.current;
 
-        // Only if we don't already have a user
-        console.log('AppRouter: User signed in, navigating to app');
-        if (mountedRef.current) {
-          setUser(session.user);
-          setCurrentPage('app');
+        console.log(`🔔 Auth event: ${event}`, {
+          visible: isPageVisible,
+          focused: isPageFocused,
+          hasSession: !!session,
+          userId: session?.user?.id?.slice(-8),
+          currentPage: current
+        });
+
+        // Return early if unmounted
+        if (!mountedRef.current) {
+          console.log('⚠️ Component unmounted, ignoring auth event');
+          return;
         }
-      } else if (event === 'SIGNED_OUT') {
-        console.log('AppRouter: User signed out, navigating to welcome');
-        if (mountedRef.current) {
-          setUser(null);
-          setCurrentPage('welcome');
+
+        // CRITICAL FIX: Improved dedupe key using session + small token slice
+        // This reduces false dedupes while still catching true duplicates
+        const dedupeKey = session 
+          ? `${event}_${session.user.id}_${session.access_token.slice(-12)}`
+          : `${event}_no_session`;
+
+        // Check for duplicates
+        if (processedEvents.current.has(dedupeKey)) {
+          console.log(`⏭️ Skipping duplicate ${event} event (same session)`);
+          return;
         }
-      } else {
-        // Log but ignore all other events
-        console.log(`AppRouter: Ignoring ${event} event (not a real sign in/out)`);
+
+        // Mark as processed
+        processedEvents.current.add(dedupeKey);
+
+        // Clean old entries to prevent memory leak (keep last 10)
+        if (processedEvents.current.size > 10) {
+          const entries = Array.from(processedEvents.current);
+          processedEvents.current = new Set(entries.slice(-10));
+        }
+
+        // --- EVENT HANDLERS ---
+        switch (event) {
+          case 'SIGNED_IN':
+            if (session?.user && current !== 'app') {
+              console.log('✅ Processing SIGNED_IN → navigating to app');
+              setUser(session.user);
+              setCurrentPage('app');
+              // CRITICAL FIX: Explicitly clear loading state on SIGNED_IN
+              setIsCheckingAuth(false);
+            } else if (current === 'app') {
+              console.log('ℹ️ SIGNED_IN ignored — already on app');
+            } else {
+              console.log('⚠️ SIGNED_IN ignored — no user in session');
+            }
+            break;
+
+          case 'TOKEN_REFRESHED':
+            console.log('🔄 TOKEN_REFRESHED — token updated, maintaining current page');
+            // Don't navigate on token refresh, just update user if needed
+            if (session?.user && current === 'app') {
+              setUser(session.user);
+            }
+            break;
+
+          case 'SIGNED_OUT':
+            if (current !== 'welcome') {
+              console.log('👋 Processing SIGNED_OUT → navigating to welcome');
+              setUser(null);
+              setCurrentPage('welcome');
+              // Clear processed events on sign out
+              processedEvents.current.clear();
+            } else {
+              console.log('ℹ️ SIGNED_OUT ignored — already on welcome');
+            }
+            break;
+
+          case 'INITIAL_SESSION':
+            if (session?.user && current !== 'app') {
+              console.log('✅ Initial session found → navigating to app');
+              setUser(session.user);
+              setCurrentPage('app');
+              setIsCheckingAuth(false);
+            } else if (!session?.user) {
+              console.log('ℹ️ No initial session found');
+            }
+            break;
+
+          case 'USER_UPDATED':
+            if (session?.user) {
+              console.log('🔄 USER_UPDATED → updating user state only');
+              setUser(session.user);
+            }
+            break;
+
+          default:
+            console.log(`ℹ️ Ignoring unhandled auth event: ${event}`);
+        }
       }
-    });
+    );
 
     return () => {
-      console.log('AppRouter: Cleaning up');
+      console.log('🛑 AppRouter: Cleanup — component unmounted');
       mountedRef.current = false;
       authListenerActive.current = false;
-      subscription.unsubscribe();
-    };
-  }, []); // CRITICAL: Empty deps - run once only
 
-  // Enhanced navigation functions
+      try {
+        subscription?.unsubscribe?.();
+        console.log('✅ Auth listener unsubscribed');
+      } catch (err) {
+        console.warn('⚠️ Error unsubscribing auth listener:', err);
+      }
+
+      // Clear processed events on cleanup
+      processedEvents.current.clear();
+    };
+  }, []); // CRITICAL: Empty deps - run once on mount
+
+  // --- Navigation helpers ---
   const navigateToApp = () => {
-    console.log('AppRouter: navigateToApp called');
-    setCurrentPage('app');
+    console.log('AppRouter: manual navigateToApp');
+    if (currentPageRef.current !== 'app') {
+      setCurrentPage('app');
+    } else {
+      console.log('Already on app page, no navigation needed');
+    }
   };
 
   const navigateToWelcome = async () => {
+    console.log('AppRouter: manual logout → welcome');
     try {
-      console.log('AppRouter: Logging out and navigating to welcome...');
       await supabase.auth.signOut();
-      setUser(null);
-      setCurrentPage('welcome');
-    } catch (error) {
-      console.error('AppRouter: Error during logout:', error);
-      // Force navigation even if logout fails
+      // The SIGNED_OUT event will handle navigation
+    } catch (err) {
+      console.error('AppRouter: logout error:', err);
+      // Fallback: force navigation if signOut fails
       setUser(null);
       setCurrentPage('welcome');
     }
   };
 
-  // Handle auth success from welcome component
   const handleAuthSuccess = () => {
-    console.log('AppRouter: handleAuthSuccess called');
-    navigateToApp();
+    console.log('AppRouter: handleAuthSuccess (from welcome)');
+    // The SIGNED_IN event from the listener will handle navigation
   };
 
-  // Show loading screen while checking authentication
+  // --- LOADING SCREEN ---
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 rounded-2xl shadow-xl flex items-center justify-center relative group mb-6 bg-white overflow-hidden mx-auto">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center relative">
+          <div className="w-16 h-16 rounded-2xl shadow-xl flex items-center justify-center relative mb-6 bg-white mx-auto">
+            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
               <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-inner">
                 <span className="text-blue-600 font-black text-lg">M</span>
               </div>
-              <div className="absolute -top-1 -right-1 w-3 h-3 bg-gradient-to-r from-green-400 to-blue-500 rounded-full animate-pulse"></div>
             </div>
           </div>
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
@@ -159,19 +245,19 @@ const AppRouter: React.FC = () => {
     );
   }
 
-  console.log('AppRouter: Current page:', currentPage, 'User:', user?.email);
+  console.log('AppRouter: Rendering page:', currentPage, 'user:', user?.email);
 
-  // Render the appropriate component
+  // --- ROUTING ---
   if (currentPage === 'app') {
     return <App onNavigateBack={navigateToWelcome} />;
   }
 
   return (
-    <StandalonePimaPOSWelcome 
+    <StandalonePimaPOSWelcome
       onAuthSuccess={handleAuthSuccess}
       onNavigateToApp={navigateToApp}
     />
-  ); 
+  );
 };
 
 export default AppRouter;

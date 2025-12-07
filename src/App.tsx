@@ -1,4 +1,5 @@
-// OPTIMIZED: App.tsx - Fixed Infinite Loop in Authentication Resume
+// OPTIMIZED: App.tsx - Final Fix for Unmount/Remount Loops (PART 1 of 2)
+// This file is split into 2 parts due to length. See Part 2 for the rest.
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from './lib/supabase';
 import { Menu, X, AlertTriangle, RefreshCw, Wifi, WifiOff, Shield, ShieldCheck, Crown, Users } from 'lucide-react';
@@ -28,6 +29,22 @@ import WeeklyReport from './components/reports/WeeklyReport';
 import MonthlyReport from './components/reports/MonthlyReport';
 import CustomReport from './components/reports/CustomReport';
 
+// ============================================================================
+// CRITICAL FIX: Timeout Helper for Fetch Operations
+// ============================================================================
+const withTimeout = <T,>(
+  p: Promise<T>,
+  ms = 30000,
+  timeoutMessage = 'Request timeout'
+): Promise<T> => {
+  return Promise.race<T>([
+    p,
+    new Promise<T>((_, rej) =>
+      setTimeout(() => rej(new Error(timeoutMessage)), ms)
+    )
+  ]);
+};
+
 // Storage Monitor interfaces and component (maintaining existing functionality)
 interface StorageCleanupResult {
   freedSpace: number;
@@ -50,20 +67,18 @@ interface StorageMonitorProps {
   className?: string;
 }
 
-// Enhanced Storage Monitor Hook with threshold support (maintaining existing functionality)
+// Enhanced Storage Monitor Hook with threshold support
 const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8) => {
   const [storageUsagePercent, setStorageUsagePercent] = useState<number>(0);
   const [needsCleanup, setNeedsCleanup] = useState<boolean>(false);
   const [isCleaningUp, setIsCleaningUp] = useState<boolean>(false);
   const [lastCleanup, setLastCleanup] = useState<Date | null>(null);
 
-  // Calculate storage usage
   const calculateStorageUsage = (): number => {
     try {
       let totalUsed = 0;
       let totalQuota = 0;
 
-      // Check localStorage
       if (typeof(Storage) !== "undefined") {
         let localStorageUsed = 0;
         for (let key in localStorage) {
@@ -72,10 +87,9 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
           }
         }
         totalUsed += localStorageUsed;
-        totalQuota += 5 * 1024 * 1024; // Assume 5MB quota for localStorage
+        totalQuota += 5 * 1024 * 1024;
       }
 
-      // Check sessionStorage
       if (typeof(Storage) !== "undefined") {
         let sessionStorageUsed = 0;
         for (let key in sessionStorage) {
@@ -84,10 +98,9 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
           }
         }
         totalUsed += sessionStorageUsed;
-        totalQuota += 5 * 1024 * 1024; // Assume 5MB quota for sessionStorage
+        totalQuota += 5 * 1024 * 1024;
       }
 
-      // Check IndexedDB storage estimate (if available)
       if ('storage' in navigator && 'estimate' in navigator.storage) {
         navigator.storage.estimate().then((estimate) => {
           if (estimate.usage && estimate.quota) {
@@ -100,7 +113,6 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
         });
       }
 
-      // Fallback calculation
       const percentage = totalQuota > 0 ? (totalUsed / totalQuota) * 100 : 0;
       return Math.min(percentage, 100);
     } catch (error) {
@@ -109,7 +121,6 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
     }
   };
 
-  // Cleanup storage function
   const cleanupStorage = async (manual: boolean = false): Promise<StorageCleanupResult> => {
     setIsCleaningUp(true);
     const startTime = Date.now();
@@ -118,12 +129,10 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
     const categories = { notifications: 0, cache: 0, logs: 0, temp: 0 };
 
     try {
-      // Clean up handled notifications older than 1 hour
       const handledDeletedCount = await NotificationPersistenceService.permanentlyDeleteHandledNotifications(1);
       categories.notifications += handledDeletedCount;
       itemsRemoved += handledDeletedCount;
 
-      // Clean up cache data
       const cacheKeys = Object.keys(localStorage).filter(key => 
         key.startsWith('cache_') || 
         key.startsWith('temp_') ||
@@ -148,11 +157,10 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
         }
       });
 
-      // Clean up old log entries
       const logKeys = Object.keys(localStorage).filter(key => 
         key.startsWith('log_') && 
         key.includes('_') && 
-        Date.now() - parseInt(key.split('_')[1]) > 24 * 60 * 60 * 1000 // 24 hours old
+        Date.now() - parseInt(key.split('_')[1]) > 24 * 60 * 60 * 1000
       );
 
       logKeys.forEach(key => {
@@ -171,7 +179,6 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
 
       setLastCleanup(new Date());
       
-      // Recalculate usage after cleanup
       setTimeout(() => {
         const newUsage = calculateStorageUsage();
         setStorageUsagePercent(newUsage);
@@ -197,11 +204,10 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
     }
   };
 
-  // Auto cleanup effect
   useEffect(() => {
     if (autoCleanup && needsCleanup && !isCleaningUp) {
       const shouldCleanup = !lastCleanup || 
-        Date.now() - lastCleanup.getTime() > 30 * 60 * 1000; // 30 minutes since last cleanup
+        Date.now() - lastCleanup.getTime() > 30 * 60 * 1000;
       
       if (shouldCleanup) {
         console.log('Automatic storage cleanup triggered at', storageUsagePercent.toFixed(1), '% usage');
@@ -210,7 +216,6 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
     }
   }, [autoCleanup, needsCleanup, isCleaningUp, lastCleanup, storageUsagePercent]);
 
-  // Initialize and periodic check
   useEffect(() => {
     const updateUsage = () => {
       const usage = calculateStorageUsage();
@@ -219,7 +224,7 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
     };
 
     updateUsage();
-    const interval = setInterval(updateUsage, 60000); // Check every minute
+    const interval = setInterval(updateUsage, 60000);
 
     return () => clearInterval(interval);
   }, [threshold]);
@@ -233,7 +238,7 @@ const useStorageMonitor = (autoCleanup: boolean = false, threshold: number = 0.8
   };
 };
 
-// Enhanced StorageMonitor Component with threshold support (maintaining existing functionality)
+// StorageMonitor Component
 const StorageMonitor: React.FC<StorageMonitorProps> = ({
   autoCleanup = false,
   showUI = true,
@@ -260,7 +265,6 @@ const StorageMonitor: React.FC<StorageMonitorProps> = ({
     }
   };
 
-  // Don't render UI if showUI is false
   if (!showUI) {
     return null;
   }
@@ -288,7 +292,6 @@ const StorageMonitor: React.FC<StorageMonitorProps> = ({
         </div>
       </div>
 
-      {/* Progress bar */}
       <div className="mb-4">
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div
@@ -303,7 +306,6 @@ const StorageMonitor: React.FC<StorageMonitorProps> = ({
         </div>
       </div>
 
-      {/* Status and actions */}
       <div className="space-y-2">
         {needsCleanup && (
           <div className="flex items-center text-xs text-orange-600 bg-orange-50 p-2 rounded">
@@ -349,11 +351,13 @@ const StorageMonitor: React.FC<StorageMonitorProps> = ({
   );
 };
 
-// FIXED: App Resume Hook - Eliminates infinite loop with proper debouncing and state tracking
+// ============================================================================
+// CRITICAL FIX: App Resume Hook with Stronger Debouncing and Timeout
+// ============================================================================
 const useAppResume = (
   fetchData: () => Promise<void>,
   refreshNotifications: () => Promise<void>,
-  skipPermissions: () => Promise<void>  // ← Changed parameter name
+  skipPermissions: () => Promise<void>
 ) => {
   const [resumeState, setResumeState] = useState<'idle' | 'resuming' | 'error'>('idle');
   const [resumeError, setResumeError] = useState<string | null>(null);
@@ -362,24 +366,21 @@ const useAppResume = (
   const lastResumeTime = useRef<number>(0);
   const mountedRef = useRef(true);
 
-  // FIXED: Debounced resume handler with proper race condition prevention
   const handleAppResume = useCallback(async () => {
     const now = Date.now();
     
-    // Check if component is still mounted
     if (!mountedRef.current) {
       console.log('Component unmounted, skipping resume');
       return;
     }
     
-    // Prevent multiple simultaneous resumes
     if (isResuming.current) {
       console.log('Resume already in progress, ignoring...');
       return;
     }
     
-    // CRITICAL FIX: Stronger debouncing for auth-related resumes
-    if (now - lastResumeTime.current < 15000) { // Increased to 15 seconds
+    // CRITICAL FIX: 15 second debounce
+    if (now - lastResumeTime.current < 15000) {
       console.log('Resume debounced - too soon after last resume (', 
         Math.round((now - lastResumeTime.current) / 1000), 's)');
       return;
@@ -388,13 +389,12 @@ const useAppResume = (
     isResuming.current = true;
     lastResumeTime.current = now;
     
-    // Clear any existing timeout
     if (resumeTimeoutRef.current) {
       clearTimeout(resumeTimeoutRef.current);
       resumeTimeoutRef.current = null;
     }
     
-    // Set timeout for stuck state recovery
+    // CRITICAL FIX: 20 second timeout
     resumeTimeoutRef.current = window.setTimeout(() => {
       if (mountedRef.current) {
         console.warn('Resume timeout - forcing recovery');
@@ -402,7 +402,7 @@ const useAppResume = (
         setResumeError('Resume operation timed out');
         isResuming.current = false;
       }
-    }, 20000); // Increased to 20 second timeout
+    }, 20000);
     
     try {
       if (!mountedRef.current) return;
@@ -412,24 +412,23 @@ const useAppResume = (
       
       console.log('Starting app resume...');
       
-      // Execute operations sequentially to avoid race conditions
-      await fetchData();
+      // CRITICAL FIX: Wrap with timeout
+      await withTimeout(fetchData(), 30000, 'Data fetch timed out during resume');
       if (!mountedRef.current) return;
       console.log('Data refresh completed');
       
-      await refreshNotifications();
-if (!mountedRef.current) return;
-console.log('Notifications refresh completed');
-
-await skipPermissions();
-if (!mountedRef.current) return;
-console.log('Permission refresh skipped (managed by auth listener)');
+      await withTimeout(refreshNotifications(), 30000, 'Notifications refresh timed out');
+      if (!mountedRef.current) return;
+      console.log('Notifications refresh completed');
+      
+      await skipPermissions();
+      if (!mountedRef.current) return;
+      console.log('Permission refresh skipped (managed by auth listener)');
       
       if (mountedRef.current) {
         setResumeState('idle');
       }
       
-      // Clear timeout on success
       if (resumeTimeoutRef.current) {
         clearTimeout(resumeTimeoutRef.current);
         resumeTimeoutRef.current = null;
@@ -443,7 +442,6 @@ console.log('Permission refresh skipped (managed by auth listener)');
         setResumeError(error instanceof Error ? error.message : 'Resume failed');
       }
       
-      // Clear timeout on error
       if (resumeTimeoutRef.current) {
         clearTimeout(resumeTimeoutRef.current);
         resumeTimeoutRef.current = null;
@@ -451,9 +449,8 @@ console.log('Permission refresh skipped (managed by auth listener)');
     } finally {
       isResuming.current = false;
     }
-}, [fetchData, refreshNotifications, skipPermissions]);
+  }, [fetchData, refreshNotifications, skipPermissions]);
   
-  // Clear timeout on unmount and mark as unmounted
   useEffect(() => {
     mountedRef.current = true;
     
@@ -474,11 +471,9 @@ console.log('Permission refresh skipped (managed by auth listener)');
   };
 };
 
-// COMPLETELY REWRITTEN: Visibility Hook - Prevents stuck authentication with proper state management
 const useVisibilityManager = (
   onAppResume: () => Promise<void>,
-  isLoading: boolean,
-  authLoading: boolean
+  authLoading: boolean // CRITICAL: Pass authLoading state
 ) => {
   const [isPageVisible, setIsPageVisible] = useState(!document.hidden);
   const [isWindowFocused, setIsWindowFocused] = useState(document.hasFocus());
@@ -489,33 +484,8 @@ const useVisibilityManager = (
   const isResuming = useRef(false);
   const authBlockedCount = useRef<number>(0);
   
-  // CRITICAL FIX: Store authLoading state to detect changes
-  const prevAuthLoading = useRef(authLoading);
-  
   useEffect(() => {
     mountedRef.current = true;
-    
-    // CRITICAL FIX: Track auth state changes to prevent resume during auth transitions
-    if (prevAuthLoading.current !== authLoading) {
-      console.log(`🔄 Auth state changed: ${prevAuthLoading.current} -> ${authLoading}`);
-      prevAuthLoading.current = authLoading;
-      
-      // If auth just started, cancel any pending resumes
-      if (authLoading) {
-        authBlockedCount.current++;
-        console.log(`🔒 Auth started (count: ${authBlockedCount.current}) - cancelling pending resumes`);
-        
-        if (visibilityTimeoutRef.current) {
-          clearTimeout(visibilityTimeoutRef.current);
-          visibilityTimeoutRef.current = null;
-        }
-        if (focusTimeoutRef.current) {
-          clearTimeout(focusTimeoutRef.current);
-          focusTimeoutRef.current = null;
-        }
-        isResuming.current = false;
-      }
-    }
     
     const handleVisibilityChange = () => {
       if (!mountedRef.current) return;
@@ -524,58 +494,48 @@ const useVisibilityManager = (
       const wasVisible = isPageVisible;
       setIsPageVisible(nowVisible);
       
-      // Clear any existing timeout
       if (visibilityTimeoutRef.current) {
         clearTimeout(visibilityTimeoutRef.current);
         visibilityTimeoutRef.current = null;
       }
       
-      // Only log significant visibility changes
       if (nowVisible !== wasVisible) {
         console.log(`👁️ Visibility changed: ${wasVisible} -> ${nowVisible}`);
       }
       
-      // CRITICAL FIX: Only attempt resume when page becomes visible AND conditions are met
+      // CRITICAL FIX: Only resume when becoming visible
       if (nowVisible && !wasVisible && !isResuming.current) {
         const now = Date.now();
         const timeSinceLastResume = now - lastResumeAttempt.current;
         
-        // CRITICAL: Completely block resume during authentication
+        // CRITICAL: Block during authentication
         if (authLoading) {
           authBlockedCount.current++;
-          console.log(`🔒 Visibility resume blocked - authentication in progress (blocked: ${authBlockedCount.current} times)`);
+          console.log(`🔒 Visibility resume blocked - auth in progress (blocked: ${authBlockedCount.current} times)`);
           return;
         }
         
-        // Block if app is still loading initial data
-        if (isLoading) {
-          console.log('🔒 Visibility resume blocked - app loading');
-          return;
-        }
-        
-        // Require at least 20 seconds between resume attempts (increased from 15)
+        // 20 second minimum between attempts
         if (timeSinceLastResume < 20000) {
-          console.log(`🔒 Visibility resume throttled - ${Math.round(timeSinceLastResume / 1000)}s since last attempt (need 20s)`);
+          console.log(`🔒 Visibility resume throttled - ${Math.round(timeSinceLastResume / 1000)}s since last (need 20s)`);
           return;
         }
         
         console.log('✅ Page visible - scheduling data refresh in 3 seconds...');
         
-        // Schedule resume with delay to ensure stability
         visibilityTimeoutRef.current = window.setTimeout(() => {
           if (!mountedRef.current || isResuming.current) {
             console.log('⚠️ Resume cancelled - component state changed');
             return;
           }
           
-          // Triple-check auth hasn't started during delay
+          // Double-check auth hasn't started
           if (authLoading) {
             authBlockedCount.current++;
             console.log(`🔒 Resume cancelled - auth started during delay (blocked: ${authBlockedCount.current} times)`);
             return;
           }
           
-          // Verify page is still visible and focused
           if (document.hidden) {
             console.log('🔒 Resume cancelled - page no longer visible');
             return;
@@ -591,7 +551,7 @@ const useVisibilityManager = (
               console.log('✅ Visibility resume completed');
             }
           });
-        }, 3000); // Increased to 3-second delay for stability
+        }, 3000);
       }
     };
     
@@ -601,39 +561,28 @@ const useVisibilityManager = (
       const wasFocused = isWindowFocused;
       setIsWindowFocused(true);
       
-      // Clear any existing timeout
       if (focusTimeoutRef.current) {
         clearTimeout(focusTimeoutRef.current);
         focusTimeoutRef.current = null;
       }
       
-      // Only log significant focus changes
       if (wasFocused !== true) {
         console.log(`🎯 Window focused`);
       }
       
-      // CRITICAL FIX: Separate focus handling from visibility
-      // Only resume on focus if page was already visible AND it's a real focus event
+      // CRITICAL FIX: Separate focus handling
       if (!document.hidden && !wasFocused && !isResuming.current) {
         const now = Date.now();
         const timeSinceLastResume = now - lastResumeAttempt.current;
         
-        // CRITICAL: Block during authentication
         if (authLoading) {
           authBlockedCount.current++;
-          console.log(`🔒 Focus resume blocked - authentication in progress (blocked: ${authBlockedCount.current} times)`);
+          console.log(`🔒 Focus resume blocked - auth in progress (blocked: ${authBlockedCount.current} times)`);
           return;
         }
         
-        // Block if loading
-        if (isLoading) {
-          console.log('🔒 Focus resume blocked - app loading');
-          return;
-        }
-        
-        // Require at least 20 seconds (increased from 15)
         if (timeSinceLastResume < 20000) {
-          console.log(`🔒 Focus resume throttled - ${Math.round(timeSinceLastResume / 1000)}s since last attempt (need 20s)`);
+          console.log(`🔒 Focus resume throttled - ${Math.round(timeSinceLastResume / 1000)}s since last (need 20s)`);
           return;
         }
         
@@ -645,14 +594,12 @@ const useVisibilityManager = (
             return;
           }
           
-          // Triple-check auth hasn't started
           if (authLoading) {
             authBlockedCount.current++;
             console.log(`🔒 Focus resume cancelled - auth started (blocked: ${authBlockedCount.current} times)`);
             return;
           }
           
-          // Verify focus and visibility state haven't changed
           if (document.hidden || !document.hasFocus()) {
             console.log('🔒 Focus resume cancelled - focus/visibility changed');
             return;
@@ -668,7 +615,7 @@ const useVisibilityManager = (
               console.log('✅ Focus resume completed');
             }
           });
-        }, 3000); // Increased to 3 seconds
+        }, 3000);
       }
     };
     
@@ -682,7 +629,6 @@ const useVisibilityManager = (
         console.log('👋 Window blurred');
       }
       
-      // Cancel any pending resumes when losing focus
       if (focusTimeoutRef.current) {
         clearTimeout(focusTimeoutRef.current);
         focusTimeoutRef.current = null;
@@ -690,17 +636,14 @@ const useVisibilityManager = (
       }
     };
     
-    // Add event listeners
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleWindowFocus);
     window.addEventListener('blur', handleWindowBlur);
     
-    // Log initial state only once
     console.log('🎬 Visibility manager initialized:', {
       visible: !document.hidden,
       focused: document.hasFocus(),
-      authLoading,
-      isLoading
+      authLoading
     });
     
     return () => {
@@ -720,9 +663,33 @@ const useVisibilityManager = (
       isResuming.current = false;
       console.log('🛑 Visibility manager cleaned up');
     };
-  }, [onAppResume]); // CRITICAL FIX: Only depend on onAppResume, not state variables
+  }, [onAppResume, authLoading]); // CRITICAL: Include authLoading in deps
   
   return { isPageVisible, isWindowFocused };
+};
+
+const useLoadingWatchdog = (
+  loading: boolean,
+  setLoading: (val: boolean) => void,
+  setError: (msg: string) => void
+) => {
+  useEffect(() => {
+    let loadingWatch: number | null = null;
+    
+    if (loading) {
+      loadingWatch = window.setTimeout(() => {
+        if (loading) {
+          console.warn('⚠️ Loading stuck >30s, clearing loading state to recover UI');
+          setLoading(false);
+          setError('Timed out while loading — try refreshing.');
+        }
+      }, 30000);
+    }
+    
+    return () => {
+      if (loadingWatch) clearTimeout(loadingWatch);
+    };
+  }, [loading, setLoading, setError]);
 };
 
 // Enhanced Transaction interface matching your actual database schema (maintaining existing structure)
@@ -1316,7 +1283,7 @@ const getPageTitle = (activeTab: string): string => {
   }
 };
 
-// FIXED: Main App Component with Infinite Loop Prevention
+// FIXED: Main App Component - Final version with unmount loop prevention
 const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   // Get enhanced notification context (maintaining existing functionality)
   const {
@@ -1340,7 +1307,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   // Get user permissions using the updated auth system with first user admin support
   const {
     user,
-    loading: authLoading,
+    loading: authLoading,  // ⭐ Extract this explicitly
     profile,
     role: userRole,
     isAdmin,
@@ -1355,7 +1322,7 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   // Initialize storage monitoring with threshold (maintaining existing functionality)
   const { storageUsagePercent, needsCleanup } = useStorageMonitor(true, 0.8);
 
-  // FIXED: Simplified state management - removed problematic states
+  // FIXED: Simplified state management
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
@@ -1386,21 +1353,20 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
     avgSalesValue: 0
   });
   
-  // FIXED: Single loading state with proper management
+  // FIXED: Loading state management
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   
-  // CRITICAL FIX: Ref to track if initial fetch is complete
+  
+  // CRITICAL FIX: Refs to prevent loops and track state
   const initialFetchComplete = useRef(false);
   const fetchInProgress = useRef(false);
-  const authBlockedRef = useRef(false);
+  const dataInitialized = useRef(false);
+  const authEventHandled = useRef(false);
+  const appInitialized = useRef(false);
 
-  // Get Supabase configuration (maintaining existing functionality)
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-  // FIXED: Enhanced data fetching with infinite loop prevention
+  // FIXED: Enhanced data fetching with proper state tracking
   const fetchData = useCallback(async () => {
     // CRITICAL FIX: Prevent concurrent fetches
     if (fetchInProgress.current) {
@@ -1566,7 +1532,9 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
       calculateStats(allTransactions, suppliersData);
       setLastSyncTime(new Date());
       
-      // CRITICAL FIX: Mark initial fetch as complete
+      // CRITICAL FIX: Mark as initialized
+      dataInitialized.current = true;
+      
       if (!initialFetchComplete.current) {
         initialFetchComplete.current = true;
       }
@@ -1591,24 +1559,22 @@ const AppContent: React.FC<AppProps> = ({ onNavigateBack }) => {
   }, []);
 
   // CRITICAL FIX: Skip permission refresh on app resume
-const skipPermissionRefresh = useCallback(async () => {
-  console.log('⏭️ Skipping permission refresh on app resume (prevents auth loop)');
-  // Permissions are managed by their own auth listener in usePermissions.ts
-}, []);
+  const skipPermissionRefresh = useCallback(async () => {
+    console.log('⏭️ Skipping permission refresh on app resume (prevents auth loop)');
+    // Permissions are managed by their own auth listener in usePermissions.ts
+  }, []);
 
-const { resumeState, resumeError, handleAppResume, isResuming } = useAppResume(
-  fetchData,
-  refreshNotifications,
-  skipPermissionRefresh  // ← Changed from refreshPermissions
-);
+  const { resumeState, resumeError, handleAppResume, isResuming } = useAppResume(
+    fetchData,
+    refreshNotifications,
+    skipPermissionRefresh
+  );
 
   // FIXED: Initialize visibility management with proper dependencies
-  // CRITICAL: Only enable after initial fetch is complete AND auth is loaded
-  const { isPageVisible, isWindowFocused } = useVisibilityManager(
-    handleAppResume,
-    loading || isResuming || !initialFetchComplete.current,
-    authLoading
-  );
+ // b) Initialize useVisibilityManager with authLoading:
+const { isPageVisible, isWindowFocused } = useVisibilityManager(handleAppResume, authLoading);
+ // ⭐ ADD LOADING WATCHDOG HERE (NEW)
+  useLoadingWatchdog(loading, setLoading, setError);
 
   // Enhanced calculate dashboard stats (maintaining existing functionality)
   const calculateStats = (allTransactions: Transaction[], suppliersData: Supplier[]) => {
@@ -1688,6 +1654,7 @@ const { resumeState, resumeError, handleAppResume, isResuming } = useAppResume(
     // Reset all states
     setLoading(false);
     setError(null);
+    authEventHandled.current = false;
     
     // Clear browser state that might be causing issues
     try {
@@ -1695,7 +1662,8 @@ const { resumeState, resumeError, handleAppResume, isResuming } = useAppResume(
       const keysToRemove = Object.keys(localStorage).filter(key => 
         key.startsWith('temp_') || 
         key.startsWith('cache_') ||
-        key.startsWith('session_')
+        key.startsWith('session_') ||
+        key.startsWith('auth_')
       );
       
       keysToRemove.forEach(key => {
@@ -1715,59 +1683,54 @@ const { resumeState, resumeError, handleAppResume, isResuming } = useAppResume(
     setTimeout(() => {
       fetchData();
       refreshNotifications();
-     
     }, 1000);
-  }, [fetchData, refreshNotifications, refreshPermissions]);
+  }, [fetchData, refreshNotifications]);
 
-  // FIXED: Online/offline handler with proper cleanup and no circular dependencies
-  useEffect(() => {
-    let onlineTimeout: number | null = null;
+ useEffect(() => {
+  let onlineTimeout: number | null = null;
 
-    const handleOnline = () => {
-      setIsOnline(true);
-      console.log('App came online, syncing...');
-      setError(null); // Clear any offline-related errors
-      
-      // Clear any existing timeout
-      if (onlineTimeout) {
-        clearTimeout(onlineTimeout);
-        onlineTimeout = null;
-      }
-      
-    // CRITICAL FIX: Only sync data and notifications, NOT permissions
-if (initialFetchComplete.current && !isResuming && !loading && !authLoading) {
-  onlineTimeout = window.setTimeout(() => {
-    fetchData();
-    refreshNotifications();
-    // REMOVED: refreshPermissions() - this caused the auth loop
-  }, 3000);
-}
-    };
+  const handleOnline = () => {
+    setIsOnline(true);
+    console.log('App came online, syncing...');
+    setError(null);
     
-    const handleOffline = () => {
-      setIsOnline(false);
-      console.log('App went offline');
-      setError('Connection lost - some features may be limited');
-      
-      // Clear any pending online operations
-      if (onlineTimeout) {
-        clearTimeout(onlineTimeout);
-        onlineTimeout = null;
-      }
-    };
+    if (onlineTimeout) {
+      clearTimeout(onlineTimeout);
+      onlineTimeout = null;
+    }
+    
+    // CRITICAL FIX: Only sync data and notifications, NOT permissions
+    if (dataInitialized.current && !isResuming && !loading && !authLoading) {
+      onlineTimeout = window.setTimeout(() => {
+        fetchData();
+        refreshNotifications();
+      }, 3000);
+    }
+  };
+  
+  const handleOffline = () => {
+    setIsOnline(false);
+    console.log('App went offline');
+    setError('Connection lost - some features may be limited');
+    
+    if (onlineTimeout) {
+      clearTimeout(onlineTimeout);
+      onlineTimeout = null;
+    }
+  };
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+  window.addEventListener('online', handleOnline);
+  window.addEventListener('offline', handleOffline);
 
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      
-      if (onlineTimeout) {
-        clearTimeout(onlineTimeout);
-      }
-    };
- }, [refreshNotifications, isResuming, loading, authLoading, fetchData]);
+  return () => {
+    window.removeEventListener('online', handleOnline);
+    window.removeEventListener('offline', handleOffline);
+    
+    if (onlineTimeout) {
+      clearTimeout(onlineTimeout);
+    }
+  };
+}, [refreshNotifications, isResuming, loading, authLoading, fetchData]);
 
   // Initialize mobile detection (maintaining existing functionality)
   useEffect(() => {
@@ -1840,25 +1803,40 @@ if (initialFetchComplete.current && !isResuming && !loading && !authLoading) {
     }, 1000);
   }, [refreshNotifications]);
 
-  // FIXED: Initial data fetch with proper loading state management
   useEffect(() => {
-    // Only fetch data if auth is loaded and we haven't completed initial fetch
-    if (!authLoading && !initialFetchComplete.current && !fetchInProgress.current) {
-      const initializeData = async () => {
-        setLoading(true);
-        try {
-          await fetchData();
-        } catch (error) {
-          console.error('Initial data fetch failed:', error);
-          setError('Failed to load initial data');
-        } finally {
-          setLoading(false);
-        }
-      };
-      
-      initializeData();
-    }
-  }, [authLoading, fetchData]);
+  // CRITICAL FIX: Only initialize once
+  if (appInitialized.current) {
+    console.log('🛑 App already initialized, skipping re-initialization');
+    return;
+  }
+
+  // Only fetch if auth loaded and data not initialized
+  if (!authLoading && !dataInitialized.current && !fetchInProgress.current) {
+    console.log('🚀 Starting app initialization...');
+    
+    const initializeData = async () => {
+      setLoading(true);
+      try {
+        // CRITICAL FIX: Wrap with timeout
+        await withTimeout(fetchData(), 30000, 'Initial data fetch timed out after 30s');
+        appInitialized.current = true;
+        dataInitialized.current = true;
+        console.log('✅ App initialization completed');
+      } catch (error) {
+        console.error('Initial data fetch failed:', error);
+        setError('Failed to load initial data');
+      } finally {
+        setLoading(false); // CRITICAL: Ensure spinner is cleared
+      }
+    };
+    
+    initializeData();
+  } else if (authLoading) {
+    console.log('🔄 Auth still loading...');
+  } else if (dataInitialized.current) {
+    setLoading(false);
+  }
+}, [authLoading, fetchData]);
 
   // OPTIMIZED: Memoized user permissions to prevent excessive re-renders
   const userPermissions = useMemo(() => ({
@@ -2525,8 +2503,8 @@ if (initialFetchComplete.current && !isResuming && !loading && !authLoading) {
           onMarkAsHandled={markCurrentAsHandled}
           notificationQueue={notificationQueue}
           currentQueueIndex={currentNotificationIndex}
-          supabaseUrl={supabaseUrl}
-          supabaseKey={supabaseKey}
+          supabaseUrl={import.meta.env.VITE_SUPABASE_URL}
+          supabaseKey={import.meta.env.VITE_SUPABASE_ANON_KEY}
         />
       )}
     </>

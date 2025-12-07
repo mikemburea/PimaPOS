@@ -1,10 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import AppRouter from './AppRouter';  // NOT PimaPOSWelcome!
+import AppRouter from './AppRouter';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <AppRouter />  {/* This should be AppRouter, not PimaPOSWelcome */}
-  </React.StrictMode>
+  <AppRouter />
 );
