@@ -94,12 +94,12 @@ export function StorageMonitor({
           <div className={`inline-flex px-2 py-1 rounded text-xs font-medium ${getStatusColor()}`}>
             {status.status === 'CLEANUP_NEEDED' && '⚠️ Cleanup Needed'}
             {status.status === 'WARNING' && '⚠️ Warning'}
-            {status.status === 'OK' && '✅ OK'}
+            {status.status === 'HEALTHY' && '✅ Healthy'}
           </div>
 
           {/* File Count */}
           <div className="text-sm text-gray-600">
-            Total Files: {status.file_count}
+          Total Files: {status.photo_count}
           </div>
 
           {/* Manual Cleanup Button */}
@@ -148,6 +148,6 @@ export function useStorageMonitor(autoCleanup: boolean = true) {
   return {
     storageUsagePercent: status?.percent_of_1gb || 0,
     needsCleanup,
-    status: status?.status || 'OK'
+   status: status?.status || 'HEALTHY'
   }
 }

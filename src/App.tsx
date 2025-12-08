@@ -1,6 +1,6 @@
 // OPTIMIZED: App.tsx - Final Fix for Unmount/Remount Loops (PART 1 of 2)
 // This file is split into 2 parts due to length. See Part 2 for the rest.
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { supabase } from './lib/supabase';
 import { Menu, X, AlertTriangle, RefreshCw, Wifi, WifiOff, Shield, ShieldCheck, Crown, Users } from 'lucide-react';
 
@@ -13,21 +13,22 @@ import { NotificationPersistenceService } from './services/notificationPersisten
 import { usePermissions } from './hooks/usePermissions';
 import { PermissionService } from './hooks/usePermissions';
 
+
 // Import your actual component files
-import Sidebar from './components/common/Sidebar';
-import Header from './components/common/Header';
-import Dashboard from './components/dashboard/Dashboard';
-import MaterialsPage from './pages/MaterialsPage';
-import Suppliers from './components/suppliers/Suppliers';
-import Transactions from './components/transactions/Transactions';
-import SettingsPage from './components/settings/Settings';
-import Analytics from './components/analytics/Analytics';
+const Header = lazy(() => import('./components/common/Header'));
+const Sidebar = lazy(() => import('./components/common/Sidebar'));
+const Dashboard = lazy(() => import('./components/dashboard/Dashboard'));
+const MaterialsPage = lazy(() => import('./pages/MaterialsPage'));
+const Suppliers = lazy(() => import('./components/suppliers/Suppliers'));
+const Transactions = lazy(() => import('./components/transactions/Transactions'));
+const SettingsPage = lazy(() => import('./components/settings/Settings'));
+const Analytics = lazy(() => import('./components/analytics/Analytics'));
 
 // Import the real report components
-import DailyReport from './components/reports/DailyReport';
-import WeeklyReport from './components/reports/WeeklyReport';
-import MonthlyReport from './components/reports/MonthlyReport';
-import CustomReport from './components/reports/CustomReport';
+const DailyReport = lazy(() => import('./components/reports/DailyReport'));
+const WeeklyReport = lazy(() => import('./components/reports/WeeklyReport'));
+const MonthlyReport = lazy(() => import('./components/reports/MonthlyReport'));
+const CustomReport = lazy(() => import('./components/reports/CustomReport'));
 
 // ============================================================================
 // CRITICAL FIX: Timeout Helper for Fetch Operations
@@ -2083,227 +2084,247 @@ const { isPageVisible, isWindowFocused } = useVisibilityManager(handleAppResume,
   };
 
   // FIXED: Enhanced content renderer with proper loading state management
-  const renderContent = () => {
-    // Show loading spinner for initial load or auth loading, but not for resume
-    if ((loading && !isResuming) || authLoading) {
-      return <LoadingSpinner message={authLoading ? "Authenticating..." : "Loading data..."} />;
-    }
-    
-    // Show error if there's an error (but allow resume error to be handled separately)
-    if (error && resumeState !== 'error') {
-      return (
-        <ErrorDisplay 
-          error={error} 
-          onRetry={() => {
-            setError(null);
-            fetchData();
-          }}
-          onForceRecovery={handleForceRecovery}
-        />
-      );
-    }
+ const renderContent = () => {
+  // Show loading spinner for initial load or auth loading, but not for resume
+  if ((loading && !isResuming) || authLoading) {
+    return <LoadingSpinner message={authLoading ? "Authenticating..." : "Loading data..."} />;
+  }
+  
+  // Show error if there's an error (but allow resume error to be handled separately)
+  if (error && resumeState !== 'error') {
+    return (
+      <ErrorDisplay 
+        error={error} 
+        onRetry={() => {
+          setError(null);
+          fetchData();
+        }}
+        onForceRecovery={handleForceRecovery}
+      />
+    );
+  }
 
-    // Check if user has permission for the current tab with first user admin support
-    if (!canNavigateTo(activeTab)) {
-      return (
-        <PermissionDenied 
-          requiredRole={activeTab}
-          userRole={userRole}
-          onReturnToDashboard={() => setActiveTab('dashboard')}
-          isFirstUser={isFirstUser}
-          systemStats={userStats}
-        />
-      );
-    }
-    
-    switch (activeTab) {
-      case 'dashboard':
-        return (
-          <Dashboard 
-            onRefresh={fetchData}
-            onNavigateToTransactions={handleNavigateToTransactions}
-            onNavigateToSuppliers={handleNavigateToSuppliers}
-            onNavigateToAddSupplier={handleNavigateToAddSupplier}
-            onNavigateToMaterials={handleNavigateToMaterials}
-            userPermissions={userPermissions}
-          />
-        );
-      case 'transactions':
-        return hasPermission('transactions') ? (
-          <Transactions onTransactionUpdate={handleTransactionUpdate} transactions={transactions} />
-        ) : (
-          <PermissionDenied 
-            userRole={userRole} 
-            onReturnToDashboard={() => setActiveTab('dashboard')} 
-            isFirstUser={isFirstUser}
-            systemStats={userStats}
-          />
-        );
-      case 'suppliers':
-        return hasPermission('suppliers') ? (
-          <Suppliers onSupplierUpdate={handleSupplierUpdate} />
-        ) : (
-          <PermissionDenied 
-            userRole={userRole} 
-            onReturnToDashboard={() => setActiveTab('dashboard')}
-            isFirstUser={isFirstUser}
-            systemStats={userStats}
-          />
-        );
-      case 'materials':
-        return hasPermission('materials') ? (
-          <MaterialsPage />
-        ) : (
-          <PermissionDenied 
-            userRole={userRole} 
-            onReturnToDashboard={() => setActiveTab('dashboard')}
-            isFirstUser={isFirstUser}
-            systemStats={userStats}
-          />
-        );
-      case 'analytics':
-        return hasPermission('analytics') ? (
-          <Analytics 
-            suppliers={transformSuppliersForAnalytics(suppliers)}
-            materials={transformMaterialsForAnalytics(materials)}
-            salesTransactions={transformSalesTransactionsForAnalytics(transactions)}
-          />
-        ) : (
-          <PermissionDenied 
-            userRole={userRole} 
-            onReturnToDashboard={() => setActiveTab('dashboard')}
-            isFirstUser={isFirstUser}
-            systemStats={userStats}
-          />
-        );
-      case 'reports-daily':
-        return hasPermission('reports') ? (
-          <DailyReport currentDate={new Date()} />
-        ) : (
-          <PermissionDenied 
-            userRole={userRole} 
-            onReturnToDashboard={() => setActiveTab('dashboard')}
-            isFirstUser={isFirstUser}
-            systemStats={userStats}
-          />
-        );
-      case 'reports-weekly':
-        return hasPermission('reports') ? (
-          <WeeklyReport weekStartDate={new Date()} />
-        ) : (
-          <PermissionDenied 
-            userRole={userRole} 
-            onReturnToDashboard={() => setActiveTab('dashboard')}
-            isFirstUser={isFirstUser}
-            systemStats={userStats}
-          />
-        );
-      case 'reports-monthly':
-        return hasPermission('reports') ? (
-          <MonthlyReport month={new Date()} />
-        ) : (
-          <PermissionDenied 
-            userRole={userRole} 
-            onReturnToDashboard={() => setActiveTab('dashboard')}
-            isFirstUser={isFirstUser}
-            systemStats={userStats}
-          />
-        );
-      case 'reports-custom':
-        return hasPermission('reports') ? (
-          <CustomReport />
-        ) : (
-          <PermissionDenied 
-            userRole={userRole} 
-            onReturnToDashboard={() => setActiveTab('dashboard')}
-            isFirstUser={isFirstUser}
-            systemStats={userStats}
-          />
-        );
-      case 'settings':
-        return hasPermission('settings') ? (
-          <div>
-            <SettingsPage />
-            {/* Storage Monitor in Settings with role-aware features */}
-            <div className="mt-6 border-t pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Storage Management</h3>
-              <StorageMonitor 
-                autoCleanup={false} 
-                showUI={true}
-                threshold={0.7}
-                onCleanupComplete={(result) => {
-                  console.log('Manual storage cleanup completed:', result);
-                  alert(`Cleanup completed!\n\nFreed space: ${result.freedSpace}KB\nItems removed: ${result.itemsRemoved}\nTime taken: ${result.timeTaken}ms`);
-                }}
+  // Check if user has permission for the current tab with first user admin support
+  if (!canNavigateTo(activeTab)) {
+    return (
+      <PermissionDenied 
+        requiredRole={activeTab}
+        userRole={userRole}
+        onReturnToDashboard={() => setActiveTab('dashboard')}
+        isFirstUser={isFirstUser}
+        systemStats={userStats}
+      />
+    );
+  }
+  
+  // OPTIMIZED: Wrap all route content in Suspense for code splitting
+  return (
+    <Suspense fallback={<LoadingSpinner message="Loading page..." />}>
+      {(() => {
+        switch (activeTab) {
+          case 'dashboard':
+            return (
+              <Dashboard 
+                onRefresh={fetchData}
+                onNavigateToTransactions={handleNavigateToTransactions}
+                onNavigateToSuppliers={handleNavigateToSuppliers}
+                onNavigateToAddSupplier={handleNavigateToAddSupplier}
+                onNavigateToMaterials={handleNavigateToMaterials}
+                userPermissions={userPermissions}
               />
-            </div>
+            );
             
-            {/* System Status for Admins */}
-            {isAdmin && (
-              <div className="mt-6 border-t pt-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">System Status</h3>
-                <div className="bg-white rounded-lg border border-gray-200 p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="text-center">
-                      <div className="flex items-center justify-center">
-                        <Users className="w-5 h-5 text-blue-600 mr-2" />
-                        <span className="text-2xl font-bold text-gray-900">{userStats.totalUsers}</span>
+          case 'transactions':
+            return hasPermission('transactions') ? (
+              <Transactions 
+                onTransactionUpdate={handleTransactionUpdate} 
+                transactions={transactions} 
+              />
+            ) : (
+              <PermissionDenied 
+                userRole={userRole} 
+                onReturnToDashboard={() => setActiveTab('dashboard')} 
+                isFirstUser={isFirstUser}
+                systemStats={userStats}
+              />
+            );
+            
+          case 'suppliers':
+            return hasPermission('suppliers') ? (
+              <Suppliers onSupplierUpdate={handleSupplierUpdate} />
+            ) : (
+              <PermissionDenied 
+                userRole={userRole} 
+                onReturnToDashboard={() => setActiveTab('dashboard')}
+                isFirstUser={isFirstUser}
+                systemStats={userStats}
+              />
+            );
+            
+          case 'materials':
+            return hasPermission('materials') ? (
+              <MaterialsPage />
+            ) : (
+              <PermissionDenied 
+                userRole={userRole} 
+                onReturnToDashboard={() => setActiveTab('dashboard')}
+                isFirstUser={isFirstUser}
+                systemStats={userStats}
+              />
+            );
+            
+          case 'analytics':
+            return hasPermission('analytics') ? (
+              <Analytics 
+                suppliers={transformSuppliersForAnalytics(suppliers)}
+                materials={transformMaterialsForAnalytics(materials)}
+                salesTransactions={transformSalesTransactionsForAnalytics(transactions)}
+              />
+            ) : (
+              <PermissionDenied 
+                userRole={userRole} 
+                onReturnToDashboard={() => setActiveTab('dashboard')}
+                isFirstUser={isFirstUser}
+                systemStats={userStats}
+              />
+            );
+            
+          case 'reports-daily':
+            return hasPermission('reports') ? (
+              <DailyReport currentDate={new Date()} />
+            ) : (
+              <PermissionDenied 
+                userRole={userRole} 
+                onReturnToDashboard={() => setActiveTab('dashboard')}
+                isFirstUser={isFirstUser}
+                systemStats={userStats}
+              />
+            );
+            
+          case 'reports-weekly':
+            return hasPermission('reports') ? (
+              <WeeklyReport weekStartDate={new Date()} />
+            ) : (
+              <PermissionDenied 
+                userRole={userRole} 
+                onReturnToDashboard={() => setActiveTab('dashboard')}
+                isFirstUser={isFirstUser}
+                systemStats={userStats}
+              />
+            );
+            
+          case 'reports-monthly':
+            return hasPermission('reports') ? (
+              <MonthlyReport month={new Date()} />
+            ) : (
+              <PermissionDenied 
+                userRole={userRole} 
+                onReturnToDashboard={() => setActiveTab('dashboard')}
+                isFirstUser={isFirstUser}
+                systemStats={userStats}
+              />
+            );
+            
+          case 'reports-custom':
+            return hasPermission('reports') ? (
+              <CustomReport />
+            ) : (
+              <PermissionDenied 
+                userRole={userRole} 
+                onReturnToDashboard={() => setActiveTab('dashboard')}
+                isFirstUser={isFirstUser}
+                systemStats={userStats}
+              />
+            );
+            
+          case 'settings':
+            return hasPermission('settings') ? (
+              <div>
+                <SettingsPage />
+                
+                {/* Storage Monitor in Settings with role-aware features */}
+                <div className="mt-6 border-t pt-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Storage Management</h3>
+                  <StorageMonitor 
+                    autoCleanup={false} 
+                    showUI={true}
+                    threshold={0.7}
+                    onCleanupComplete={(result) => {
+                      console.log('Manual storage cleanup completed:', result);
+                      alert(`Cleanup completed!\n\nFreed space: ${result.freedSpace}KB\nItems removed: ${result.itemsRemoved}\nTime taken: ${result.timeTaken}ms`);
+                    }}
+                  />
+                </div>
+                
+                {/* System Status for Admins */}
+                {isAdmin && (
+                  <div className="mt-6 border-t pt-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">System Status</h3>
+                    <div className="bg-white rounded-lg border border-gray-200 p-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="text-center">
+                          <div className="flex items-center justify-center">
+                            <Users className="w-5 h-5 text-blue-600 mr-2" />
+                            <span className="text-2xl font-bold text-gray-900">{userStats.totalUsers}</span>
+                          </div>
+                          <p className="text-sm text-gray-600">Total Users</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="flex items-center justify-center">
+                            <Crown className="w-5 h-5 text-purple-600 mr-2" />
+                            <span className="text-2xl font-bold text-gray-900">{userStats.adminCount}</span>
+                          </div>
+                          <p className="text-sm text-gray-600">Administrators</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="flex items-center justify-center">
+                            <Shield className="w-5 h-5 text-green-600 mr-2" />
+                            <span className="text-sm font-medium text-gray-900">
+                              {userStats.adminCount > 0 ? 'Secured' : 'Unsecured'}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-600">System Status</p>
+                        </div>
                       </div>
-                      <p className="text-sm text-gray-600">Total Users</p>
-                    </div>
-                    <div className="text-center">
-                      <div className="flex items-center justify-center">
-                        <Crown className="w-5 h-5 text-purple-600 mr-2" />
-                        <span className="text-2xl font-bold text-gray-900">{userStats.adminCount}</span>
-                      </div>
-                      <p className="text-sm text-gray-600">Administrators</p>
-                    </div>
-                    <div className="text-center">
-                      <div className="flex items-center justify-center">
-                        <Shield className="w-5 h-5 text-green-600 mr-2" />
-                        <span className="text-sm font-medium text-gray-900">
-                          {userStats.adminCount > 0 ? 'Secured' : 'Unsecured'}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-600">System Status</p>
+                      {isFirstUser && (
+                        <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                          <div className="flex items-center">
+                            <Crown className="w-4 h-4 text-purple-600 mr-2" />
+                            <span className="text-sm font-medium text-purple-900">
+                              First User Admin System Active
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  {isFirstUser && (
-                    <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                      <div className="flex items-center">
-                        <Crown className="w-4 h-4 text-purple-600 mr-2" />
-                        <span className="text-sm font-medium text-purple-900">
-                          First User Admin System Active
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
-            )}
-          </div>
-        ) : (
-          <PermissionDenied 
-            userRole={userRole} 
-            onReturnToDashboard={() => setActiveTab('dashboard')}
-            isFirstUser={isFirstUser}
-            systemStats={userStats}
-          />
-        );
-      default:
-        return (
-          <Dashboard 
-            onRefresh={fetchData}
-            onNavigateToTransactions={handleNavigateToTransactions}
-            onNavigateToSuppliers={handleNavigateToSuppliers}
-            onNavigateToAddSupplier={handleNavigateToAddSupplier}
-            onNavigateToMaterials={handleNavigateToMaterials}
-            userPermissions={userPermissions}
-          />
-        );
-    }
-  };
-
+            ) : (
+              <PermissionDenied 
+                userRole={userRole} 
+                onReturnToDashboard={() => setActiveTab('dashboard')}
+                isFirstUser={isFirstUser}
+                systemStats={userStats}
+              />
+            );
+            
+          default:
+            return (
+              <Dashboard 
+                onRefresh={fetchData}
+                onNavigateToTransactions={handleNavigateToTransactions}
+                onNavigateToSuppliers={handleNavigateToSuppliers}
+                onNavigateToAddSupplier={handleNavigateToAddSupplier}
+                onNavigateToMaterials={handleNavigateToMaterials}
+                userPermissions={userPermissions}
+              />
+            );
+        }
+      })()}
+    </Suspense>
+  );
+};
   const currentNotification = notificationQueue[currentNotificationIndex];
 
   return (
