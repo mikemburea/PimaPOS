@@ -1,5 +1,4 @@
-// AppRouter.tsx - FIXED VERSION WITH ALL RESUME/RELOAD PATCHES
-// This version eliminates stuck loading states and auth loops
+// AppRouter.tsx - FIXED: Prevents infinite auth check on logout
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import App from './App';
@@ -14,22 +13,21 @@ const AppRouter: React.FC = () => {
   const authCheckComplete = useRef(false);
   const authListenerActive = useRef(false);
   const mountedRef = useRef(true);
+  const isLoggingOut = useRef(false); // CRITICAL FIX: Track logout state
 
-  // CRITICAL FIX: Track processed events with better dedupe key
+  // CRITICAL FIX: Track processed events
   const processedEvents = useRef(new Set<string>());
 
-  // CRITICAL FIX: Track latest currentPage to avoid stale closures
+  // CRITICAL FIX: Track latest currentPage
   const currentPageRef = useRef<'welcome' | 'app'>(currentPage);
   useEffect(() => {
     currentPageRef.current = currentPage;
   }, [currentPage]);
 
-  // --- INITIAL AUTH CHECK + LISTENER ---
   useEffect(() => {
     mountedRef.current = true;
     console.log('AppRouter: Initial mount');
 
-    // CRITICAL FIX: Only run initial check once
     if (authCheckComplete.current) {
       console.log('AppRouter: Skipping initial auth check (already completed)');
       setIsCheckingAuth(false);
@@ -69,7 +67,6 @@ const AppRouter: React.FC = () => {
 
     checkAuthStatus();
 
-    // CRITICAL FIX: Ensure listener is setup only once
     if (authListenerActive.current) {
       console.log('AppRouter: Auth listener already active — skipping');
       return;
@@ -80,7 +77,6 @@ const AppRouter: React.FC = () => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        // CRITICAL FIX: Get fresh page state on every event (no stale closures)
         const isPageVisible = !document.hidden;
         const isPageFocused = document.hasFocus();
         const current = currentPageRef.current;
@@ -90,80 +86,92 @@ const AppRouter: React.FC = () => {
           focused: isPageFocused,
           hasSession: !!session,
           userId: session?.user?.id?.slice(-8),
-          currentPage: current
+          currentPage: current,
+          isLoggingOut: isLoggingOut.current // CRITICAL FIX: Log logout state
         });
 
-        // Return early if unmounted
         if (!mountedRef.current) {
           console.log('⚠️ Component unmounted, ignoring auth event');
           return;
         }
 
-        // CRITICAL FIX: Improved dedupe key using session + small token slice
-        // This reduces false dedupes while still catching true duplicates
+        // CRITICAL FIX: Improved dedupe key
         const dedupeKey = session 
           ? `${event}_${session.user.id}_${session.access_token.slice(-12)}`
-          : `${event}_no_session`;
+          : `${event}_no_session_${Date.now()}`;
 
-        // Check for duplicates
         if (processedEvents.current.has(dedupeKey)) {
-          console.log(`⏭️ Skipping duplicate ${event} event (same session)`);
+          console.log(`⏭️ Skipping duplicate ${event} event`);
           return;
         }
 
-        // Mark as processed
         processedEvents.current.add(dedupeKey);
 
-        // Clean old entries to prevent memory leak (keep last 10)
         if (processedEvents.current.size > 10) {
           const entries = Array.from(processedEvents.current);
           processedEvents.current = new Set(entries.slice(-10));
         }
 
-        // --- EVENT HANDLERS ---
         switch (event) {
           case 'SIGNED_IN':
+            // CRITICAL FIX: Ignore SIGNED_IN during logout
+            if (isLoggingOut.current) {
+              console.log('⏭️ SIGNED_IN ignored — logout in progress');
+              break;
+            }
+            
             if (session?.user && current !== 'app') {
               console.log('✅ Processing SIGNED_IN → navigating to app');
               setUser(session.user);
               setCurrentPage('app');
-              // CRITICAL FIX: Explicitly clear loading state on SIGNED_IN
               setIsCheckingAuth(false);
             } else if (current === 'app') {
               console.log('ℹ️ SIGNED_IN ignored — already on app');
-            } else {
-              console.log('⚠️ SIGNED_IN ignored — no user in session');
             }
             break;
 
           case 'TOKEN_REFRESHED':
             console.log('🔄 TOKEN_REFRESHED — token updated, maintaining current page');
-            // Don't navigate on token refresh, just update user if needed
             if (session?.user && current === 'app') {
               setUser(session.user);
             }
             break;
 
           case 'SIGNED_OUT':
-            if (current !== 'welcome') {
-              console.log('👋 Processing SIGNED_OUT → navigating to welcome');
+            // CRITICAL FIX: Set logout flag and clear state atomically
+            console.log('👋 Processing SIGNED_OUT');
+            isLoggingOut.current = true;
+            
+            if (mountedRef.current) {
               setUser(null);
               setCurrentPage('welcome');
-              // Clear processed events on sign out
+              setIsCheckingAuth(false); // CRITICAL: Stop any loading state
+              
+              // Clear processed events
               processedEvents.current.clear();
-            } else {
-              console.log('ℹ️ SIGNED_OUT ignored — already on welcome');
+              
+              console.log('✅ Logout complete - navigated to welcome');
             }
+            
+            // CRITICAL FIX: Reset logout flag after a delay to prevent re-auth
+            setTimeout(() => {
+              isLoggingOut.current = false;
+              console.log('🔓 Logout flag cleared');
+            }, 2000);
             break;
 
           case 'INITIAL_SESSION':
+            // CRITICAL FIX: Ignore INITIAL_SESSION during logout
+            if (isLoggingOut.current) {
+              console.log('⏭️ INITIAL_SESSION ignored — logout in progress');
+              break;
+            }
+            
             if (session?.user && current !== 'app') {
               console.log('✅ Initial session found → navigating to app');
               setUser(session.user);
               setCurrentPage('app');
               setIsCheckingAuth(false);
-            } else if (!session?.user) {
-              console.log('ℹ️ No initial session found');
             }
             break;
 
@@ -184,6 +192,7 @@ const AppRouter: React.FC = () => {
       console.log('🛑 AppRouter: Cleanup — component unmounted');
       mountedRef.current = false;
       authListenerActive.current = false;
+      isLoggingOut.current = false; // CRITICAL FIX: Clear logout flag
 
       try {
         subscription?.unsubscribe?.();
@@ -192,41 +201,62 @@ const AppRouter: React.FC = () => {
         console.warn('⚠️ Error unsubscribing auth listener:', err);
       }
 
-      // Clear processed events on cleanup
       processedEvents.current.clear();
     };
-  }, []); // CRITICAL: Empty deps - run once on mount
+  }, []);
 
-  // --- Navigation helpers ---
   const navigateToApp = () => {
     console.log('AppRouter: manual navigateToApp');
-    if (currentPageRef.current !== 'app') {
+    if (currentPageRef.current !== 'app' && !isLoggingOut.current) {
       setCurrentPage('app');
-    } else {
-      console.log('Already on app page, no navigation needed');
     }
   };
 
   const navigateToWelcome = async () => {
     console.log('AppRouter: manual logout → welcome');
+    
+    // CRITICAL FIX: Set logout flag immediately
+    isLoggingOut.current = true;
+    
     try {
-      await supabase.auth.signOut();
-      // The SIGNED_OUT event will handle navigation
-    } catch (err) {
-      console.error('AppRouter: logout error:', err);
-      // Fallback: force navigation if signOut fails
+      // Clear state first to prevent visual glitches
       setUser(null);
       setCurrentPage('welcome');
+      setIsCheckingAuth(false);
+      
+      // Then sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Logout error:', error);
+      }
+      
+      // Clear any cached auth data
+      localStorage.removeItem('supabase.auth.token');
+      sessionStorage.clear();
+      
+      console.log('✅ Logout successful');
+    } catch (err) {
+      console.error('AppRouter: logout error:', err);
+      // Even on error, ensure we're on welcome page
+      setUser(null);
+      setCurrentPage('welcome');
+      setIsCheckingAuth(false);
+    } finally {
+      // Reset logout flag after delay
+      setTimeout(() => {
+        isLoggingOut.current = false;
+        console.log('🔓 Logout flag cleared after manual logout');
+      }, 2000);
     }
   };
 
   const handleAuthSuccess = () => {
     console.log('AppRouter: handleAuthSuccess (from welcome)');
-    // The SIGNED_IN event from the listener will handle navigation
+    // The SIGNED_IN event will handle navigation
   };
 
-  // --- LOADING SCREEN ---
-  if (isCheckingAuth) {
+  // Loading screen
+  if (isCheckingAuth && !isLoggingOut.current) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
@@ -245,10 +275,10 @@ const AppRouter: React.FC = () => {
     );
   }
 
-  console.log('AppRouter: Rendering page:', currentPage, 'user:', user?.email);
+  console.log('AppRouter: Rendering page:', currentPage, 'user:', user?.email, 'loggingOut:', isLoggingOut.current);
 
-  // --- ROUTING ---
-  if (currentPage === 'app') {
+  // CRITICAL FIX: Show welcome page during logout
+  if (currentPage === 'app' && !isLoggingOut.current) {
     return <App onNavigateBack={navigateToWelcome} />;
   }
 

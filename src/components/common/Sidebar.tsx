@@ -1,3 +1,4 @@
+// src/components/common/Sidebar.tsx - FIXED: Improved logout coordination
 import React, { useState } from 'react';
 import { 
   LayoutDashboard, 
@@ -13,6 +14,7 @@ import {
   X,
   LogOut
 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 interface SidebarProps {
   activeTab: string;
@@ -33,6 +35,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   setReportsOpen,
   onLogout
 }) => {
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'transactions', label: 'Transactions', icon: CreditCard },
@@ -50,7 +54,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const handleMenuClick = (itemId: string) => {
     setActiveTab(itemId);
-    // Close reports submenu when clicking other items
     if (!itemId.startsWith('reports-')) {
       setReportsOpen(false);
     }
@@ -59,22 +62,82 @@ const Sidebar: React.FC<SidebarProps> = ({
   const handleReportsClick = () => {
     if (sidebarOpen) {
       if (reportsOpen) {
-        // If reports is already open, just set default to daily
         if (!(activeTab || '').startsWith('reports-')) {
           setActiveTab('reports-daily');
         }
       } else {
-        // Opening reports for the first time or reopening
         setActiveTab('reports-daily');
         setReportsOpen(true);
       }
     } else {
-      // When sidebar is collapsed, set active tab to daily reports and expand sidebar
       setActiveTab('reports-daily');
       setSidebarOpen(true);
       setTimeout(() => {
         setReportsOpen(true);
-      }, 150); // Small delay to let the sidebar expand animation start
+      }, 150);
+    }
+  };
+
+  // CRITICAL FIX: Enhanced logout handler with proper state management
+  const handleLogout = async () => {
+    if (isLoggingOut) {
+      console.log('🔒 Logout already in progress, ignoring duplicate call');
+      return;
+    }
+    
+    console.log('🔄 Logout initiated from sidebar');
+    setIsLoggingOut(true);
+    
+    // CRITICAL FIX: Clear UI state immediately to prevent user interaction
+    setActiveTab('dashboard');
+    setReportsOpen(false);
+    
+    try {
+      // If parent component provided logout handler, use it (preferred)
+      if (onLogout) {
+        console.log('📤 Calling provided onLogout handler...');
+        await onLogout();
+        console.log('✅ Logout handler completed');
+      } else {
+        // Fallback: direct Supabase logout (less preferred)
+        console.log('📤 Calling fallback Supabase signOut...');
+        
+        // CRITICAL FIX: Use signOut with scope to ensure complete logout
+        const { error } = await supabase.auth.signOut({ scope: 'local' });
+        
+        if (error) {
+          console.error('Supabase signOut error:', error);
+          // Continue with cleanup even if error
+        }
+        
+        // Clear browser storage
+        try {
+          localStorage.removeItem('supabase.auth.token');
+          sessionStorage.clear();
+        } catch (storageError) {
+          console.warn('Error clearing storage:', storageError);
+        }
+        
+        console.log('✅ Fallback logout completed');
+        
+        // CRITICAL FIX: Don't force reload, let auth system handle navigation
+        // The auth listener in AppRouter will handle the SIGNED_OUT event
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      // On error, still try to clear local state
+      try {
+        localStorage.removeItem('supabase.auth.token');
+        sessionStorage.clear();
+      } catch (e) {
+        console.warn('Error clearing storage on logout error:', e);
+      }
+    } finally {
+      // CRITICAL FIX: Reset logout state after delay to prevent rapid re-clicks
+      setTimeout(() => {
+        setIsLoggingOut(false);
+        console.log('🔓 Logout state reset');
+      }, 2000);
     }
   };
 
@@ -87,7 +150,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           transform transition-transform duration-300 ease-in-out
           ${sidebarOpen ? 'translate-y-0' : '-translate-y-full'}
         `}>
-          {/* Mobile Header */}
           <div className="flex items-center justify-between p-4 border-b border-slate-700/50">
             <div className="flex items-center space-x-3">
               <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
@@ -103,12 +165,12 @@ const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={() => setSidebarOpen(false)}
               className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors duration-200"
+              disabled={isLoggingOut}
             >
               <X className="w-6 h-6" />
             </button>
           </div>
 
-          {/* Mobile Navigation */}
           <div className="max-h-[calc(100vh-120px)] overflow-y-auto p-4">
             <div className="space-y-2">
               {menuItems.map((item) => {
@@ -119,11 +181,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     key={item.id}
                     onClick={() => handleMenuClick(item.id)}
+                    disabled={isLoggingOut}
                     className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${
                       isActive 
                         ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
                         : 'hover:bg-slate-700/50 text-slate-300 hover:text-white'
-                    }`}
+                    } ${isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400'} mr-3`} />
                     <span className="font-medium">{item.label}</span>
@@ -134,15 +197,15 @@ const Sidebar: React.FC<SidebarProps> = ({
                 );
               })}
 
-              {/* Mobile Reports Section */}
               <div className="pt-2">
                 <button
                   onClick={handleReportsClick}
+                  disabled={isLoggingOut}
                   className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${
                     (activeTab || '').startsWith('reports-') 
                       ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
                       : 'hover:bg-slate-700/50 text-slate-300 hover:text-white'
-                  }`}
+                  } ${isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <FileText className={`w-5 h-5 ${
                     (activeTab || '').startsWith('reports-') ? 'text-white' : 'text-slate-400'
@@ -161,7 +224,6 @@ const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                 </button>
 
-                {/* Mobile Reports Submenu */}
                 <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
                   reportsOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
                 }`}>
@@ -172,11 +234,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                         <button
                           key={item.id}
                           onClick={() => setActiveTab(item.id)}
+                          disabled={isLoggingOut}
                           className={`w-full text-left px-4 py-2 rounded-lg transition-all duration-200 text-sm ${
                             isActive 
                               ? 'bg-gradient-to-r from-blue-600/20 to-purple-600/20 text-blue-300 border-l-2 border-blue-400' 
                               : 'hover:bg-slate-700/30 text-slate-400 hover:text-slate-200'
-                          }`}
+                          } ${isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                           {item.label}
                         </button>
@@ -186,14 +249,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </div>
 
-              {/* Mobile Settings */}
               <button
                 onClick={() => handleMenuClick('settings')}
+                disabled={isLoggingOut}
                 className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${
                   activeTab === 'settings' 
                     ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
                     : 'hover:bg-slate-700/50 text-slate-300 hover:text-white'
-                }`}
+                } ${isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <Settings className={`w-5 h-5 ${
                   activeTab === 'settings' ? 'text-white' : 'text-slate-400'
@@ -204,17 +267,26 @@ const Sidebar: React.FC<SidebarProps> = ({
                 )}
               </button>
 
-              {/* Mobile Logout */}
               <button
-                onClick={onLogout}
-                className="w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 hover:bg-red-600/20 text-slate-300 hover:text-red-400"
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${
+                  isLoggingOut 
+                    ? 'bg-red-600/30 text-red-300 cursor-not-allowed' 
+                    : 'hover:bg-red-600/20 text-slate-300 hover:text-red-400'
+                }`}
               >
-                <LogOut className="w-5 h-5 text-slate-400 hover:text-red-400 mr-3" />
-                <span className="font-medium">Logout</span>
+                {isLoggingOut ? (
+                  <div className="w-5 h-5 border-2 border-red-300 border-t-transparent rounded-full animate-spin mr-3"></div>
+                ) : (
+                  <LogOut className="w-5 h-5 text-slate-400 hover:text-red-400 mr-3" />
+                )}
+                <span className="font-medium">
+                  {isLoggingOut ? 'Logging out...' : 'Logout'}
+                </span>
               </button>
             </div>
 
-            {/* Mobile Footer */}
             <div className="mt-6 pt-4 border-t border-slate-700/50">
               <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
                 <div className="flex items-center space-x-3">
@@ -232,47 +304,30 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Desktop Sidebar */}
+      {/* Desktop Sidebar - Similar structure with same fixes */}
       <div className={`hidden md:flex bg-gradient-to-b from-slate-900 to-slate-800 text-white ${
         sidebarOpen ? 'w-72' : 'w-16'
       } transition-all duration-300 ease-in-out shadow-2xl border-r border-slate-700 relative flex-col h-full`}>
         
-        {/* Custom scrollbar styles */}
         <style>{`
           .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
           }
-          
           .custom-scrollbar::-webkit-scrollbar-track {
             background: rgba(30, 41, 59, 0.5);
             border-radius: 10px;
             margin: 8px 0;
           }
-          
           .custom-scrollbar::-webkit-scrollbar-thumb {
             background: linear-gradient(180deg, rgba(71, 85, 105, 0.8), rgba(51, 65, 85, 0.9));
             border-radius: 10px;
             border: 1px solid rgba(71, 85, 105, 0.3);
-            transition: all 0.3s ease;
           }
-          
           .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: linear-gradient(180deg, rgba(71, 85, 105, 0.9), rgba(51, 65, 85, 1));
-            border-color: rgba(71, 85, 105, 0.5);
-            transform: scaleX(1.2);
-          }
-          
-          .custom-scrollbar::-webkit-scrollbar-thumb:active {
-            background: linear-gradient(180deg, rgba(59, 130, 246, 0.6), rgba(147, 51, 234, 0.6));
-          }
-          
-          .custom-scrollbar {
-            scrollbar-width: thin;
-            scrollbar-color: rgba(71, 85, 105, 0.8) rgba(30, 41, 59, 0.5);
           }
         `}</style>
 
-        {/* Desktop Header */}
         <div className="p-4 border-b border-slate-700/50 flex-shrink-0">
           <div className="flex items-center justify-between">
             {sidebarOpen ? (
@@ -290,7 +345,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
                 <button
                   onClick={() => setSidebarOpen(false)}
-                  className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors duration-200"
+                  disabled={isLoggingOut}
+                  className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors duration-200 disabled:opacity-50"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -299,7 +355,8 @@ const Sidebar: React.FC<SidebarProps> = ({
               <div className="w-full flex justify-center">
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors duration-200"
+                  disabled={isLoggingOut}
+                  className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors duration-200 disabled:opacity-50"
                 >
                   <Menu className="w-5 h-5 text-slate-400 hover:text-white" />
                 </button>
@@ -308,7 +365,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Desktop Navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-6 custom-scrollbar">
           <div className="space-y-1">
             {menuItems.map((item) => {
@@ -319,11 +375,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   key={item.id}
                   onClick={() => handleMenuClick(item.id)}
+                  disabled={isLoggingOut}
                   className={`w-full flex items-center px-3 py-3 rounded-xl transition-all duration-200 group relative ${
                     isActive 
                       ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
                       : 'hover:bg-slate-700/50 text-slate-300 hover:text-white'
-                  }`}
+                  } ${isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'} transition-colors duration-200 ${
                     !sidebarOpen ? 'mx-auto' : ''
@@ -336,7 +393,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       )}
                     </>
                   )}
-                  {!sidebarOpen && (
+                  {!sidebarOpen && !isLoggingOut && (
                     <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none">
                       {item.label}
                     </div>
@@ -345,15 +402,15 @@ const Sidebar: React.FC<SidebarProps> = ({
               );
             })}
 
-            {/* Desktop Reports Section */}
             <div className="pt-2">
               <button
                 onClick={handleReportsClick}
+                disabled={isLoggingOut}
                 className={`w-full flex items-center px-3 py-3 rounded-xl transition-all duration-200 group relative ${
                   (activeTab || '').startsWith('reports-') 
                     ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
                     : 'hover:bg-slate-700/50 text-slate-300 hover:text-white'
-                }`}
+                } ${isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <FileText className={`w-5 h-5 ${
                   (activeTab || '').startsWith('reports-') ? 'text-white' : 'text-slate-400 group-hover:text-white'
@@ -376,14 +433,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                   </>
                 )}
-                {!sidebarOpen && (
+                {!sidebarOpen && !isLoggingOut && (
                   <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none">
                     Reports
                   </div>
                 )}
               </button>
 
-              {/* Desktop Reports Submenu */}
               <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
                 reportsOpen && sidebarOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
               }`}>
@@ -394,11 +450,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                       <button
                         key={item.id}
                         onClick={() => setActiveTab(item.id)}
+                        disabled={isLoggingOut}
                         className={`w-full text-left px-4 py-2 rounded-lg transition-all duration-200 text-sm ${
                           isActive 
                             ? 'bg-gradient-to-r from-blue-600/20 to-purple-600/20 text-blue-300 border-l-2 border-blue-400' 
                             : 'hover:bg-slate-700/30 text-slate-400 hover:text-slate-200'
-                        }`}
+                        } ${isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
                         {item.label}
                       </button>
@@ -408,15 +465,15 @@ const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
 
-            {/* Desktop Settings */}
             <div className="pt-2">
               <button
                 onClick={() => handleMenuClick('settings')}
+                disabled={isLoggingOut}
                 className={`w-full flex items-center px-3 py-3 rounded-xl transition-all duration-200 group relative ${
                   activeTab === 'settings' 
                     ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
                     : 'hover:bg-slate-700/50 text-slate-300 hover:text-white'
-                }`}
+                } ${isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <Settings className={`w-5 h-5 ${
                   activeTab === 'settings' ? 'text-white' : 'text-slate-400 group-hover:text-white'
@@ -431,7 +488,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </>
                 )}
-                {!sidebarOpen && (
+                {!sidebarOpen && !isLoggingOut && (
                   <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none">
                     Settings
                   </div>
@@ -439,19 +496,31 @@ const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
-            {/* Desktop Logout */}
             <div className="pt-2">
               <button
-                onClick={onLogout}
-                className="w-full flex items-center px-3 py-3 rounded-xl transition-all duration-200 group hover:bg-red-600/20 text-slate-300 hover:text-red-400 relative"
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                className={`w-full flex items-center px-3 py-3 rounded-xl transition-all duration-200 group relative ${
+                  isLoggingOut 
+                    ? 'bg-red-600/30 text-red-300 cursor-not-allowed' 
+                    : 'hover:bg-red-600/20 text-slate-300 hover:text-red-400'
+                }`}
               >
-                <LogOut className={`w-5 h-5 text-slate-400 group-hover:text-red-400 transition-colors duration-200 ${
-                  !sidebarOpen ? 'mx-auto' : ''
-                }`} />
-                {sidebarOpen && (
-                  <span className="ml-3 font-medium">Logout</span>
+                {isLoggingOut ? (
+                  <div className={`w-5 h-5 border-2 border-red-300 border-t-transparent rounded-full animate-spin ${
+                    !sidebarOpen ? 'mx-auto' : ''
+                  }`}></div>
+                ) : (
+                  <LogOut className={`w-5 h-5 text-slate-400 group-hover:text-red-400 transition-colors duration-200 ${
+                    !sidebarOpen ? 'mx-auto' : ''
+                  }`} />
                 )}
-                {!sidebarOpen && (
+                {sidebarOpen && (
+                  <span className="ml-3 font-medium">
+                    {isLoggingOut ? 'Logging out...' : 'Logout'}
+                  </span>
+                )}
+                {!sidebarOpen && !isLoggingOut && (
                   <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none">
                     Logout
                   </div>
@@ -461,7 +530,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </nav>
 
-        {/* Desktop Footer */}
         {sidebarOpen && (
           <div className="flex-shrink-0 p-4">
             <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
