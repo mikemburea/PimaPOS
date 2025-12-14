@@ -773,21 +773,22 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
   }, []);
 
-  // Enhanced calculate dashboard data including sales transactions (maintaining existing functionality)
-  const calculateDashboardData = (
-    transactions: DatabaseTransaction[], 
-    salesTransactions: DatabaseSalesTransaction[],
-    suppliers: DatabaseSupplier[], 
-    materials: DatabaseMaterial[]
-  ): DashboardData => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const thisWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+ // Enhanced calculate dashboard data including sales transactions
+const calculateDashboardData = (
+  transactions: DatabaseTransaction[], 
+  salesTransactions: DatabaseSalesTransaction[],
+  suppliers: DatabaseSupplier[], 
+  materials: DatabaseMaterial[]
+): DashboardData => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const thisWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     // Filter completed transactions
-    const completedTransactions = transactions.filter(t => t.payment_status === 'completed');
-    const completedSalesTransactions = salesTransactions.filter(t => t.payment_status === 'completed');
+  const completedTransactions = transactions.filter(t => t.payment_status === 'completed');
+  const completedSalesTransactions = salesTransactions.filter(t => t.payment_status === 'completed');
+  
     
     const todayTransactions = transactions.filter(t => new Date(t.transaction_date) >= today);
     const todaySalesTransactions = salesTransactions.filter(t => new Date(t.transaction_date) >= today);
@@ -875,26 +876,107 @@ const Dashboard: React.FC<DashboardProps> = ({
       .sort((a, b) => b.totalCombinedValue - a.totalCombinedValue)
       .slice(0, 5);
 
-    // Calculate material distribution from both transaction types
-    const allMaterialCounts = [...transactions, ...salesTransactions.map(st => ({
-      material_type: st.material_name
-    } as { material_type: string }))].reduce((acc, t) => {
-      const material = t.material_type;
-      acc[material] = (acc[material] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+   // FIXED: Calculate material distribution from actual database materials with fuzzy matching
+  const materialNamesMap = new Map();
+  materials.forEach(material => {
+    const baseName = material.name.toLowerCase().trim();
+    materialNamesMap.set(baseName, {
+      name: material.name,
+      category: material.category,
+      variations: [
+        baseName,
+        baseName.replace(/\s+/g, ''),
+        baseName.replace(/[^a-z0-9]/g, ''),
+      ]
+    });
+  });
 
-    const totalTransactionCount = transactions.length + salesTransactions.length;
-    const materialColors = ['#00bcd4', '#9c27b0', '#e91e63', '#ff9800', '#4caf50', '#3f51b5'];
-    const materialDistribution = Object.entries(allMaterialCounts)
-      .map(([name, count], index) => ({
-        name,
-        value: Math.round((count / totalTransactionCount) * 100),
+  console.log('📊 Material Database:', Array.from(materialNamesMap.keys()));
+
+  const materialCounts = new Map();
+  
+  const findMaterialMatch = (inputName: string) => {
+    if (!inputName) return null;
+    
+    const cleanInput = inputName.toLowerCase().trim();
+    
+    for (const [key, value] of materialNamesMap) {
+      if (value.variations.some(v => 
+        v === cleanInput || 
+        cleanInput.includes(v) || 
+        v.includes(cleanInput)
+      )) {
+        console.log(`✅ Matched "${inputName}" → "${value.name}"`);
+        return { name: value.name, category: value.category };
+      }
+    }
+    
+    console.log(`❌ No match for: "${inputName}"`);
+    return null;
+  };
+  
+  // Process purchase transactions
+  transactions.forEach(transaction => {
+    const materialInfo = findMaterialMatch(transaction.material_type || '');
+    
+    if (materialInfo) {
+      const existing = materialCounts.get(materialInfo.name);
+      if (existing) {
+        existing.count++;
+      } else {
+        materialCounts.set(materialInfo.name, {
+          count: 1,
+          name: materialInfo.name,
+          category: materialInfo.category
+        });
+      }
+    }
+  });
+
+  // Process sales transactions
+  salesTransactions.forEach(transaction => {
+    const materialInfo = findMaterialMatch(transaction.material_name || '');
+    
+    if (materialInfo) {
+      const existing = materialCounts.get(materialInfo.name);
+      if (existing) {
+        existing.count++;
+      } else {
+        materialCounts.set(materialInfo.name, {
+          count: 1,
+          name: materialInfo.name,
+          category: materialInfo.category
+        });
+      }
+    }
+  });
+
+  console.log('📈 Material Distribution:', Array.from(materialCounts.entries()));
+
+  const totalTransactionCount = Array.from(materialCounts.values()).reduce((sum, m) => sum + m.count, 0);
+  const materialColors = ['#00bcd4', '#9c27b0', '#e91e63', '#ff9800', '#4caf50', '#3f51b5'];
+  
+  const materialDistribution = Array.from(materialCounts.values())
+    .map((material, index) => ({
+      name: material.name,
+      value: totalTransactionCount > 0 ? Math.round((material.count / totalTransactionCount) * 100) : 0,
+      color: materialColors[index % materialColors.length],
+      count: material.count
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  if (materialDistribution.length === 0 && materials.length > 0) {
+    console.log('⚠️ No transaction materials matched, showing database materials');
+    materials.slice(0, 5).forEach((material, index) => {
+      materialDistribution.push({
+        name: material.name,
+        value: 0,
         color: materialColors[index % materialColors.length],
-        count
-      }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+        count: 0
+      });
+    });
+  }
 
     // Generate enhanced revenue data for the last 7 days including sales
     const revenueData = Array.from({ length: 7 }, (_, i) => {
@@ -1083,52 +1165,71 @@ const Dashboard: React.FC<DashboardProps> = ({
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
 
-  // UPDATED: Enhanced quick action handlers with permission checks
+  // FIXED: Enhanced quick action handlers with proper navigation
   const handleNewTransaction = () => {
-    if (userPermissions?.canViewTransactions && onNavigateToTransactions) {
+    if (userPermissions?.canViewTransactions) {
       console.log('Navigate to new transaction');
-      onNavigateToTransactions();
+      if (onNavigateToTransactions) {
+        onNavigateToTransactions();
+      }
     } else {
       console.log('Access denied: Cannot create transactions');
+      alert('You need transaction permissions to create new transactions. Contact your administrator.');
     }
   };
 
-  const handleAddSupplier = () => {
-    if (userPermissions?.canViewSuppliers && onNavigateToAddSupplier) {
+   const handleAddSupplier = () => {
+    if (userPermissions?.canViewSuppliers) {
       console.log('Navigate to add supplier');
-      onNavigateToAddSupplier();
+      if (onNavigateToAddSupplier) {
+        onNavigateToAddSupplier();
+      }
     } else {
       console.log('Access denied: Cannot add suppliers');
+      alert('You need supplier permissions to add new suppliers. Contact your administrator.');
     }
   };
 
-  const handleViewAllTransactions = () => {
-    if (userPermissions?.canViewTransactions && onNavigateToTransactions) {
+ const handleViewAllTransactions = () => {
+    if (userPermissions?.canViewTransactions) {
       console.log('Navigate to all transactions');
-      onNavigateToTransactions();
+      if (onNavigateToTransactions) {
+        onNavigateToTransactions();
+      }
     } else {
       console.log('Access denied: Cannot view transactions');
+      alert('You need transaction permissions to view all transactions. Contact your administrator.');
     }
   };
 
   const handleViewMaterials = () => {
-    if (userPermissions?.canViewMaterials && onNavigateToMaterials) {
+    if (userPermissions?.canViewMaterials) {
       console.log('Navigate to materials');
-      onNavigateToMaterials();
+      if (onNavigateToMaterials) {
+        onNavigateToMaterials();
+      }
     } else {
       console.log('Access denied: Cannot view materials');
+      alert('You need materials permissions to view materials. Contact your administrator.');
     }
   };
 
-  const handleViewAnalytics = () => {
+ const handleViewAnalytics = () => {
     if (userPermissions?.canViewAnalytics) {
       console.log('Navigate to analytics');
-      // Add analytics navigation logic here
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('navigate-to-analytics'));
+      }
     } else {
-      console.log('Access denied: Cannot view analytics');
+      alert('You need analytics permissions to view analytics. Contact your administrator.');
     }
   };
-
+   const handleSettings = () => {
+    console.log('Navigate to settings');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('navigate-to-settings'));
+    }
+  };
   const handleExport = () => {
     if (userPermissions?.isAdmin) {
       console.log('Export data');
@@ -1790,7 +1891,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <QuickActionButton variant="ghost" icon={Download} onClick={handleExport}>
                     Export
                   </QuickActionButton>
-                  <QuickActionButton variant="ghost" icon={Settings} onClick={() => console.log('Settings')}>
+                 <QuickActionButton variant="ghost" icon={Settings} onClick={handleSettings}>
                     Settings
                   </QuickActionButton>
                 </div>

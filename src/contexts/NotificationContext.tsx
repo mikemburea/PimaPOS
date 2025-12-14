@@ -249,6 +249,55 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     isNotificationVisibleRef.current = isNotificationVisible;
   }, [isNotificationVisible]);
 
+  // ===== BATCH UPDATE SYSTEM FOR PERFORMANCE =====
+const batchUpdateQueueRef = useRef<Array<{ id: string; updates: any }>>([]);
+const batchUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+// Batch processing function
+const processBatchUpdates = useCallback(async () => {
+  if (batchUpdateQueueRef.current.length === 0) return;
+  
+  const batch = batchUpdateQueueRef.current.splice(0, 10); // Process 10 at a time
+  console.log(`[NotificationContext] Processing batch of ${batch.length} updates`);
+  
+  try {
+    for (const { id, updates } of batch) {
+      await supabase
+        .from('notification_states')
+        .update(updates)
+        .match({ id });
+    }
+  } catch (error) {
+    console.error(`[NotificationContext] Batch update failed:`, error);
+  }
+}, []);
+
+// Queue update function
+const queueBatchUpdate = useCallback((id: string, updates: any) => {
+  batchUpdateQueueRef.current.push({ id, updates });
+  
+  // Clear existing timer
+  if (batchUpdateTimerRef.current) {
+    clearTimeout(batchUpdateTimerRef.current);
+  }
+  
+  // Set new timer - process after 2 seconds of inactivity
+  batchUpdateTimerRef.current = setTimeout(() => {
+    processBatchUpdates();
+  }, 2000);
+}, [processBatchUpdates]);
+
+// Cleanup timer on unmount
+useEffect(() => {
+  return () => {
+    if (batchUpdateTimerRef.current) {
+      clearTimeout(batchUpdateTimerRef.current);
+    }
+  };
+}, []);
+
+// ===== END BATCH UPDATE SYSTEM =====
+
   const hasUnhandledNotifications = notificationQueue.some(n => !n.isHandled && !n.isDismissed);
   const isNavigationBlocked = hasUnhandledNotifications && isNotificationVisible;
   const unreadBellCount = bellNotifications.filter(n => !readBellNotifications.has(n.id)).length;
@@ -1095,6 +1144,35 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       return [];
     }
   };
+  // ✅ ADD THE NEW FUNCTION RIGHT HERE (after fetchTransactionPhotos ends)
+  // Smart photo polling with exponential backoff
+  const waitForPhotos = async (transactionId: string, maxWaitMs: number = 10000): Promise<TransactionPhoto[]> => {
+    const startTime = Date.now();
+    const pollIntervals = [500, 1000, 1500, 2000, 2500]; // Progressive delays
+    let attemptCount = 0;
+    
+    while (Date.now() - startTime < maxWaitMs) {
+      try {
+        const photos = await fetchTransactionPhotos(transactionId, 0);
+        if (photos.length > 0) {
+          console.log(`[NotificationContext] ✅ Photos found after ${Date.now() - startTime}ms (${photos.length} photos)`);
+          return photos;
+        }
+        
+        // Wait before next attempt
+        const delay = pollIntervals[Math.min(attemptCount, pollIntervals.length - 1)];
+        console.log(`[NotificationContext] No photos yet, waiting ${delay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        attemptCount++;
+      } catch (error) {
+        console.warn('[NotificationContext] Error during photo polling:', error);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    console.warn(`[NotificationContext] Photo polling timed out after ${maxWaitMs}ms`);
+    return [];
+  };
 
   // Dedicated function to refresh photos for a specific transaction
   const refreshPhotosForTransaction = useCallback(async (transactionId: string): Promise<TransactionPhoto[]> => {
@@ -1568,13 +1646,12 @@ const markAsHandledById = async (notificationId: string): Promise<void> => {
 
     console.log('[NotificationContext] Updating notification_states with:', updateData);
 
-    // FIXED: Proper update syntax - eq() must come AFTER update()
-    const { data: updateResult, error: updateError } = await supabase
-      .from('notification_states')
-      .update(updateData)
-      .eq('id', notificationId)
-      .select()
-      .single();
+  const { data: updateResult, error: updateError } = await supabase
+  .from('notification_states')
+  .update(updateData)
+  .match({ id: notificationId })  // ✅ CORRECT
+  .select()
+  .single();
 
     if (updateError) {
       console.error('[NotificationContext] Error marking notification as handled:', {
@@ -1673,12 +1750,12 @@ const dismissById = async (notificationId: string): Promise<void> => {
     console.log('[NotificationContext] Dismissing notification_states with:', updateData);
 
     // FIXED: Proper update syntax - eq() must come AFTER update()
-    const { data: updateResult, error: updateError } = await supabase
-      .from('notification_states')
-      .update(updateData)
-      .eq('id', notificationId)
-      .select()
-      .single();
+   const { data: updateResult, error: updateError } = await supabase
+  .from('notification_states')
+  .update(updateData)
+  .match({ id: notificationId })  // ✅ CORRECT
+  .select()
+  .single();
 
     if (updateError) {
       console.error('[NotificationContext] Error dismissing notification:', {
@@ -2324,14 +2401,17 @@ const dismissCurrentNotification = () => {
             return;
           }
           
-          // CRITICAL FIX: Only wait for photos on Purchase INSERT events
-          if (payload.eventType === 'INSERT' && transactionType === 'Purchase') {
-            console.log('[NotificationContext] Waiting 2 seconds for photos on purchase...');
-            await new Promise(resolve => setTimeout(resolve, 2000));
-          } else if (transactionType === 'Sale') {
-            // For sales, ensure immediate processing
-            console.log('[NotificationContext] Processing sale immediately - no photo wait needed, will save to notification_states');
-          }
+       // CRITICAL FIX: Smart photo polling for Purchase INSERT events
+if (payload.eventType === 'INSERT' && transactionType === 'Purchase') {
+  console.log('[NotificationContext] Starting smart photo polling...');
+  const photos = await waitForPhotos(transaction.id, 8000); // 8 second max wait
+  if (photos.length > 0) {
+    console.log(`[NotificationContext] Pre-fetched ${photos.length} photos for notification`);
+  }
+} else if (transactionType === 'Sale') {
+  // For sales, ensure immediate processing
+  console.log('[NotificationContext] Processing sale immediately - no photo wait needed, will save to notification_states');
+}
           
           // Add notification - this will save to notification_states
           await addNotification({
@@ -2669,7 +2749,18 @@ const dismissCurrentNotification = () => {
     };
 
     // CRITICAL: Only depend on stable values that should trigger subscription recreation
-  }, [isInitialized, sessionInfo?.sessionId, wasTransactionEverHandled]); // FIXED: Added wasTransactionEverHandled dependency
+}, [
+  isInitialized, 
+  sessionInfo?.sessionId, 
+  wasTransactionEverHandled,
+  suppliers,
+  addNotification,
+  isValidPurchaseTransaction,
+  isValidSalesTransaction,
+  convertPurchaseTransaction,
+  convertSalesTransaction,
+  playNotificationSoundMemo
+]);
 
   // Session heartbeat
   useEffect(() => {

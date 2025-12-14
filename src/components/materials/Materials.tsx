@@ -589,26 +589,31 @@ const Materials: React.FC<MaterialsProps> = ({
       {/* Price History Chart */}
       {materials.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6">
-          <h3 className="text-lg font-semibold mb-4">Price History (Last 6 Months)</h3>
+          <h3 className="text-lg font-semibold mb-4">Current Material Prices</h3>
+          <p className="text-sm text-gray-500 mb-4">Displaying current prices per kg for active materials</p>
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={[
-              { month: 'Jan', aluminum: 72, copper: 290, steel: 38, lead: 110, brass: 165 },
-              { month: 'Feb', aluminum: 74, copper: 295, steel: 39, lead: 112, brass: 168 },
-              { month: 'Mar', aluminum: 75, copper: 300, steel: 40, lead: 114, brass: 170 },
-              { month: 'Apr', aluminum: 76, copper: 305, steel: 41, lead: 115, brass: 172 },
-              { month: 'May', aluminum: 75, copper: 310, steel: 42, lead: 115, brass: 175 },
-              { month: 'Jun', aluminum: 80, copper: 320, steel: 40, lead: 120, brass: 180 }
-            ]}>
+            <LineChart data={materials.filter(m => m.is_active).map((material, index) => ({
+              name: material.name,
+              price: material.current_price_per_kg,
+              index: index
+            }))}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
+              <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} interval={0} tick={{ fontSize: 12 }} />
+              <YAxis label={{ value: 'Price (KES/kg)', angle: -90, position: 'insideLeft' }} />
+              <Tooltip 
+                formatter={(value: number) => [`KES ${value.toFixed(2)}/kg`, 'Price']}
+                labelFormatter={(label) => `Material: ${label}`}
+              />
               <Legend />
-              <Line type="monotone" dataKey="aluminum" stroke="#3B82F6" name="Aluminum" />
-              <Line type="monotone" dataKey="copper" stroke="#F59E0B" name="Copper" />
-              <Line type="monotone" dataKey="steel" stroke="#6B7280" name="Steel" />
-              <Line type="monotone" dataKey="lead" stroke="#8B5CF6" name="Lead" />
-              <Line type="monotone" dataKey="brass" stroke="#EAB308" name="Brass" />
+              <Line 
+                type="monotone" 
+                dataKey="price" 
+                stroke="#0D9488" 
+                strokeWidth={2}
+                name="Current Price"
+                dot={{ fill: '#0D9488', r: 4 }}
+                activeDot={{ r: 6 }}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>

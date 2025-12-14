@@ -1839,6 +1839,8 @@ const { isPageVisible, isWindowFocused } = useVisibilityManager(handleAppResume,
   }
 }, [authLoading, fetchData]);
 
+ 
+
   // OPTIMIZED: Memoized user permissions to prevent excessive re-renders
   const userPermissions = useMemo(() => ({
     canViewTransactions: hasPermission('transactions'),
@@ -1911,7 +1913,7 @@ const { isPageVisible, isWindowFocused } = useVisibilityManager(handleAppResume,
     }
   };
 
-  // Enhanced navigation handlers for Dashboard with permission checks and first user admin awareness
+ // FIXED: Enhanced navigation handlers for Dashboard with permission checks and analytics support
   const handleNavigateToTransactions = () => {
     console.log('Navigating to transactions from dashboard');
     if (!hasPermission('transactions')) {
@@ -1930,7 +1932,8 @@ const { isPageVisible, isWindowFocused } = useVisibilityManager(handleAppResume,
     }
   };
 
-  const handleNavigateToSuppliers = () => {
+
+ const handleNavigateToSuppliers = () => {
     console.log('Navigating to suppliers from dashboard');
     if (!hasPermission('suppliers')) {
       const message = isFirstUser
@@ -1947,8 +1950,7 @@ const { isPageVisible, isWindowFocused } = useVisibilityManager(handleAppResume,
       }
     }
   };
-
-  const handleNavigateToAddSupplier = () => {
+const handleNavigateToAddSupplier = () => {
     console.log('Navigating to add supplier from dashboard');
     if (!hasPermission('suppliers')) {
       const message = isFirstUser
@@ -1983,6 +1985,44 @@ const { isPageVisible, isWindowFocused } = useVisibilityManager(handleAppResume,
       }
     }
   };
+  // ADDED: Analytics navigation handler
+// ADDED: Analytics navigation handler
+  const handleNavigateToAnalytics = useCallback(() => {
+    console.log('Navigating to analytics');
+    if (!hasPermission('analytics')) {
+      const message = isFirstUser
+        ? 'Analytics require admin access. Sign up as the first user to become an administrator!'
+        : 'You don\'t have permission to view analytics. Contact your administrator.';
+      alert(message);
+      return;
+    }
+    if (attemptNavigation('analytics')) {
+      setActiveTab('analytics');
+      if (isMobile) {
+        setSidebarOpen(false);
+        setReportsOpen(false);
+      }
+    }
+  }, [hasPermission, isFirstUser, attemptNavigation, isMobile]);
+
+  // ADDED: Settings navigation handler
+  const handleNavigateToSettings = useCallback(() => {
+    console.log('Navigating to settings');
+    if (!hasPermission('settings')) {
+      const message = isFirstUser
+        ? 'Settings require admin access. Sign up as the first user to become an administrator!'
+        : 'You don\'t have permission to view settings. Contact your administrator.';
+      alert(message);
+      return;
+    }
+    if (attemptNavigation('settings')) {
+      setActiveTab('settings');
+      if (isMobile) {
+        setSidebarOpen(false);
+        setReportsOpen(false);
+      }
+    }
+  }, [hasPermission, isFirstUser, attemptNavigation, isMobile]);
 
   // Enhanced logout with navigation check (maintaining existing functionality)
   const handleLogout = () => {
@@ -1997,7 +2037,33 @@ const { isPageVisible, isWindowFocused } = useVisibilityManager(handleAppResume,
       window.location.reload();
     }
   };
+  // 🎯 ADD YOUR NEW useEffect HERE:
+  useEffect(() => {
+    // Listen for Analytics navigation from Dashboard
+    const handleAnalyticsNavigation = () => {
+      console.log('📊 Analytics navigation event received');
+      handleNavigateToAnalytics();
+    };
 
+    // Listen for Settings navigation from Dashboard
+    const handleSettingsNavigation = () => {
+      console.log('⚙️ Settings navigation event received');
+      handleNavigateToSettings();
+    };
+
+    // Add event listeners
+    window.addEventListener('navigate-to-analytics', handleAnalyticsNavigation);
+    window.addEventListener('navigate-to-settings', handleSettingsNavigation);
+
+    console.log('🎯 Analytics & Settings navigation listeners registered');
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('navigate-to-analytics', handleAnalyticsNavigation);
+      window.removeEventListener('navigate-to-settings', handleSettingsNavigation);
+      console.log('🧹 Analytics & Settings navigation listeners removed');
+    };
+  }, [handleNavigateToAnalytics, handleNavigateToSettings]);
   // Enhanced notification click handler (maintaining existing functionality)
   const handleNotificationClick = async () => {
     const totalCount = getUnhandledCount() + unreadBellCount;
