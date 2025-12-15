@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase';
 import { TrendingUp, TrendingDown, Package, DollarSign, Users, AlertTriangle, Loader2, Calendar, Scale, Target } from 'lucide-react';
 
 // Updated interfaces to match new database structure
+// Updated interfaces to match new database structure
 interface SalesTransaction {
   id: string;
   transaction_id: string;
@@ -29,7 +30,6 @@ interface SalesTransaction {
   created_at: string;
   updated_at?: string | null;
 }
-
 interface Supplier {
   id: string;
   name: string;
@@ -56,6 +56,7 @@ interface Supplier {
   registered_date: string;
   registered_by?: string | null;
 }
+
 
 interface Material {
   id: number;
@@ -174,14 +175,10 @@ const Analytics: React.FC<AnalyticsProps> = ({
       setLoading(true);
       setError(null);
 
-      // Fetch all data in parallel - INCLUDING regular transactions
-      const [transactionsResult, salesTransactionsResult, suppliersResult, materialsResult] = await Promise.all([
+      // Fetch all data in parallel - Focus on purchase transactions (incoming materials from suppliers)
+      const [transactionsResult, suppliersResult, materialsResult] = await Promise.all([
         supabase
           .from('transactions')
-          .select('*')
-          .order('transaction_date', { ascending: false }),
-        supabase
-          .from('sales_transactions')
           .select('*')
           .order('transaction_date', { ascending: false }),
         supabase
@@ -200,10 +197,6 @@ const Analytics: React.FC<AnalyticsProps> = ({
         console.error('❌ Transactions error:', transactionsResult.error);
         throw transactionsResult.error;
       }
-      if (salesTransactionsResult.error) {
-        console.error('❌ Sales transactions error:', salesTransactionsResult.error);
-        throw salesTransactionsResult.error;
-      }
       if (suppliersResult.error) {
         console.error('❌ Suppliers error:', suppliersResult.error);
         throw suppliersResult.error;
@@ -214,47 +207,66 @@ const Analytics: React.FC<AnalyticsProps> = ({
       }
 
       const fetchedTransactions = transactionsResult.data || [];
-      const fetchedSalesTransactions = salesTransactionsResult.data || [];
       const fetchedSuppliers = suppliersResult.data || [];
       const fetchedMaterials = materialsResult.data || [];
 
       console.log('✅ Analytics: Data fetched successfully');
       console.log('📊 Purchase transactions:', fetchedTransactions.length);
-      console.log('📊 Sales transactions:', fetchedSalesTransactions.length);
       console.log('🏪 Suppliers:', fetchedSuppliers.length);
       console.log('📦 Materials:', fetchedMaterials.length);
 
-      // Log sample data for debugging
+   // Log sample data for debugging
       if (fetchedTransactions.length > 0) {
-        console.log('Sample purchase transaction:', fetchedTransactions[0]);
-      }
-      if (fetchedSalesTransactions.length > 0) {
-        console.log('Sample sales transaction:', fetchedSalesTransactions[0]);
+        console.log('Sample transaction:', fetchedTransactions[0]);
+        console.log('Material name from transaction:', fetchedTransactions[0].name);
+        console.log('First 3 transaction names:', fetchedTransactions.slice(0, 3).map(t => t.name));
       }
       if (fetchedSuppliers.length > 0) {
         console.log('Sample supplier:', fetchedSuppliers[0]);
       }
-      if (fetchedMaterials.length > 0) {
-        console.log('Sample material:', fetchedMaterials[0]);
-      }
+    // NEW CODE:
+if (fetchedMaterials.length > 0) {
+  console.log('Sample material:', fetchedMaterials[0]);
+  console.log('Material ID type:', typeof fetchedMaterials[0].id);
+  console.log('Material ID from transaction:', fetchedTransactions[0]?.material_id);
+}
+  // Transform transactions to match SalesTransaction interface
+      // Use 'material_type' field which contains material names like CAST, SECTION, BRASS
+      const normalizedTransactions = fetchedTransactions.map(t => {
+        // material_type is the correct field in the database
+        const materialName = t.material_type || 'Unknown Material';
+        
+        return {
+          id: t.id,
+          transaction_id: t.transaction_id || t.id,
+          supplier_id: t.supplier_id,
+          supplier_name: t.supplier_name,
+          material_id: t.material_id || null,
+          material_name: materialName, // Uses t.material_type (CAST, SECTION, BRASS, etc.)
+          weight_kg: Number(t.weight_kg) || 0,
+          price_per_kg: Number(t.unit_price) || 0,
+          total_amount: Number(t.total_amount) || 0,
+          transaction_date: t.transaction_date,
+          notes: t.notes || null,
+          is_special_price: t.is_special_price || false,
+          original_price: t.original_price || null,
+          payment_method: t.payment_method || 'cash',
+          payment_status: t.payment_status || 'pending',
+          transaction_type: 'purchase',
+          created_by: t.created_by || null,
+          created_at: t.created_at,
+          updated_at: t.updated_at || null
+        };
+      }) as SalesTransaction[];
 
-      // Combine both transaction types for analytics
-      const allTransactions = [
-        ...fetchedTransactions.map(t => ({
-          ...t,
-          transaction_type: 'purchase' as const,
-          material_name: t.material_type || 'Unknown',
-          weight_kg: t.weight_kg || 0,
-          price_per_kg: t.unit_price || 0,
-          total_amount: t.total_amount || 0,
-          payment_status: t.payment_status || 'pending'
-        })),
-        ...fetchedSalesTransactions
-      ];
+      console.log('📊 Normalized transactions for analytics:', normalizedTransactions.length);
+      console.log('✅ Payment status breakdown:', {
+        completed: normalizedTransactions.filter(t => t.payment_status === 'completed').length,
+        pending: normalizedTransactions.filter(t => t.payment_status === 'pending').length,
+        partial: normalizedTransactions.filter(t => t.payment_status === 'partial').length
+      });
 
-      console.log('📊 Combined transactions for analytics:', allTransactions.length);
-
-      setSalesTransactions(allTransactions as SalesTransaction[]);
+      setSalesTransactions(normalizedTransactions);
       setSuppliers(fetchedSuppliers);
       setMaterials(fetchedMaterials);
 
@@ -280,13 +292,19 @@ const Analytics: React.FC<AnalyticsProps> = ({
       const monthData: MonthlyData = { month };
       
       activeMaterials.forEach(material => {
-        const monthTransactions = salesTransactions.filter(t => {
-          const transactionDate = new Date(t.transaction_date);
-          return transactionDate.getMonth() === index && 
-                 transactionDate.getFullYear() === currentYear &&
-                 t.material_name === material.name &&
-                 t.payment_status === 'completed';
-        });
+    // NEW CODE:
+const monthTransactions = salesTransactions.filter(t => {
+  const transactionDate = new Date(t.transaction_date);
+  // Match by ID first (most reliable), fallback to name
+  const materialMatches = t.material_id 
+    ? t.material_id === material.id 
+    : t.material_name.toUpperCase() === material.name.toUpperCase();
+  
+  return transactionDate.getMonth() === index && 
+         transactionDate.getFullYear() === currentYear &&
+         materialMatches &&
+         t.payment_status === 'completed';
+});
 
         const totalWeight = monthTransactions.reduce((sum, t) => sum + t.weight_kg, 0);
         const totalRevenue = monthTransactions.reduce((sum, t) => sum + t.total_amount, 0);
@@ -300,112 +318,161 @@ const Analytics: React.FC<AnalyticsProps> = ({
   };
 
   // Calculate material distribution with real database data
-  const calculateMaterialStats = (): MaterialStats[] => {
-    const materialStatsMap = new Map<string, MaterialStats>();
-    const totalRevenue = salesTransactions
-      .filter(t => t.payment_status === 'completed')
-      .reduce((sum, t) => sum + t.total_amount, 0);
+// Calculate material distribution with real database data
+const calculateMaterialStats = (): MaterialStats[] => {
+  const materialStatsMap = new Map<string, MaterialStats>();
+  const completedTransactions = salesTransactions.filter(t => t.payment_status === 'completed');
+  const totalRevenue = completedTransactions.reduce((sum, t) => sum + t.total_amount, 0);
+  
+  console.log('🔍 Calculating material stats from', completedTransactions.length, 'completed transactions');
+  console.log('📋 Available materials in DB:', materials.map(m => `"${m.name}" (ID: ${m.id})`).join(', '));
+  
+  // Populate with actual transaction data (transactions are the source of truth)
+  completedTransactions.forEach((transaction, idx) => {
+    const materialName = transaction.material_name || 'Unknown Material';
     
-    // Start with all active materials from database
-    materials
-      .filter(m => m.is_active)
-      .forEach((material, index) => {
-        materialStatsMap.set(material.name, {
-          name: material.name,
-          value: 0,
-          color: COLORS[index % COLORS.length],
-          weight: 0,
-          transactions: 0,
-          revenue: 0,
-          avgPrice: material.current_price_per_kg,
-          marketShare: 0
-        });
+    console.log(`🔎 Txn #${idx + 1}: name="${materialName}", material_id=${transaction.material_id}`);
+    
+   if (!materialStatsMap.has(materialName)) {
+  // Find matching material from database by ID (most reliable), then by name
+  // TRIM whitespace from both sides for comparison
+  const dbMaterial = transaction.material_id 
+    ? materials.find(m => m.id === transaction.material_id)
+    : materials.find(m => m.name.trim().toUpperCase() === materialName.trim().toUpperCase());
+  
+  const colorIndex = materialStatsMap.size;
+  
+  // Log matching results
+  if (dbMaterial) {
+    console.log(`  ✅ MATCHED by ${transaction.material_id ? 'ID' : 'name'} → DB material: "${dbMaterial.name}" (price: KES ${dbMaterial.current_price_per_kg}/kg)`);
+  } else {
+    console.log(`  ⚠️ NO MATCH - using txn price: KES ${transaction.price_per_kg}/kg`);
+  }
+      
+      materialStatsMap.set(materialName, {
+        name: materialName,
+        value: 0,
+        color: COLORS[colorIndex % COLORS.length],
+        weight: 0,
+        transactions: 0,
+        revenue: 0,
+        avgPrice: dbMaterial?.current_price_per_kg || transaction.price_per_kg,
+        marketShare: 0
       });
+    }
+    
+    const materialStats = materialStatsMap.get(materialName)!;
+    materialStats.weight += Number(transaction.weight_kg) || 0;
+    materialStats.revenue += Number(transaction.total_amount) || 0;
+    materialStats.transactions += 1;
+    materialStats.value = materialStats.weight;
+    
+    // Calculate actual average price from transactions
+    if (materialStats.weight > 0) {
+      materialStats.avgPrice = materialStats.revenue / materialStats.weight;
+    }
+  });
 
-    // Populate with actual transaction data
-    salesTransactions
-      .filter(transaction => transaction.payment_status === 'completed')
-      .forEach(transaction => {
-        const materialName = transaction.material_name;
-        if (!materialStatsMap.has(materialName)) {
-          // Handle materials that might not be in the materials table
-          const index = materialStatsMap.size;
-          materialStatsMap.set(materialName, {
-            name: materialName,
-            value: 0,
-            color: COLORS[index % COLORS.length],
-            weight: 0,
-            transactions: 0,
-            revenue: 0,
-            avgPrice: transaction.price_per_kg,
-            marketShare: 0
-          });
-        }
-        
-        const materialStats = materialStatsMap.get(materialName)!;
-        materialStats.weight += transaction.weight_kg;
-        materialStats.revenue += transaction.total_amount;
-        materialStats.transactions += 1;
-        materialStats.value = materialStats.weight;
-        
-        if (materialStats.transactions > 0) {
-          materialStats.avgPrice = materialStats.revenue / materialStats.weight;
-        }
-      });
+  // Calculate market share
+  materialStatsMap.forEach(material => {
+    material.marketShare = totalRevenue > 0 ? (material.revenue / totalRevenue) * 100 : 0;
+  });
 
-    // Calculate market share
-    materialStatsMap.forEach(material => {
-      material.marketShare = totalRevenue > 0 ? (material.revenue / totalRevenue) * 100 : 0;
-    });
+  const result = Array.from(materialStatsMap.values())
+    .filter(material => material.transactions > 0)
+    .sort((a, b) => b.weight - a.weight);
+  
+  console.log('📊 Material stats calculated:', result.length, 'materials with transactions');
+  if (result.length > 0) {
+    console.log('Top material:', result[0].name, '-', result[0].weight.toFixed(2), 'kg');
+  }
+  
+  return result;
+};
 
-    return Array.from(materialStatsMap.values())
-      .filter(material => material.transactions > 0)
-      .sort((a, b) => b.weight - a.weight);
-  };
-
-  // Calculate supplier performance
+  // Calculate supplier performance with actual transaction data
   const calculateSupplierPerformance = (): SupplierPerformance[] => {
-    const activeSuppliers = suppliers.filter(supplier => supplier.status === 'active');
-    const suppliersWithTransactions = activeSuppliers.filter(supplier => supplier.total_transactions > 0);
+    console.log('🔍 Calculating supplier performance...');
     
-    return suppliersWithTransactions
-      .map(supplier => {
-        const firstTransactionDate = supplier.first_transaction_date || supplier.registered_date;
-        const daysSinceFirst = supplier.first_transaction_date ? 
-          Math.floor((new Date().getTime() - new Date(supplier.first_transaction_date).getTime()) / (1000 * 60 * 60 * 24)) : 0;
-        
-        const monthsSinceFirst = Math.max(1, daysSinceFirst / 30);
-        const transactionFrequency = supplier.total_transactions / monthsSinceFirst;
+    const activeSuppliers = suppliers.filter(supplier => supplier.status === 'active');
+    console.log('Active suppliers:', activeSuppliers.length);
+    
+    // Calculate actual metrics from transactions for each supplier
+    const supplierMetrics = activeSuppliers.map(supplier => {
+      // Get all completed transactions for this supplier
+      const supplierTransactions = salesTransactions.filter(t => 
+        t.supplier_id === supplier.id && t.payment_status === 'completed'
+      );
+      
+      const transactionCount = supplierTransactions.length;
+      const totalRevenue = supplierTransactions.reduce((sum, t) => sum + Number(t.total_amount), 0);
+      const totalWeight = supplierTransactions.reduce((sum, t) => sum + Number(t.weight_kg), 0);
+      const avgTransactionValue = transactionCount > 0 ? totalRevenue / transactionCount : 0;
+      const avgPricePerKg = totalWeight > 0 ? totalRevenue / totalWeight : 0;
+      
+      // Get unique materials
+      const uniqueMaterials = new Set(supplierTransactions.map(t => t.material_name));
+      
+      // Calculate dates
+      const sortedTransactions = supplierTransactions
+        .map(t => new Date(t.transaction_date))
+        .sort((a, b) => a.getTime() - b.getTime());
+      
+      const firstTransactionDate = sortedTransactions.length > 0 ? 
+        sortedTransactions[0].toISOString() : supplier.registered_date;
+      const lastTransactionDate = sortedTransactions.length > 0 ? 
+        sortedTransactions[sortedTransactions.length - 1].toISOString() : '';
+      
+      const daysSinceFirst = sortedTransactions.length > 0 ? 
+        Math.floor((new Date().getTime() - sortedTransactions[0].getTime()) / (1000 * 60 * 60 * 24)) : 0;
+      
+      const monthsSinceFirst = Math.max(1, daysSinceFirst / 30);
+      const transactionFrequency = transactionCount / monthsSinceFirst;
 
-        return {
-          id: supplier.id,
-          name: supplier.name,
-          revenue: supplier.total_value,
-          transactions: supplier.total_transactions,
-          weight: supplier.total_weight,
-          avgTransactionValue: supplier.average_transaction_value,
-          avgPricePerKg: supplier.total_weight > 0 ? supplier.total_value / supplier.total_weight : 0,
-          lastTransactionDate: supplier.last_transaction_date || '',
-          firstTransactionDate: firstTransactionDate,
-          totalMaterials: supplier.material_types.length,
-          tier: supplier.supplier_tier,
-          creditLimit: supplier.credit_limit,
-          preferredPaymentMethod: supplier.preferred_payment_method,
-          materialTypes: supplier.material_types,
-          registrationDate: supplier.registered_date,
-          daysSinceFirstTransaction: daysSinceFirst,
-          transactionFrequency: transactionFrequency
-        };
-      })
+      return {
+        id: supplier.id,
+        name: supplier.name,
+        revenue: totalRevenue,
+        transactions: transactionCount,
+        weight: totalWeight,
+        avgTransactionValue: avgTransactionValue,
+        avgPricePerKg: avgPricePerKg,
+        lastTransactionDate: lastTransactionDate,
+        firstTransactionDate: firstTransactionDate,
+        totalMaterials: uniqueMaterials.size,
+        tier: supplier.supplier_tier,
+        creditLimit: supplier.credit_limit,
+        preferredPaymentMethod: supplier.preferred_payment_method,
+        materialTypes: Array.from(uniqueMaterials),
+        registrationDate: supplier.registered_date,
+        daysSinceFirstTransaction: daysSinceFirst,
+        transactionFrequency: transactionFrequency
+      };
+    });
+    
+    // Filter suppliers with transactions and sort by revenue
+    const result = supplierMetrics
+      .filter(s => s.transactions > 0)
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);
+    
+    console.log('📊 Supplier performance calculated:', result.length, 'suppliers with transactions');
+    if (result.length > 0) {
+      console.log('Top supplier:', result[0].name, '- KES', result[0].revenue.toFixed(2));
+    }
+    
+    return result;
   };
 
-  // Calculate comprehensive summary statistics
+  // Calculate comprehensive summary statistics from actual transactions
   const calculateSummaryStats = () => {
     const completedTransactions = salesTransactions.filter(t => t.payment_status === 'completed');
-    const totalRevenue = completedTransactions.reduce((sum, t) => sum + t.total_amount, 0);
-    const totalWeight = completedTransactions.reduce((sum, t) => sum + t.weight_kg, 0);
+    const totalRevenue = completedTransactions.reduce((sum, t) => sum + Number(t.total_amount), 0);
+    const totalWeight = completedTransactions.reduce((sum, t) => sum + Number(t.weight_kg), 0);
+    
+    console.log('📊 Summary stats: ', completedTransactions.length, 'completed transactions');
+    console.log('💰 Total revenue: KES', totalRevenue.toFixed(2));
+    console.log('⚖️ Total weight:', totalWeight.toFixed(2), 'kg');
     
     const avgTransactionValue = completedTransactions.length > 0 ? totalRevenue / completedTransactions.length : 0;
     const avgPricePerKg = totalWeight > 0 ? totalRevenue / totalWeight : 0;
@@ -428,14 +495,21 @@ const Analytics: React.FC<AnalyticsProps> = ({
       t.payment_status === 'completed'
     );
     
-    const recentRevenue = recentTransactions.reduce((sum, t) => sum + t.total_amount, 0);
-    const previousRevenue = previousTransactions.reduce((sum, t) => sum + t.total_amount, 0);
+    const recentRevenue = recentTransactions.reduce((sum, t) => sum + Number(t.total_amount), 0);
+    const previousRevenue = previousTransactions.reduce((sum, t) => sum + Number(t.total_amount), 0);
     
     const monthlyGrowth = previousRevenue > 0 ? ((recentRevenue - previousRevenue) / previousRevenue) * 100 : 0;
     
+    // Calculate supplier stats from actual transactions
+    const suppliersWithTransactions = new Set(
+      completedTransactions.map(t => t.supplier_id).filter(id => id)
+    );
+    const activeSuppliersWithTransactions = suppliersWithTransactions.size;
+    
     const allSuppliers = suppliers || [];
     const activeSuppliers = allSuppliers.filter(s => s.status === 'active').length;
-    const activeSuppliersWithTransactions = allSuppliers.filter(s => s.status === 'active' && s.total_transactions > 0).length;
+    
+    // Calculate unique materials from actual transactions
     const activeMaterials = new Set(completedTransactions.map(t => t.material_name)).size;
     
     const specialPriceTransactions = completedTransactions.filter(t => t.is_special_price).length;
@@ -443,6 +517,8 @@ const Analytics: React.FC<AnalyticsProps> = ({
       (specialPriceTransactions / completedTransactions.length) * 100 : 0;
     
     const totalCreditLimit = allSuppliers.reduce((sum, s) => sum + (s.credit_limit || 0), 0);
+    
+    console.log('✅ Summary calculated - Active suppliers with txns:', activeSuppliersWithTransactions, '/', activeSuppliers);
     
     return {
       totalRevenue,
@@ -530,9 +606,15 @@ const Analytics: React.FC<AnalyticsProps> = ({
     const successRate = totalTransactions > 0 ? (completedTransactions.length / totalTransactions) * 100 : 0;
     const avgProcessingTime = '< 1 hour';
     
-    const priceVariances = materials.map(material => {
-      const materialTransactions = completedTransactions.filter(t => t.material_name === material.name);
-      if (materialTransactions.length === 0) return { material: material.name, variance: 0 };
+   // NEW CODE:
+const priceVariances = materials.map(material => {
+  // Match transactions by ID first (most reliable), fallback to name
+  const materialTransactions = completedTransactions.filter(t => 
+    t.material_id 
+      ? t.material_id === material.id 
+      : t.material_name.toUpperCase() === material.name.toUpperCase()
+  );
+  if (materialTransactions.length === 0) return { material: material.name, variance: 0 };
       
       const avgActualPrice = materialTransactions.reduce((sum, t) => sum + t.price_per_kg, 0) / materialTransactions.length;
       const variance = Math.abs(avgActualPrice - material.current_price_per_kg) / material.current_price_per_kg * 100;
